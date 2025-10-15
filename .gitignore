@@ -1,0 +1,22 @@
+# Ignore poetry lock file
+poetry.lock
+
+# Ignore Python version file
+.python-version
+
+# Ignore env settings by direnv
+.envrc
+
+# Ignore virtual environment folder
+.venv/
+
+# Ignore IDE settings
+.vscode/
+.idea/
+
+# Ignore Jupyter Notebook checkpoints
+examples/notebook/.ipynb_checkpoints/
+
+# Ignore data files
+data/*
+!data/.gitkeep

@@ -1,0 +1,22 @@
+[project]
+name = "terraflow"
+version = "0.1.0"
+description = "A package for simulating atmosphere/ocean on earth"
+authors = [
+    {name = "Tiange Huang",email = "tghuang@mail.ustc.edu.cn"}
+]
+readme = "README.md"
+requires-python = ">=3.11.13"
+dependencies = [
+    "jax (==0.7.2)",
+    "tree-math (>=0.2.1,<0.3.0)",
+    "numpy (>=2.3.3,<3.0.0)",
+    "xarray (>=2025.9.1,<2026.0.0)",
+    "pytest (>=8.4.2,<9.0.0)",
+    "rich (>=14.2.0,<15.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
