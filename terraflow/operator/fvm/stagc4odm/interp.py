@@ -1,61 +1,72 @@
-from tkinter import N
 from jax import numpy as jnp
 from jax import lax, jit, debug
 from functools import partial
 
+from terraflow import bind
 from terraflow.util import typing
 from terraflow.mesh.orthogonal_dual_mesh import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import PrimeCell, DualCell
 from terraflow.mesh.orthogonal_dual_mesh import PrimeEdge, DualEdge
-from terraflow.operator.fvm import Interpolation
 
 Int = typing.Int
 Float = typing.Float
 Array = typing.Array
 
 
-class InterpWeightedAddEdp2Plg(Interpolation):
-    def __call__(self, x_at_edge: Array, plg: PrimeCell,
-                 edp: PrimeEdge, edd: DualEdge) -> Array:
-        ed_idx = plg.edge()  # (nplg, maxnnb)
-        Ae = jnp.take(edp.length, ed_idx) * jnp.take(edd.length, ed_idx)
-        x_tile = jnp.take(x_at_edge, ed_idx)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(Ae * x_tile, axis=-1) / (4.0 * plg.area)
+@bind("operator.fvm.stagc4odm", tag="interp")
+def interp_weighted_add_edp2plg(
+    x_at_edge: Array,
+    plg: PrimeCell,
+    edp: PrimeEdge,
+    edd: DualEdge
+) -> Array:
+    ed_idx = plg.edge()  # (nplg, maxnnb)
+    Ae = jnp.take(edp.length, ed_idx) * jnp.take(edd.length, ed_idx)
+    x_tile = jnp.take(x_at_edge, ed_idx)
+    x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
+    return jnp.sum(Ae * x_tile, axis=-1) / (4.0 * plg.area)
 
 
-class InterpWeightedAddEdd2Dua(Interpolation):
-    def __call__(self, x_at_edge: Array, dua: DualCell,
-                 edd: DualEdge, edp: PrimeEdge) -> Array:
-        ed_idx = dua.edge()  # (ndual, maxnnb)
-        Ae = jnp.take(edd.length, ed_idx) * jnp.take(edd.length, ed_idx)
-        x_tile = jnp.take(x_at_edge, ed_idx)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(Ae * x_tile, axis=-1) / (4.0 * dua.area)
+@bind("operator.fvm.stagc4odm", tag="interp")
+def interp_weighted_add_edd2dua(
+    x_at_edge: Array,
+    dua: DualCell,
+    edd: DualEdge,
+    edp: PrimeEdge
+) -> Array:
+    ed_idx = dua.edge()  # (ndual, maxnnb)
+    Ae = jnp.take(edd.length, ed_idx) * jnp.take(edd.length, ed_idx)
+    x_tile = jnp.take(x_at_edge, ed_idx)
+    x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
+    return jnp.sum(Ae * x_tile, axis=-1) / (4.0 * dua.area)
 
 
-class InterpWeightedAddDua2Plg(Interpolation):
-    def __call__(self, x_at_dual_cell: Array, plg: PrimeCell) -> Array:
-        dua_idx = plg.vertex()  # (nplg, maxnnb)
-        x_tile = jnp.take(x_at_dual_cell, dua_idx)  # (nplg, maxnnb)
-        x_tile = jnp.where(dua_idx < 0, 0.0, x_tile)  # (nplg, maxnnb)
-        Adv = plg.kite_area
-        return jnp.sum(Adv * x_tile, axis=-1) / plg.area
+@bind("operator.fvm.stagc4odm", tag="interp")
+def interp_weighted_add_dua2plg(x_at_dual_cell: Array, plg: PrimeCell) -> Array:
+    dua_idx = plg.vertex()  # (nplg, maxnnb)
+    x_tile = jnp.take(x_at_dual_cell, dua_idx)  # (nplg, maxnnb)
+    x_tile = jnp.where(dua_idx < 0, 0.0, x_tile)  # (nplg, maxnnb)
+    Adv = plg.kite_area
+    return jnp.sum(Adv * x_tile, axis=-1) / plg.area
 
 
-class InterpWeightedAddPairMeetingEdges2Edge(Interpolation):
-    def __call__(self, x_at_edge: Array,
-                 edge_on_edge: Array, weight_on_edge: Array,
-                 edpl_on_edge: Array,
-                 edge_dual: DualEdge) -> Array:
-        ep_idx = edge_on_edge  # (nedg, maxnnb*2)
-        weight = jnp.take(weight_on_edge, ep_idx, axis=0)
-        lenp = jnp.take(edpl_on_edge, ep_idx, axis=0)
-        x_tile = jnp.take(x_at_edge, ep_idx)
-        x_tile = jnp.where(edge_on_edge < 0, 0.0, x_tile)
-        return -jnp.sum(weight * lenp * x_tile, axis=-1) / edge_dual.length
+@bind("operator.fvm.stagc4odm", tag="interp")
+def interp_weighted_add_pair_meeting_edges2edge(
+    x_at_edge: Array,
+    edge_on_edge: Array,
+    weight_on_edge: Array,
+    edpl_on_edge: Array,
+    edge_dual: DualEdge
+) -> Array:
+    ep_idx = edge_on_edge  # (nedg, maxnnb*2)
+    weight = jnp.take(weight_on_edge, ep_idx, axis=0)
+    lenp = jnp.take(edpl_on_edge, ep_idx, axis=0)
+    x_tile = jnp.take(x_at_edge, ep_idx)
+    x_tile = jnp.where(edge_on_edge < 0, 0.0, x_tile)
+    return -jnp.sum(weight * lenp * x_tile, axis=-1) / edge_dual.length
 
 
+@bind("operator.fvm.stagc4odm", tag="interp")
 def calc_trsk_weight(mesh: OrthogonalDualMesh) -> jnp.ndarray:
     """
     Compute TRiSK weights with nested ``lax.scan`` loops.
@@ -171,6 +182,7 @@ def calc_trsk_weight(mesh: OrthogonalDualMesh) -> jnp.ndarray:
     return jnp.array(trsk_weight, dtype=dtype)
 
 
+@bind("operator.fvm.stagc4odm", tag="interp")
 def trisk_weighted_interpolation_operator(mesh: OrthogonalDualMesh):
     """
     Assemble TRiSK operator tables using ``lax.scan`` for edge traversal.
@@ -293,28 +305,3 @@ def trisk_weighted_interpolation_operator(mesh: OrthogonalDualMesh):
     )
 
     return final_numb, final_edge, final_trsk, final_edpl
-
-
-class InterpTriSKWeightedAdd(Interpolation):
-    edp_numb_on_edge: Array
-    edp_edge_on_edge: Array
-    edp_trsk_on_edge: Array
-    edp_edpl_on_edge: Array
-
-    def __init__(self, mesh: OrthogonalDualMesh):
-        collect = trisk_weighted_interpolation_operator(mesh)
-        numb, edge, trsk, edpl = collect
-        self.edp_numb_on_edge = numb
-        self.edp_edge_on_edge = edge
-        self.edp_trsk_on_edge = trsk
-        self.edp_edpl_on_edge = edpl
-
-    def __call__(self, x_at_edge: Array, edd: DualEdge) -> Array:
-        op = InterpWeightedAddPairMeetingEdges2Edge()
-        return op(
-            x_at_edge,
-            self.edp_edge_on_edge,
-            self.edp_trsk_on_edge,
-            self.edp_edpl_on_edge,
-            edd
-        )

@@ -88,7 +88,7 @@ def correct_normal_vectors(
     cell: RefPrimeCell | RefDualCell,
     edge: RefPrimeEdge | RefDualEdge
 ) -> jnp.ndarray:
-    """
+    r"""
     Correct the normal vectors of edges:
     For a polygon (PrimeCell):
                   nb1,ed1

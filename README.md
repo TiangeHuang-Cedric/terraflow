@@ -33,15 +33,16 @@ poetry install
 The repository ships with GRiST reference data under `data/GRIST_INPUT/`. Replace any paths in the examples below with the dataset you want to work with.
 
 ## Quick Start
+
 ```python
 import jax.numpy as jnp
 
 from terraflow.mesh.orthogonal_dual_mesh import OrthogonalDualMesh
-from terraflow.operator.fvm.orthogonal_dual_mesh.base import (
+from terraflow.operator.fvm.stagc4odm.base import (
     DivergenceAtPrimeCell,
     GradientAtEdge,
 )
-from terraflow.operator.fvm.orthogonal_dual_mesh.interp import InterpTriSKWeightedAdd
+from terraflow.operator.fvm.stagc4odm.interp import InterpTriSKWeightedAdd
 from terraflow.util.device import CPU
 
 # Build a mesh from GRiST NetCDF files (replace with actual file names)
