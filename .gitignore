@@ -1,22 +1,33 @@
-# Ignore poetry lock file
+# poetry lock file and config
 poetry.lock
+poetry.toml
 
-# Ignore Python version file
+# uv lock file
+uv.lock
+
+# Python version file
 .python-version
 
-# Ignore env settings by direnv
+# env settings by direnv
 .envrc
 
-# Ignore virtual environment folder
+# virtual environment folder
 .venv/
 
-# Ignore IDE settings
+# IDE settings
 .vscode/
 .idea/
 
-# Ignore Jupyter Notebook checkpoints
+# Jupyter Notebook checkpoints and ipynb files
 examples/notebook/.ipynb_checkpoints/
+examples/notebook/*.ipynb
 
-# Ignore data files
+# data files
 data/*
 !data/.gitkeep
+
+# build artifacts
+dist/
+
+# mypy cache
+.mypy_cache/
