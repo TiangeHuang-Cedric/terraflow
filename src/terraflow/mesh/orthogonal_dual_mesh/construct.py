@@ -152,19 +152,24 @@ class AuxiliaryData(eqx.Module):
     edp12_eddnr: Array
 
     @classmethod
-    def from_elements(cls, plg: PrimalCell, dua: DualCell,
-                      edp: PrimalEdge, edd: DualEdge) -> "AuxiliaryData":
+    def from_elements(
+        cls,
+        plg: PrimalCell,
+        dua: DualCell,
+        edp: PrimalEdge,
+        edd: DualEdge
+    ) -> "AuxiliaryData":
         """Return auxiliary data for the mesh."""
 
         def check_auxiliary_data(aux: "AuxiliaryData"):
             """Check the validity of the auxiliary data."""
-            if not jnp.all(jnp.abs(edptg_eddnr) == 1):
+            if not jnp.all(jnp.abs(aux.edptg_eddnr) == 1):
                 raise ValueError("Invalid edptg_eddnr values; must be ±1.")
-            if not jnp.all(jnp.abs(edpnr_eddtg) == 1):
+            if not jnp.all(jnp.abs(aux.edpnr_eddtg) == 1):
                 raise ValueError("Invalid edpnr_eddtg values; must be ±1.")
-            if not jnp.all(jnp.abs(edp12_edptg) == 1):
+            if not jnp.all(jnp.abs(aux.edp12_edptg) == 1):
                 raise ValueError("Invalid edp12_edptg values; must be ±1.")
-            if not jnp.all(jnp.abs(edp12_eddnr) == 1):
+            if not jnp.all(jnp.abs(aux.edp12_eddnr) == 1):
                 raise ValueError("Invalid edp12_eddnr values; must be ±1.")
 
         edptg_eddnr = calc_edptg_eddnr(edp, edd)
@@ -743,7 +748,7 @@ class CellEntity:
         return self._cell.kite_area
 
     @property
-    def orient(self) -> IntType:
+    def orient(self) -> Array:
         """Return the orientation sign of the cell entity."""
         return self._cell.nr
 
@@ -1200,12 +1205,45 @@ class SingleNodeEntityView:
     @property
     def adjacency(self) -> Array:
         """
-        Return the adjacent cell/node indices for this node.
+        Return the adjacent node indices for this node.
 
         Returns:
             Array of adjacent indices
         """
         return self._dual.nb[self._index, :self._nnb]
+
+    @property
+    def n_adjacency(self) -> IntType:
+        """
+        Return the number of adjacent nodes for this node.
+
+        Returns:
+            Number of adjacent nodes
+        """
+        return self._nnb
+
+    @property
+    def max_adjacency(self) -> IntType:
+        """
+        Return the maximum possible number of neighbors for this node.
+
+        Returns:
+            Maximum neighbor count
+        """
+        if isinstance(self._dual, PrimalCell):
+            return self._dual.maxnnb
+        else:
+            return self._dual.nnb
+
+    @property
+    def adjacent_cells(self) -> Array:
+        """
+        Return the adjacent cells for this node.
+
+        Returns:
+            Array of adjacent cell indices
+        """
+        return self.adjacency
 
     @property
     def coordinate(self) -> Point:
@@ -1368,6 +1406,42 @@ class NodeEntityView:
         return self.get_adjacency(with_padding=True)
 
     @property
+    def n_adjacency(self) -> Array:
+        """
+        Return the number of adjacent nodes for each node in this view.
+
+        Returns:
+            Array of shape (n_nodes,) containing the number of adjacent nodes for each node
+        """
+        if isinstance(self._dual, PrimalCell):
+            return self._dual.nnb[self._indices]
+        else:
+            return jnp.ones(len(self), dtype=jnp.int32) * self._dual.nnb
+
+    @property
+    def max_adjacency(self) -> IntType:
+        """
+        Return the maximum possible number of neighbors for each nodes in this view.
+
+        Returns:
+            Maximum neighbor count
+        """
+        if isinstance(self._dual, PrimalCell):
+            return self._dual.maxnnb
+        else:
+            return self._dual.nnb
+
+    @property
+    def adjacent_cells(self) -> Array:
+        """
+        Return the adjacent cells for nodes in this view.
+
+        Returns:
+            Array of shape (n_nodes, max_neighbors)
+        """
+        return self._dual.vertex[self._indices]
+
+    @property
     def coordinate(self) -> Point:
         """
         Return the centroid point for nodes in this view.
@@ -1517,14 +1591,53 @@ class NodeEntity:
         return self.get_adjacency(with_padding=True)
 
     @property
+    def n_adjacency(self) -> Array:
+        """Return the number of adjacent nodes for each node in the entity."""
+        if isinstance(self._dual, PrimalCell):
+            return self._dual.nnb
+        else:
+            return jnp.ones(self._dual.n_cell, dtype=jnp.int32) * self._dual.nnb
+
+    @property
+    def max_adjacency(self) -> IntType:
+        """Return the maximum adjacency nodes number of the node entity."""
+        if isinstance(self._dual, PrimalCell):
+            return self._dual.maxnnb
+        else:
+            return self._dual.nnb  # DualCell has fixed nnb
+
+    @property
+    def adjacent_cells(self) -> Array:
+        """Return the adjacent cells for each node in the entity."""
+        return self._dual.vertex
+
+    @property
     def coordinate(self) -> Point:
         """Return the centroid point of the node entity"""
         return self._dual.centroid
 
 
-class PrimalMeshEntity:
+class AbstractMeshEntity:
     def __init__(self, mesh: "OrthogonalDualMesh"):
         self._mesh = mesh
+
+    @property
+    def cell(self) -> CellEntity:
+        """Return the cell entity."""
+        raise NotImplementedError
+
+    @property
+    def edge(self) -> EdgeEntity:
+        """Return the edge entity."""
+        raise NotImplementedError
+
+    @property
+    def node(self) -> NodeEntity:
+        """Return the node entity."""
+        raise NotImplementedError
+
+
+class PrimalMeshEntity(AbstractMeshEntity):
 
     @property
     def cell(self) -> CellEntity:
@@ -1538,13 +1651,11 @@ class PrimalMeshEntity:
 
     @property
     def node(self) -> NodeEntity:
-        """Return the node entity."""
+        """Return the primal node entity."""
         return NodeEntity(self._mesh._dua)
 
 
-class DualMeshEntity:
-    def __init__(self, mesh: "OrthogonalDualMesh"):
-        self._mesh = mesh
+class DualMeshEntity(AbstractMeshEntity):
 
     @property
     def cell(self) -> CellEntity:
@@ -1558,11 +1669,11 @@ class DualMeshEntity:
 
     @property
     def node(self) -> NodeEntity:
-        """Return the node entity."""
+        """Return the dual node entity."""
         return NodeEntity(self._mesh._plg)
 
 
-class OrthogonalDualMesh(AbstractUnstructuredMesh, eqx.Module):
+class OrthogonalDualMesh(AbstractUnstructuredMesh):
     """An orthogonal dual mesh consisting of primal and dual cells and edges.
 
     This mesh type is registered in the catalog with alias 'odm' through
@@ -1587,6 +1698,25 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh, eqx.Module):
         """Return the shape of the mesh as (n_polg, n_dual, n_edge)."""
         return dict(n_polg=self.n_polg, n_dual=self.n_dual, n_edge=self.n_edge)
 
+    @property
+    def primal(self) -> PrimalMeshEntity:
+        """Return the primal mesh entity."""
+        # TODO: For now, just provide access to primal and dual mesh entities.
+        # In the future, we may want to use other ways to access entities instead.
+        return PrimalMeshEntity(self)
+
+    @property
+    def dual(self) -> DualMeshEntity:
+        """Return the dual mesh entity."""
+        # TODO: For now, just provide access to primal and dual mesh entities.
+        # In the future, we may want to use other ways to access entities instead.
+        return DualMeshEntity(self)
+
+    @property
+    def aux(self) -> AuxiliaryData:
+        """Return the auxiliary data of the mesh."""
+        return self._aux
+
     @classmethod
     def from_grist(
         cls,
@@ -1607,21 +1737,7 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh, eqx.Module):
         edp = PrimalEdge.from_grist(grist)
         edd = DualEdge.from_grist(grist)
         aux = AuxiliaryData.from_elements(plg, dua, edp, edd)
-        return cls(n_polg, n_dual, n_edge, plg, dua, edp, edd, aux)
-
-    @property
-    def primal(self) -> PrimalMeshEntity:
-        """Return the primal mesh entity."""
-        # TODO: For now, just provide access to primal and dual mesh entities.
-        # In the future, we may want to use other ways to access entities instead.
-        return PrimalMeshEntity(self)
-
-    @property
-    def dual(self) -> DualMeshEntity:
-        """Return the dual mesh entity."""
-        # TODO: For now, just provide access to primal and dual mesh entities.
-        # In the future, we may want to use other ways to access entities instead.
-        return DualMeshEntity(self)
+        return cls(dev, n_polg, n_dual, n_edge, plg, dua, edp, edd, aux)
 
     def reconstruct_vector(
         self,

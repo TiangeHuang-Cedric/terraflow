@@ -11,9 +11,10 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    from terraflow.discretization.term.fvm.odm import builder
 
     assert isinstance(model, Catalog)
+
+    from terraflow.discretization.term.fvm.odm.trisk.single_lev import builder
 
     belong_key = "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::odm::1level"
 
@@ -28,7 +29,7 @@ def register(model: Catalog) -> None:
         belong_key,
         group="grad_of_geopotential",
         alias="builder",
-        factory=builder.GradientOfGeopotentialAtDualEdge
+        factory=builder.PressureGradientForceAtDualEdge
     )
 
     model.equterm.register(
@@ -44,5 +45,5 @@ def register(model: Catalog) -> None:
         belong_key,
         group="div_of_thickness",
         alias="builder",
-        factory=builder.DivergenceOfThicknessFluxAtPrimalCell
+        factory=builder.DivergenceOfMassFluxAtPrimalCell
     )

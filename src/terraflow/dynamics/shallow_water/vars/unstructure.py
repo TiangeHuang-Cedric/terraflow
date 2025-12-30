@@ -1,18 +1,18 @@
-from typing import Literal, TypeVar, Dict, Union
+from typing import Literal, TypeVar, Dict, Union, Optional
 from plum import overload
 import unxt as ux
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh import AbstractMesh
-from terraflow.vert_coordinates import AbstractVertCoordinate
+from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 from terraflow.layout.field import Field, StaggeredFieldMetaData
 from terraflow.layout.abstract import Basis, MeshEntity
 from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
 from terraflow.discretization.abstract import AbstractQuantityBasedVariableSet
 from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
-from terraflow.init_conditions.test_case.swe import ShallowWaterEquationTestCase, select_testcase
+from terraflow.test_case.swe import MountainZonalFlowTestCase, ShallowWaterEquationTestCase
 
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -108,9 +108,10 @@ class StateArrays(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        test: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StateArrays":
-        test = select_testcase(case, para)
+        if test is None:
+            test = MountainZonalFlowTestCase(para)
         return cls(
             variables={
                 "h_pc": init_h_in_case(coord, test),
@@ -151,9 +152,10 @@ class StateQuantities(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        test: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StateQuantities":
-        test = select_testcase(case, para)
+        if test is None:
+            test = MountainZonalFlowTestCase(para)
         meta = cls.default_meta()
         return cls(
             variables={
@@ -202,17 +204,18 @@ class StateFields(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        case: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StateFields":
-        test = select_testcase(case, para)
+        if case is None:
+            case = MountainZonalFlowTestCase(para)
         return cls(
             {
                 "h_pc": Field(
-                    data=init_h_in_case(coord, test),
+                    data=init_h_in_case(coord, case),
                     meta=cls.default_meta()["h_pc"]
                 ),
                 "un_e": Field(
-                    data=init_un_in_case(coord, test),
+                    data=init_un_in_case(coord, case),
                     meta=cls.default_meta()["un_e"]
                 )
             }
@@ -227,7 +230,7 @@ def construct_state(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[True],
     as_quantity: Literal[False],
     as_array: Literal[False]
@@ -240,7 +243,7 @@ def construct_state(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[False],
     as_quantity: Literal[True],
     as_array: Literal[False]
@@ -253,7 +256,7 @@ def construct_state(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[False],
     as_quantity: Literal[False],
     as_array: Literal[True]
@@ -265,7 +268,7 @@ def construct_state(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: bool = False,
     as_quantity: bool = False,
     as_array: bool = False
@@ -274,11 +277,11 @@ def construct_state(
         as_field = True
 
     if as_field:
-        return StateFields.from_testcase(coord, para, case=case)
+        return StateFields.from_testcase(coord, para, case=test)
     elif as_quantity:
-        return StateQuantities.from_testcase(coord, para, case=case)
+        return StateQuantities.from_testcase(coord, para, test=test)
     else:  # as_array
-        return StateArrays.from_testcase(coord, para, case=case)
+        return StateArrays.from_testcase(coord, para, test=test)
 
 
 def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
@@ -337,9 +340,10 @@ class StaticArrays(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        test: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StaticArrays":
-        test = select_testcase(case, para)
+        if test is None:
+            test = MountainZonalFlowTestCase(para)
         return cls(
             variables={
                 "topo": init_topo_in_case(coord, test)
@@ -375,9 +379,10 @@ class StaticQuantities(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        test: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StaticQuantities":
-        test = select_testcase(case, para)
+        if test is None:
+            test = MountainZonalFlowTestCase(para)
         meta = cls.default_meta()
         return cls(
             variables={
@@ -418,13 +423,14 @@ class StaticFields(
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
         *,
-        case: str = "mountain_zonal_flow",
+        case: Optional[ShallowWaterEquationTestCase] = None,
     ) -> "StaticFields":
-        test = select_testcase(case, para)
+        if case is None:
+            case = MountainZonalFlowTestCase(para)
         return cls(
             {
                 "topo": Field(
-                    data=init_topo_in_case(coord, test),
+                    data=init_topo_in_case(coord, case),
                     meta=cls.default_meta()["topo"]
                 ),
             }
@@ -439,7 +445,7 @@ def construct_static(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[True],
     as_quantity: Literal[False],
     as_array: Literal[False]
@@ -452,7 +458,7 @@ def construct_static(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[False],
     as_quantity: Literal[True],
     as_array: Literal[False]
@@ -465,7 +471,7 @@ def construct_static(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: Literal[False],
     as_quantity: Literal[False],
     as_array: Literal[True]
@@ -477,7 +483,7 @@ def construct_static(
     coord: CoordinateSystem[HM, VM, LO],
     para: PlanetParameterSet,
     *,
-    case: str = "mountain_zonal_flow",
+    test: Optional[ShallowWaterEquationTestCase] = None,
     as_field: bool = False,
     as_quantity: bool = False,
     as_array: bool = False
@@ -486,8 +492,8 @@ def construct_static(
         as_field = True
 
     if as_field:
-        return StaticFields.from_testcase(coord, para, case=case)
+        return StaticFields.from_testcase(coord, para, case=test)
     elif as_quantity:
-        return StaticQuantities.from_testcase(coord, para, case=case)
+        return StaticQuantities.from_testcase(coord, para, test=test)
     else:  # as_array
-        return StaticArrays.from_testcase(coord, para, case=case)
+        return StaticArrays.from_testcase(coord, para, test=test)

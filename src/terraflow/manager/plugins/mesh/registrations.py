@@ -11,9 +11,10 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.mesh as mesh
 
     assert isinstance(model, Catalog)
+
+    import terraflow.mesh as mesh
 
     # Register mesh
     model.mesh.register(

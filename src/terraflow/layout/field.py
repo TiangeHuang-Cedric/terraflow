@@ -11,7 +11,7 @@ import uxarray as uxr
 import terraflow.util.uxarray as tuxr
 from terraflow.util import typing
 from terraflow.mesh.abstract import AbstractMesh
-from terraflow.vert_coordinates.abstract import AbstractVertCoordinate
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout
 from terraflow.layout.abstract import CoordinateInfo
 from terraflow.layout.abstract import CoordinateSystem

@@ -2,9 +2,9 @@ from . import abstract
 from . import base
 
 from .abstract import AbstractSolver, AbstractRungeKuttaSolver
-from .base import ExRungeKutta3Solver
+from .base import ExRungeKutta3Solver, ExForwardBackwardEulerSolver
 
 __all__ = [
     "AbstractSolver", "AbstractRungeKuttaSolver",
-    "ExRungeKutta3Solver",
+    "ExRungeKutta3Solver", "ExForwardBackwardEulerSolver",
 ]

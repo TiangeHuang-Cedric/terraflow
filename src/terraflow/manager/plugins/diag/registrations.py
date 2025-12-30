@@ -11,9 +11,10 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.discretization.term.fvm.odm.diag as diag
 
     assert isinstance(model, Catalog)
+
+    import terraflow.discretization.term.fvm.odm.trisk.single_lev.diag as diag
 
     belong_key = "earth::atm::swe::vif::explicit::fvm::triskC::odm::1level"
 

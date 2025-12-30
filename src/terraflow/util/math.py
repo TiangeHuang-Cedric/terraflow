@@ -351,3 +351,20 @@ def _project_sphere2plane(
 project_sphere2plane = jax.vmap(
     _project_sphere2plane, in_axes=(None, 0), out_axes=0
 )
+
+
+def pinv_svd(A: Float[Array, "m n"], rtol=1e-15):
+    """Compute the Moore-Penrose pseudoinverse of matrix A using SVD.
+
+    Args:
+        A: Float[Array, "m n"], input matrix to be pseudoinverted.
+        rtol: float, relative tolerance for small singular values.
+
+    Returns:
+        A_pinv: Float[Array, "n m"], pseudoinverse of A.
+    """
+    U, S, VT = jnp.linalg.svd(A, full_matrices=False)
+    tol = rtol * jnp.max(S)
+    S_inv = jnp.linalg.pinv(jnp.diag(S), rcond=tol)
+    A_pinv = VT.T @ S_inv @ U.T
+    return A_pinv

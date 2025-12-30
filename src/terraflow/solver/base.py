@@ -4,7 +4,7 @@ import tree_math
 import jax.numpy as jnp
 
 from terraflow.util import typing, device
-from terraflow.solver.abstract import AbstractExplicitODE
+from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
 
 
@@ -41,8 +41,6 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         dt_rk_seconds = self.dt_rk_seconds
 
         def step_fn(states: tree_math.Vector) -> tree_math.Vector:
-            # TODO: Check if states0 points to the same memory as states
-            # states0 = copy.deepcopy(states)
             states0 = states
             for irk in range(nrk):
                 tendency = rhs(states)
@@ -52,5 +50,38 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         return tree_math.wrap(step_fn)
 
 
-class ForwardBackwardEulerSolver(AbstractExplicitODE):
-    pass
+class ExForwardBackwardEulerSolver(AbstractSolver[AbstractExplicitODE]):
+
+    """Forward-Backward Euler time integration solver.
+
+    This solver used two expicit schemes that are economical than the standard leapfrog shceme.
+    For brief, It is obtained by first integrating the gravity wave terms of either the dynamics of motion
+    or of the continuity dynamics forward, and then those of the other dynamics backward in time.
+    Thus, this scheme could be called the forward-backward scheme.
+
+    References:
+        - Mesinger, F., & Arakawa, A. (1976). 
+          Numerical methods used in atmospheric models, (Vol. 1). Geneva (Switzerland): 
+          Global Atmospheric Research Programe (GARP) WMO‐ICSU Joint Organizing Committe.
+    """
+
+    def stepper(self, equation: AbstractExplicitODE) -> Callable:
+        """Forward-Backward Euler time stepper."""
+        forward_rhs = tree_math.unwrap(
+            lambda x: equation.explicit_terms(x, pass_tag="forward_pass")
+        )
+        backward_rhs = tree_math.unwrap(
+            lambda x: equation.explicit_terms(x, pass_tag="backward_pass")
+        )
+        dt_seconds = self.dt.total_seconds()
+
+        def step_fn(states: tree_math.Vector) -> tree_math.Vector:
+            # Forward Euler for explicit terms
+            tendency_forward = forward_rhs(states)
+            star_states = states + tendency_forward * dt_seconds
+            # Backward Euler for explicit terms
+            tendency_backward = backward_rhs(star_states)
+            new_states = star_states + tendency_backward * dt_seconds
+            return new_states
+
+        return tree_math.wrap(step_fn)

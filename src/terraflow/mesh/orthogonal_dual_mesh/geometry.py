@@ -1,6 +1,5 @@
 import jax.numpy as jnp
 from jax import lax, debug, jit
-from functools import partial
 
 import terraflow.util.math as math
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalCell, RefDualCell
@@ -42,7 +41,6 @@ def spherical_plg_kite_areas(
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     cell.check_kite_areas(kite_area)
-    # TODO: using cell to specify dtype?
     return kite_area.astype(cell.area.dtype)
 
 
@@ -79,7 +77,6 @@ def spherical_tri_kite_areas(
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     cell.check_kite_areas(kite_area)
-    # TODO: using cell to specify dtype?
     return kite_area.astype(cell.area.dtype)
 
 
@@ -171,5 +168,4 @@ def correct_normal_vectors(
         do_nothing,
         None
     )
-    # TODO: using cell to specify dtype?
     return jnp.where(mask, nr, 0).astype(cell.v.dtype)

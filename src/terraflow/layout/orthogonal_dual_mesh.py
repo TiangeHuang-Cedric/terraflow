@@ -2,13 +2,13 @@ from typing import TypeVar
 import jax.numpy as jnp
 
 from terraflow.util import typing
-from terraflow.vert_coordinates import AbstractVertCoordinate
-from terraflow.vert_coordinates import LorenzCoordinate
+from terraflow.vert_coord import AbstractVertCoordinate
+from terraflow.vert_coord import LorenzCoordinate
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.layout.abstract import AbstractCGridStaggeringLayout
 from terraflow.layout.abstract import Basis, MeshEntity, VertLoc
 from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem
-from terraflow.vert_coordinates.abstract import OneLayerVertCoordinate
+from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 
 Array = typing.Array
 

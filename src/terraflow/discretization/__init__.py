@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeVar, Generic, Callable, Any
+from typing import TypeVar, Generic, Callable
 from typing import overload, TYPE_CHECKING, cast
 
 from terraflow.manager.registry import navigate
@@ -16,11 +16,11 @@ from .abstract import AbstractEquationForm
 from .abstract import AbstractEquationSet
 from .abstract import DiscretizationInfo
 
-from . import equation
 from . import term
+from . import operator
 
 if TYPE_CHECKING:
-    from terraflow.discretization.equation.shallow_water.base import ExVif_SWE_ODM_TriSKCGrid_FVM
+    from terraflow.dynamics.shallow_water.types import ExVif_SWE_ODM_TriSKCGrid_FVM
 
 
 DIAG = TypeVar("DIAG", bound=AbstractDiagnosticTools)
@@ -33,7 +33,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         disc = DiscretizationInfo.from_model(
             coord=equation.coord,
             para=equation.para,
-            operator=equation.operator,
+            operator=equation.method,
             equset_type=type(equation)
         )
         diag_factory = navigate(
@@ -51,7 +51,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         equation: ExVif_SWE_ODM_TriSKCGrid_FVM,
         jit: bool = False,
         trajectory: bool = False,
-    ) -> "term.fvm.odm.diag.DiagnosticsTools":
+    ) -> "term.fvm.odm.trisk.single_lev.diag.DiagnosticsTools":
         ...
 
     @overload

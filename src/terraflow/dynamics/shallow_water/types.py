@@ -2,43 +2,39 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Self, Literal
 from typing import overload, TYPE_CHECKING, TypeVar, Generic
+import jax.numpy as jnp
 import inspect
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh import AbstractMesh, AbstractUnstructuredMesh
-from terraflow.vert_coordinates import AbstractVertCoordinate
+from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import AbstractLayout, CoordinateSystem
-from terraflow.operator import AbstractOperator
+from terraflow.discretization.operator import AbstractDiscretizationMethod
 from terraflow.solver.abstract import AbstractExplicitODE
 import terraflow.discretization.abstract as disc
-from terraflow.discretization.equation.shallow_water.vars.unstructure import StateArrays, StaticArrays, StaticFields
+from terraflow.dynamics.shallow_water.vars.unstructure import StateArrays, StaticArrays, StaticFields
 
 if TYPE_CHECKING:
     from terraflow.mesh import OrthogonalDualMesh
-    from terraflow.vert_coordinates import OneLayerVertCoordinate
+    from terraflow.vert_coord import OneLayerVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-    from terraflow.operator import FiniteVolumeMethodOperator
-    from terraflow.discretization.term.fvm.odm.builder import (
-        DivergenceOfThicknessFluxAtPrimalCell,
-        NonlinearCoriolisTermAtDualEdge,
-        GradientOfGeopotentialAtDualEdge,
-        GradientOfKineticEnergyAtDualEdge
-    )
+    from terraflow.discretization.operator import FiniteVolumeMethod
+    import terraflow.discretization.term.fvm.odm.trisk.single_lev.builder as fvm_odm_trisk_1lev_builder
 
 
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
-OP = TypeVar("OP", bound=AbstractOperator)
+DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 UHM = TypeVar("UHM", bound=AbstractUnstructuredMesh)
 
 Array = typing.Array
 
 
 class AbstractShallowWaterEquationSet(
-    disc.AbstractEquationSet[HM, VM, LO, OP],
-    Generic[HM, VM, LO, OP],
+    disc.AbstractEquationSet[HM, VM, LO, DM],
+    Generic[HM, VM, LO, DM],
     ABC
 ):
     def __init__(
@@ -46,13 +42,13 @@ class AbstractShallowWaterEquationSet(
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ):
-        super().__init__(disc, coord, para, operator)
+        super().__init__(disc, coord, para, method)
 
     @staticmethod
     def alias_name() -> str:
-        """Return the alias name of the equation set."""
+        """Return the alias name of the dynamics set."""
         return "swe"
 
     @abstractmethod
@@ -61,7 +57,7 @@ class AbstractShallowWaterEquationSet(
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ) -> disc.AbstractContinuityEquForm:
         pass
 
@@ -71,7 +67,7 @@ class AbstractShallowWaterEquationSet(
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ) -> disc.AbstractMomentumEquForm:
         pass
 
@@ -82,19 +78,19 @@ ShallowWaterEquationSet = TypeVar(
 )
 
 
-class DivergenceOfThicknessTermProtocol(
-    disc.AbstractEquationTerm[HM, VM, LO, OP],
-    Generic[HM, VM, LO, OP]
+class DivergenceOfMassFluxProtocol(
+    disc.AbstractEquationTerm[HM, VM, LO, DM],
+    Generic[HM, VM, LO, DM]
 ):
     pass
 
 
-DTK = TypeVar("DTK", bound=DivergenceOfThicknessTermProtocol)
+DMF = TypeVar("DMF", bound=DivergenceOfMassFluxProtocol)
 
 
 class NonlinearCoriolisTermProtocol(
-    disc.AbstractEquationTerm[HM, VM, LO, OP],
-    Generic[HM, VM, LO, OP]
+    disc.AbstractEquationTerm[HM, VM, LO, DM],
+    Generic[HM, VM, LO, DM]
 ):
     pass
 
@@ -102,45 +98,45 @@ class NonlinearCoriolisTermProtocol(
 NCT = TypeVar("NCT", bound=NonlinearCoriolisTermProtocol)
 
 
-class GradientOfKineticEnergyTermProtocol(
-    disc.AbstractEquationTerm[HM, VM, LO, OP],
-    Generic[HM, VM, LO, OP]
+class GradientOfKineticEnergyProtocol(
+    disc.AbstractEquationTerm[HM, VM, LO, DM],
+    Generic[HM, VM, LO, DM]
 ):
     pass
 
 
-GKE = TypeVar("GKE", bound=GradientOfKineticEnergyTermProtocol)
+GKE = TypeVar("GKE", bound=GradientOfKineticEnergyProtocol)
 
 
-class GradientOfGeopotentialTermProtocol(
-    disc.AbstractEquationTerm[HM, VM, LO, OP],
-    Generic[HM, VM, LO, OP]
+class PressureGradientForceTermProtocol(
+    disc.AbstractEquationTerm[HM, VM, LO, DM],
+    Generic[HM, VM, LO, DM]
 ):
     pass
 
 
-GPHI = TypeVar("GPHI", bound=GradientOfGeopotentialTermProtocol)
+PGF = TypeVar("PGF", bound=PressureGradientForceTermProtocol)
 
 
 class ExContinuityEqu(
-    disc.AbstractContinuityEquForm[HM, VM, LO, OP],
-    Generic[DTK, HM, VM, LO, OP],
+    disc.AbstractContinuityEquForm[HM, VM, LO, DM],
+    Generic[DMF, HM, VM, LO, DM],
     ABC
 ):
-    div_thickness_term: DTK
+    div_mfx: DMF
 
     def __init__(
         self,
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ):
-        super().__init__(disc, coord, para, operator)
-        self.div_thickness_term = self.init_div_thickness()
+        super().__init__(disc, coord, para, method)
+        self.div_mfx = self.init_div_thickness()
 
     def __call__(self, state: StateArrays) -> Array:
-        return - self.div_thickness_term(state)
+        return - self.div_mfx(state)
 
     @staticmethod
     def alias_name() -> str:
@@ -152,19 +148,19 @@ class ExContinuityEqu(
 
     def build_default(self) -> Self:
         if not self.has_built():
-            self.div_thickness_term.build_default()
+            self.div_mfx.build_default()
             self._built = True
         return self
 
-    def init_div_thickness(self) -> DTK:
+    def init_div_thickness(self) -> DMF:
         factory = self.navi2term(
             group="div_of_thickness",
             choice="builder"
         )
         origin = getattr(factory, '__origin__', factory)
-        if inspect.isclass(origin) and issubclass(origin, DivergenceOfThicknessTermProtocol):
+        if inspect.isclass(origin) and issubclass(origin, DivergenceOfMassFluxProtocol):
             instance = factory(
-                self._disc, self.coord, self.para, self.operator
+                self._disc, self.coord, self.para, self.method
             )
             return instance  # type: ignore[return-value]
         else:
@@ -174,25 +170,25 @@ class ExContinuityEqu(
 
 
 class ExNormalMomentumEqu4UGRID(
-    disc.AbstractMomentumEquForm[UHM, VM, LO, OP],
-    Generic[NCT, GKE, GPHI, UHM, VM, LO, OP],
+    disc.AbstractMomentumEquForm[UHM, VM, LO, DM],
+    Generic[NCT, GKE, PGF, UHM, VM, LO, DM],
     ABC
 ):
-    nonlinear_coriolis_term: NCT
-    grad_kinetic_energy_term: GKE
-    grad_geopotential_term: GPHI
+    coriolis: NCT
+    grad_ke: GKE
+    pgf: PGF
 
     def __init__(
         self,
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[UHM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ) -> None:
-        super().__init__(disc, coord, para, operator)
-        self.nonlinear_coriolis_term = self.init_nonlinear_coriolis_term()
-        self.grad_kinetic_energy_term = self.init_grad_kinetic_energy_term()
-        self.grad_geopotential_term = self.init_grad_geopotential_term()
+        super().__init__(disc, coord, para, method)
+        self.coriolis = self.init_nonlinear_coriolis_term()
+        self.grad_ke = self.init_grad_kinetic_energy_term()
+        self.pgf = self.init_grad_geopotential_term()
 
     def __call__(
         self,
@@ -200,9 +196,9 @@ class ExNormalMomentumEqu4UGRID(
         static: StaticArrays
     ) -> Array:
         return (
-            - self.nonlinear_coriolis_term(state)
-            - self.grad_kinetic_energy_term(state)
-            - self.grad_geopotential_term(state, static)
+            - self.coriolis(state)
+            - self.grad_ke(state)
+            - self.pgf(state, static)
         )
 
     @staticmethod
@@ -215,9 +211,9 @@ class ExNormalMomentumEqu4UGRID(
 
     def build_default(self) -> Self:
         if not self.has_built():
-            self.nonlinear_coriolis_term.build_default()
-            self.grad_kinetic_energy_term.build_default()
-            self.grad_geopotential_term.build_default()
+            self.coriolis.build_default()
+            self.grad_ke.build_default()
+            self.pgf.build_default()
             self._built = True
         return self
 
@@ -228,7 +224,7 @@ class ExNormalMomentumEqu4UGRID(
         )
         if inspect.isclass(factory) and issubclass(factory, NonlinearCoriolisTermProtocol):
             instance = factory(
-                self._disc, self.coord, self.para, self.operator
+                self._disc, self.coord, self.para, self.method
             )
             return instance  # type: ignore[return-value]
         else:
@@ -241,9 +237,9 @@ class ExNormalMomentumEqu4UGRID(
             group="grad_of_kinetic_energy",
             choice="builder"
         )
-        if inspect.isclass(factory) and issubclass(factory, GradientOfKineticEnergyTermProtocol):
+        if inspect.isclass(factory) and issubclass(factory, GradientOfKineticEnergyProtocol):
             instance = factory(
-                self._disc, self.coord, self.para, self._operator
+                self._disc, self.coord, self.para, self._method
             )
             return instance  # type: ignore[return-value]
         else:
@@ -251,14 +247,14 @@ class ExNormalMomentumEqu4UGRID(
                 f"The factory {factory} is not a subclass of GradientOfKineticEnergyTermProtocol."
             )
 
-    def init_grad_geopotential_term(self) -> GPHI:
+    def init_grad_geopotential_term(self) -> PGF:
         factory = self.navi2term(
             group="grad_of_geopotential",
             choice="builder"
         )
-        if inspect.isclass(factory) and issubclass(factory, GradientOfGeopotentialTermProtocol):
+        if inspect.isclass(factory) and issubclass(factory, PressureGradientForceTermProtocol):
             instance = factory(
-                self._disc, self.coord, self.para, self._operator
+                self._disc, self.coord, self.para, self._method
             )
             return instance  # type: ignore[return-value]
         else:
@@ -268,18 +264,18 @@ class ExNormalMomentumEqu4UGRID(
 
 
 class ExVifShallowWaterEquationSet4UGRID(
-    AbstractShallowWaterEquationSet[UHM, VM, LO, OP],
+    AbstractShallowWaterEquationSet[UHM, VM, LO, DM],
     Generic[
-        DTK,
-        NCT, GKE, GPHI,
-        UHM, VM, LO, OP
+        DMF,
+        NCT, GKE, PGF,
+        UHM, VM, LO, DM
     ],
     AbstractExplicitODE,
     ABC
 ):
-    dhdt: ExContinuityEqu[DTK, UHM, VM, LO, OP]
+    dhdt: ExContinuityEqu[DMF, UHM, VM, LO, DM]
     dundt: ExNormalMomentumEqu4UGRID[
-        NCT, GKE, GPHI, UHM, VM, LO, OP
+        NCT, GKE, PGF, UHM, VM, LO, DM
     ]
     static: StaticArrays
 
@@ -288,27 +284,27 @@ class ExVifShallowWaterEquationSet4UGRID(
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[UHM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
         static: StaticArrays,
     ):
-        super().__init__(disc, coord, para, operator)
-        self.dhdt = self.init_continuity_equation(disc, coord, para, operator)
-        self.dundt = self.init_momentum_equation(disc, coord, para, operator)
+        super().__init__(disc, coord, para, method)
+        self.dhdt = self.init_continuity_equation(disc, coord, para, method)
+        self.dundt = self.init_momentum_equation(disc, coord, para, method)
         self.static = static
 
     @staticmethod
     def alias_name() -> str:
-        """Return the alias name of the equation set."""
+        """Return the alias name of the dynamics set."""
         return AbstractShallowWaterEquationSet.alias_name()
 
     @staticmethod
     def form_name() -> str:
-        """Return the form name of the equation set."""
+        """Return the form name of the dynamics set."""
         return "vif"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
-        """Return the ODE kind alias name of the equation set."""
+        """Return the ODE kind alias name of the dynamics set."""
         return "explicit"
 
     def build_default(self) -> Self:
@@ -323,26 +319,39 @@ class ExVifShallowWaterEquationSet4UGRID(
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
-    ) -> ExContinuityEqu[DTK, HM, VM, LO, OP]:
-        return ExContinuityEqu(disc, coord, para, operator)
+        method: DM,
+    ) -> ExContinuityEqu[DMF, HM, VM, LO, DM]:
+        return ExContinuityEqu(disc, coord, para, method)
 
     def init_momentum_equation(
         self,
         disc: disc.DiscretizationInfo,
         coord: CoordinateSystem[UHM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
     ) -> ExNormalMomentumEqu4UGRID[
-        NCT, GKE, GPHI, UHM, VM, LO, OP
+        NCT, GKE, PGF, UHM, VM, LO, DM
     ]:
-        return ExNormalMomentumEqu4UGRID(disc, coord, para, operator)
+        return ExNormalMomentumEqu4UGRID(disc, coord, para, method)
 
-    def explicit_terms(self, state: StateArrays) -> StateArrays:
-        variables = {
-            "h_pc": self.dhdt(state),
-            "un_e": self.dundt(state, self.static)
-        }
+    def explicit_terms(self, state: StateArrays, pass_tag: str = "all_pass") -> StateArrays:
+        if pass_tag == "all_pass":
+            variables = {
+                "h_pc": self.dhdt(state),
+                "un_e": self.dundt(state, self.static)
+            }
+        elif pass_tag == "forward_pass":
+            variables = {
+                "h_pc": self.dhdt(state),
+                "un_e": jnp.zeros_like(state.variables["un_e"])
+            }
+        elif pass_tag == "backward_pass":
+            variables = {
+                "h_pc": jnp.zeros_like(state.variables["h_pc"]),
+                "un_e": self.dundt(state, self.static)
+            }
+        else:
+            raise ValueError(f"Unknown pass_tag: {pass_tag}")
         return StateArrays(
             variables=variables,
             meta=state.meta
@@ -353,16 +362,16 @@ class ExVifShallowWaterEquationSet4UGRID(
         cls,
         coord: CoordinateSystem[UHM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
         static: StaticFields,
     ) -> ExVifShallowWaterEquationSet4UGRID:
         static_array = static.to_arrays()
         return cls._from_model(
-            coord, para, operator, static_array
+            coord, para, method, static_array
         )
 
 
-class ShallowWaterEquationSetBuilder:
+class ShallowWaterEquationBuilder:
     @overload
     @classmethod
     def from_model(
@@ -373,7 +382,7 @@ class ShallowWaterEquationSetBuilder:
             TriSKBasedCGridStaggeringLayout
         ],
         para: PlanetParameterSet,
-        operator: FiniteVolumeMethodOperator,
+        method: FiniteVolumeMethod,
         form: Literal["vector_invariant"],
         ode_kind: Literal["explicit"],
         static: StaticFields,
@@ -386,7 +395,7 @@ class ShallowWaterEquationSetBuilder:
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: AbstractOperator,
+        method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
         *args,
@@ -399,7 +408,7 @@ class ShallowWaterEquationSetBuilder:
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: AbstractOperator,
+        method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
         *args,
@@ -409,7 +418,7 @@ class ShallowWaterEquationSetBuilder:
             return ExVifShallowWaterEquationSet4UGRID.from_model(
                 coord,
                 para,
-                operator,
+                method,
                 *args,
                 **kwargs
             )
@@ -422,12 +431,12 @@ class ShallowWaterEquationSetBuilder:
 
 if TYPE_CHECKING:
     ExVif_SWE_ODM_TriSKCGrid_FVM = ExVifShallowWaterEquationSet4UGRID[
-        DivergenceOfThicknessFluxAtPrimalCell,
-        NonlinearCoriolisTermAtDualEdge,
-        GradientOfKineticEnergyAtDualEdge,
-        GradientOfGeopotentialAtDualEdge,
+        fvm_odm_trisk_1lev_builder.DivergenceOfMassFluxAtPrimalCell,
+        fvm_odm_trisk_1lev_builder.NonlinearCoriolisTermAtDualEdge,
+        fvm_odm_trisk_1lev_builder.GradientOfKineticEnergyAtDualEdge,
+        fvm_odm_trisk_1lev_builder.PressureGradientForceAtDualEdge,
         OrthogonalDualMesh,
         OneLayerVertCoordinate,
         TriSKBasedCGridStaggeringLayout,
-        FiniteVolumeMethodOperator
+        FiniteVolumeMethod
     ]

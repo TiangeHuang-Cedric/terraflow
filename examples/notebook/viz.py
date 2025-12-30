@@ -15,9 +15,6 @@
 # ---
 
 # %% [markdown]
-# # TerraFlow Plot Example
-
-# %% [markdown]
 # ## Prepare mesh and data
 
 # %%
@@ -31,7 +28,6 @@ import numpy as np
 import jax.numpy as jnp
 import terraflow
 
-import terraflow.discretization.equation.shallow_water.vars.unstructure as var
 from terraflow.util.uxarray import UGRIDGrid, UGRIDDataset
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
@@ -44,7 +40,7 @@ mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coordinates.OneLayerVertCoordinate()
+vert = terraflow.vert_coord.OneLayerVertCoordinate()
 
 layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
@@ -55,7 +51,7 @@ para = terraflow.planet.PlanetParameterSet.from_si(
 )
 
 # %%
-state_cls, static_cls = terraflow.discretization.equation.shallow_water.ShallowWaterVariablesBuilder.from_model(coord)
+state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(coord)
 
 state = state_cls.from_testcase(coord, para)
 

@@ -11,9 +11,10 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.vert_coordinates as vert
 
     assert isinstance(model, Catalog)
+
+    import terraflow.vert_coord as vert
 
     # Register vertical coordinate
     model.vert.register(

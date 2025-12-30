@@ -11,14 +11,15 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.discretization.equation.shallow_water as swe
 
     assert isinstance(model, Catalog)
+
+    import terraflow.dynamics.shallow_water as swe
 
     # Register equset
     model.equset.register(
         form="vif",
         mesh_kind="unstructured",
         ode_kind="explicit",
-        factory=swe.base.ExVifShallowWaterEquationSet4UGRID
+        factory=swe.types.ExVifShallowWaterEquationSet4UGRID
     )

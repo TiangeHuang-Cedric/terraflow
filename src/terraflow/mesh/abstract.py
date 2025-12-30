@@ -1,15 +1,23 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+import equinox as eqx
 
-from terraflow.util import typing
+from terraflow.util import typing, device
 
 if TYPE_CHECKING:
     from terraflow.util import uxarray as tux
 Array = typing.Array
 
 
-class AbstractMesh(ABC):
+class AbstractMesh(eqx.Module, ABC):
+    _dev: device.AbstractDevice = eqx.field(static=True)
+
+    @property
+    def dev(self) -> device.AbstractDevice:
+        """Return the device associated with the mesh."""
+        return self._dev
+
     @staticmethod
     @abstractmethod
     def alias_name() -> str:

@@ -3,7 +3,7 @@ from typing import Type, TypeVar, Tuple, overload, cast, TYPE_CHECKING
 
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.vert_coordinates.abstract import AbstractVertCoordinate
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout
 
 from . import unstructure

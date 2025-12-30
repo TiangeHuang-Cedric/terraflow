@@ -11,9 +11,10 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.layout.orthogonal_dual_mesh as odm
 
     assert isinstance(model, Catalog)
+
+    import terraflow.layout.orthogonal_dual_mesh as odm
 
     # Register method
     model.layout.register(

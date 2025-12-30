@@ -1,25 +1,21 @@
-from re import S
-import re
-from textwrap import indent
 import xarray as xr
-import jax
 
 from terraflow.util import typing, uxarray as tux
 from terraflow.layout import Field, StaggeredFieldMetaData
 from terraflow.discretization import AbstractDiagnosticTools
-import terraflow.discretization.equation.shallow_water.vars.unstructure as vars
+import terraflow.dynamics.shallow_water.vars.unstructure as vars
 from terraflow.mesh import OrthogonalDualMesh
-from terraflow.vert_coordinates import OneLayerVertCoordinate
+from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.operator import FiniteVolumeMethodOperator
-from terraflow.discretization.equation.shallow_water.base import (
+from terraflow.discretization.operator import FiniteVolumeMethod
+from terraflow.dynamics.shallow_water.types import (
     ExVifShallowWaterEquationSet4UGRID
 )
-from terraflow.discretization.term.fvm.odm.builder import (
-    DivergenceOfThicknessFluxAtPrimalCell,
+from terraflow.discretization.term.fvm.odm.trisk.single_lev.builder import (
+    DivergenceOfMassFluxAtPrimalCell,
     NonlinearCoriolisTermAtDualEdge,
     GradientOfKineticEnergyAtDualEdge,
-    GradientOfGeopotentialAtDualEdge,
+    PressureGradientForceAtDualEdge,
 )
 
 Array = typing.Array
@@ -30,16 +26,16 @@ class DiagnosticsTools(
         OrthogonalDualMesh,
         OneLayerVertCoordinate,
         TriSKBasedCGridStaggeringLayout,
-        FiniteVolumeMethodOperator,
+        FiniteVolumeMethod,
         ExVifShallowWaterEquationSet4UGRID[
-            DivergenceOfThicknessFluxAtPrimalCell,
+            DivergenceOfMassFluxAtPrimalCell,
             NonlinearCoriolisTermAtDualEdge,
             GradientOfKineticEnergyAtDualEdge,
-            GradientOfGeopotentialAtDualEdge,
+            PressureGradientForceAtDualEdge,
             OrthogonalDualMesh,
             OneLayerVertCoordinate,
             TriSKBasedCGridStaggeringLayout,
-            FiniteVolumeMethodOperator
+            FiniteVolumeMethod
         ]
     ]
 ):
@@ -181,7 +177,7 @@ class DiagnosticsTools(
         """
         states_array = states.to_arrays()
         data = self.process_fn(
-            lambda x: self.equation.dundt.nonlinear_coriolis_term(
+            lambda x: self.equation.dundt.coriolis(
                 x, recon_tangent_velocity=True
             ),
             in_axes=(0,),
@@ -220,12 +216,12 @@ class DiagnosticsTools(
         """
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dhdt.div_thickness_term.flux_recon_at_primal_edge,
-            in_axes=(0,),
+            self.equation.dhdt.div_mfx.flux_recon_at_primal_edge,
+            in_axes=(0, 0),
             out_axes=0
         )
         return Field.create(
-            data=fn(state_array.h_pc),
+            data=fn(state_array.h_pc, state_array.un_e),
             meta=StaggeredFieldMetaData(
                 name="h_pe",
                 dims=self.process_dims(("nPrimal_edge",)),
@@ -247,11 +243,11 @@ class DiagnosticsTools(
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dundt.nonlinear_coriolis_term._scheme.flux_recon_at_primal_edge,
-            in_axes=(0,),
+            self.equation.dundt.coriolis.flux_recon_at_primal_edge,
+            in_axes=(0, 0),
             out_axes=0
         )
-        h_pe = fn(state_array.h_pc)
+        h_pe = fn(state_array.h_pc, state_array.un_e)
         h_flux = h_pe * state_array.un_e
         return Field.create(
             data=h_flux,
@@ -270,11 +266,11 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def relative_vorticity_at_dual_cell(
+    def rel_vorticity_at_dual_cell(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
-        nct = self.equation.dundt.nonlinear_coriolis_term._scheme
+        nct = self.equation.dundt.coriolis
         fn = self.process_fn(
             nct.pv_at_dual_edge.abs_vor_at_dual_cell.relative_vorticity,
             in_axes=(0,),
@@ -301,11 +297,11 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def absolute_vorticity_at_dual_cell(
+    def abs_vorticity_at_dual_cell(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
-        nct = self.equation.dundt.nonlinear_coriolis_term._scheme
+        nct = self.equation.dundt.coriolis
         fn = self.process_fn(
             nct.pv_at_dual_edge.abs_vor_at_dual_cell,
             in_axes=(0,),
@@ -336,7 +332,7 @@ class DiagnosticsTools(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
-        nct = self.equation.dundt.nonlinear_coriolis_term._scheme
+        nct = self.equation.dundt.coriolis
         fn = self.process_fn(
             nct.pv_at_dual_edge.thickness_at_dual_cell,
             in_axes=(0,),
@@ -363,17 +359,17 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def potential_vorticity_at_dual_cell(
+    def pv_at_dual_cell(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
-        nct = self.equation.dundt.nonlinear_coriolis_term._scheme
+        nct = self.equation.dundt.coriolis
         fn = self.process_fn(
             nct.pv_at_dual_edge.pv_at_dual_cell,
             in_axes=(0, 0),
             out_axes=0
         )
-        abs_vor_at_dual_cell = self.absolute_vorticity_at_dual_cell(
+        abs_vor_at_dual_cell = self.abs_vorticity_at_dual_cell(
             state
         ).data
         thickness_at_dual_cell = self.thickness_at_dual_cell(
@@ -399,12 +395,12 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def potential_vorticity_at_dual_edge(
+    def pv_at_dual_edge(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
         fn = self.process_fn(
-            self.equation.dundt.nonlinear_coriolis_term._scheme.pv_at_dual_edge,
+            self.equation.dundt.coriolis.pv_at_dual_edge,
             in_axes=(0, 0),
             out_axes=0
         )
@@ -429,13 +425,13 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def kinetic_energy_at_primal_cell(
+    def ke_at_primal_cell(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dundt.grad_kinetic_energy_term.kinetic_energy_at_primal_cell,
+            self.equation.dundt.grad_ke.ke_at_primal_cell,
             in_axes=(0,),
             out_axes=0
         )
@@ -483,13 +479,13 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def dhdt_div_h(
+    def dhdt_mfx(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dhdt.div_thickness_term,
+            self.equation.dhdt.div_mfx,
             in_axes=(0,),
             out_axes=0
         )
@@ -544,7 +540,7 @@ class DiagnosticsTools(
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dundt.nonlinear_coriolis_term,
+            self.equation.dundt.coriolis,
             in_axes=(0,),
             out_axes=0
         )
@@ -571,7 +567,7 @@ class DiagnosticsTools(
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         fn = self.process_fn(
-            self.equation.dundt.grad_kinetic_energy_term,
+            self.equation.dundt.grad_ke,
             in_axes=(0,),
             out_axes=0
         )
@@ -592,24 +588,24 @@ class DiagnosticsTools(
             as_quantity=False
         ).to_ugrid(self.equation.coord)
 
-    def dundt_grad_phi(
+    def dundt_pgf(
         self,
         state: vars.StateFields
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         static_array = self.equation.static
         fn = self.process_fn(
-            self.equation.dundt.grad_geopotential_term,
+            self.equation.dundt.pgf,
             in_axes=(0, None),
             out_axes=0
         )
         return Field.create(
             data=-fn(state_array, static_array),
             meta=StaggeredFieldMetaData(
-                name="dundt_grad_phi",
+                name="dundt_pgf",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity due to gradient of geopotential term",
-                description="Tendency of normal velocity due to gradient of geopotential term calculated from state variables",
+                standard_name="Tendency of normal velocity due to pressure gradient force term",
+                description="Tendency of normal velocity due to pressure gradient force term calculated from state variables",
                 units="m/s²",
                 hori_location="edge",
                 vert_location="",
@@ -626,8 +622,8 @@ class DiagnosticsTools(
     ) -> tux.UGRIDDataArray:
         state_array = state.to_arrays()
         static_array = self.equation.static
-        grad_ke = -self.equation.dundt.grad_kinetic_energy_term(state_array)
-        grad_phi = -self.equation.dundt.grad_geopotential_term(
+        grad_ke = -self.equation.dundt.grad_ke(state_array)
+        grad_phi = -self.equation.dundt.pgf(
             state_array, static_array
         )
         return Field.create(

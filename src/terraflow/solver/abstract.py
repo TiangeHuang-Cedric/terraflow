@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable, TypeVar, Generic, Tuple
-from typing import Literal, Union, overload, TYPE_CHECKING
+from typing import Literal, overload, TYPE_CHECKING
 import datetime
 import jax
 
@@ -10,7 +10,6 @@ from terraflow.util import typing, device
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
     from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
-    import terraflow.discretization.equation.shallow_water.vars as sw_vars
 
 
 class AbstractODE(ABC):
@@ -66,8 +65,9 @@ class MultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: sw_vars.unstructure.StateFields,
-    ) -> Tuple[sw_vars.unstructure.StateFields, sw_vars.unstructure.StateFields]:
+        x: terraflow.equation.shallow_water.vars.unstructure.StateFields,
+    ) -> Tuple[
+        terraflow.equation.shallow_water.vars.unstructure.StateFields, terraflow.equation.shallow_water.vars.unstructure.StateFields]:
         ...
 
     @overload
@@ -106,8 +106,9 @@ class MultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: sw_vars.unstructure.StateFields,
-    ) -> Tuple[sw_vars.unstructure.StateArrays, sw_vars.unstructure.StateArrays]:
+        x: terraflow.equation.shallow_water.vars.unstructure.StateFields,
+    ) -> Tuple[
+        terraflow.equation.shallow_water.vars.unstructure.StateArrays, terraflow.equation.shallow_water.vars.unstructure.StateArrays]:
         ...
 
     @overload
@@ -224,17 +225,48 @@ class AbstractSolver(Generic[ODE], ABC):
     def stepper(self, equation: ODE) -> Callable:
         raise NotImplementedError
 
+    @overload
     def trajectory(
         self,
         equation: ODE,
         start_time: datetime.datetime | str,
         end_time: datetime.datetime | str,
+        *,
+        start_with_input: bool = False,
+        post_process_fn: Callable = lambda x: x,
+        outer_scan_fn: Callable = jax.lax.scan,
+        inner_scan_fn: Callable = jax.lax.scan,
+        output_fields: Literal[True],
+    ) -> MultiStepWithFieldsOutput:
+        ...
+
+    @overload
+    def trajectory(
+        self,
+        equation: ODE,
+        start_time: datetime.datetime | str,
+        end_time: datetime.datetime | str,
+        *,
+        start_with_input: bool = False,
+        post_process_fn: Callable = lambda x: x,
+        outer_scan_fn: Callable = jax.lax.scan,
+        inner_scan_fn: Callable = jax.lax.scan,
+        output_fields: Literal[False],
+    ) -> MultiStepWithArrayOutput:
+        ...
+
+    def trajectory(
+        self,
+        equation: ODE,
+        start_time: datetime.datetime | str,
+        end_time: datetime.datetime | str,
+        *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
         outer_scan_fn=jax.lax.scan,
         inner_scan_fn=jax.lax.scan,
         output_fields: bool = True,
-    ) -> Callable:
+    ) -> MultiStepWithFieldsOutput | MultiStepWithArrayOutput:
         """Solve the ODE from start_time to end_time.
 
         Args:

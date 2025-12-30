@@ -10,11 +10,11 @@ import uxarray as uxr
 
 from terraflow.util import typing, uxarray as tuxr
 from terraflow.mesh import AbstractMesh
-from terraflow.vert_coordinates import AbstractVertCoordinate
+from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import CoordinateSystem, AbstractLayout
 from terraflow.layout import AbstractFieldMetaData, StaggeredFieldMetaData
 from terraflow.layout import Field, QuantityField, ArrayField, FieldLike
-from terraflow.operator import AbstractOperator
+from terraflow.discretization.operator import AbstractDiscretizationMethod
 from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
@@ -26,7 +26,7 @@ Array = typing.Array
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
-OP = TypeVar("OP", bound=AbstractOperator)
+DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
@@ -112,7 +112,7 @@ class DiscretizationInfo:
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: AbstractOperator,
+        operator: AbstractDiscretizationMethod,
         equset_type: Type[ES],
         equ_type: Optional[Type[EQU]] = None
     ):
@@ -123,9 +123,9 @@ class DiscretizationInfo:
             coord: Coordinate system used in the model.
             para: Planet parameter set.
             operator: Discretization operator.
-            equset_type: Type of the equation set.
-            equ_type: [Optional] Type of the equation form. 
-                If None, defaults to an empty string, meaning no specific equation form.
+            equset_type: Type of the dynamics set.
+            equ_type: [Optional] Type of the dynamics form.
+                If None, defaults to an empty string, meaning no specific dynamics form.
 
         Returns:
             An instance of DiscretizationInfo populated with the provided model information.
@@ -144,23 +144,23 @@ class DiscretizationInfo:
         )
 
 
-class AbstractEquationBase(Generic[HM, VM, LO, OP], ABC):
+class AbstractEquationBase(Generic[HM, VM, LO, DM], ABC):
     _disc: DiscretizationInfo
     _coord: CoordinateSystem[HM, VM, LO]
     _para: PlanetParameterSet
-    _operator: OP
+    _method: DM
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP
+        method: DM
     ):
         self._disc = disc
         self._coord = coord
         self._para = para
-        self._operator = operator
+        self._method = method
         self._built = False
 
     @property
@@ -184,8 +184,8 @@ class AbstractEquationBase(Generic[HM, VM, LO, OP], ABC):
         return self._para
 
     @property
-    def operator(self) -> OP:
-        return self._operator
+    def method(self) -> DM:
+        return self._method
 
     def _navi_between_tables(
         self,
@@ -211,17 +211,17 @@ class AbstractEquationBase(Generic[HM, VM, LO, OP], ABC):
         return "::".join(self.disc_info().values())
 
 
-class AbstractEquationTerm(AbstractEquationBase[HM, VM, LO, OP], ABC):
+class AbstractEquationTerm(AbstractEquationBase[HM, VM, LO, DM], ABC):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP
+        method: DM
     ):
         self._table = "equterm"
-        super().__init__(disc, coord, para, operator)
+        super().__init__(disc, coord, para, method)
 
     @abstractmethod
     def __call__(self, *args: Any, **kwargs: Any) -> Array:
@@ -242,19 +242,19 @@ class AbstractEquationTerm(AbstractEquationBase[HM, VM, LO, OP], ABC):
         }
 
 
-class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, OP], ABC):
+class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, DM], ABC):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP
+        method: DM
     ):
         self._table = "equ"
         disc_copy = disc.copy()
         disc_copy.equ = self.alias_name()
-        super().__init__(disc_copy, coord, para, operator)
+        super().__init__(disc_copy, coord, para, method)
 
     @abstractmethod
     def __call__(self, *args: Any, **kwargs: Any) -> Array:
@@ -305,16 +305,16 @@ class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, OP], ABC):
         return navigate("equterm", id_col=id_col, id_val=id_val)
 
 
-class AbstractContinuityEquForm(AbstractEquationForm[HM, VM, LO, OP], ABC):
+class AbstractContinuityEquForm(AbstractEquationForm[HM, VM, LO, DM], ABC):
     pass
 
 
-class AbstractMomentumEquForm(AbstractEquationForm[HM, VM, LO, OP], ABC):
+class AbstractMomentumEquForm(AbstractEquationForm[HM, VM, LO, DM], ABC):
     pass
 
 
 class AbstractEquationSet(
-    AbstractEquationBase[HM, VM, LO, OP],
+    AbstractEquationBase[HM, VM, LO, DM],
     AbstractODE,
     ABC
 ):
@@ -324,27 +324,27 @@ class AbstractEquationSet(
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP
+        method: DM
     ):
         self._table = "equset"
-        super().__init__(disc, coord, para, operator)
+        super().__init__(disc, coord, para, method)
 
     @staticmethod
     @abstractmethod
     def alias_name() -> str:
-        """Return the alias name of the equation set."""
+        """Return the alias name of the dynamics set."""
         raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def form_name() -> str:
-        """Return the form name of the equation set. Default to empty string."""
+        """Return the form name of the dynamics set. Default to empty string."""
         raise NotImplementedError
 
     @staticmethod
     @abstractmethod
     def ode_kind_alias_name() -> str:
-        """Return the ODE kind alias name of the equation set. Default to empty string."""
+        """Return the ODE kind alias name of the dynamics set. Default to empty string."""
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -366,12 +366,12 @@ class AbstractEquationSet(
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: OP,
+        method: DM,
         *args,
         **kwargs
     ) -> Self:
         """
-        Create an instance of the equation set from model components.
+        Create an instance of the dynamics set from model components.
 
         Args:
             coord: Coordinate system used in the model.
@@ -379,12 +379,12 @@ class AbstractEquationSet(
             operator: Discretization operator.
 
         Returns:
-            An instance of the equation set populated with the provided model information.
+            An instance of the dynamics set populated with the provided model information.
         """
         disc = DiscretizationInfo.from_model(
-            coord, para, operator, cls
+            coord, para, method, cls
         )
-        return cls(disc, coord, para, operator, *args, **kwargs)
+        return cls(disc, coord, para, method, *args, **kwargs)
 
 
 class AbstractVariableSet(eqx.Module, ABC):
@@ -1207,7 +1207,7 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
         return quantity_cls(variables=new_variables, meta=existing_meta)
 
 
-class AbstractDiagnosticTools(Generic[HM, VM, LO, OP, ES], ABC):
+class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES], ABC):
 
     def __init__(self, equation: ES, jit: bool = False, trajectory: bool = False):
         self._equation = equation
@@ -1268,6 +1268,10 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, OP, ES], ABC):
         return self.equation.coord.layout
 
     @property
+    def method(self) -> DM:
+        return self.equation.method
+
+    @property
     def para(self) -> PlanetParameterSet:
         return self.equation.para
 
@@ -1276,6 +1280,6 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, OP, ES], ABC):
         if not hasattr(self, "_equation"):
             raise AttributeError(
                 "Equation has not been set. "
-                "Please using 'set_equation' method to specify the equation first."
+                "Please using 'set_equation' method to specify the dynamics first."
             )
         return self._equation

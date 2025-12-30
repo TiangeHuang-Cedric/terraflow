@@ -11,13 +11,14 @@ else:
 
 def register(model: Catalog) -> None:
     from terraflow.manager.registry import Catalog
-    import terraflow.operator as op
 
     assert isinstance(model, Catalog)
+
+    import terraflow.discretization.operator as op
 
     # Register method
     model.method.register(
         name="finite_volume_method",
         description="A method for solving partial differential equations using control volumes",
-        factory=op.FiniteVolumeMethodOperator
+        factory=op.FiniteVolumeMethod
     )

@@ -3,7 +3,7 @@ from typing import TypeVar, Dict, Generic
 
 from terraflow.util import typing
 from terraflow.mesh import AbstractMesh
-from terraflow.vert_coordinates import AbstractVertCoordinate
+from terraflow.vert_coord import AbstractVertCoordinate
 
 
 Array = typing.Array

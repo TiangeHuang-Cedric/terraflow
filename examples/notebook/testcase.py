@@ -8,13 +8,10 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.18.1
 #   kernelspec:
-#     display_name: Python (terraflow-dev)
+#     display_name: terraflow
 #     language: python
-#     name: terraflow-dev
+#     name: python3
 # ---
-
-# %% [markdown]
-# # Terraflow Test Case Example
 
 # %%
 import jax.numpy as jnp
@@ -35,7 +32,7 @@ mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coordinates.OneLayerVertCoordinate()
+vert = terraflow.vert_coord.OneLayerVertCoordinate()
 
 layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
@@ -45,28 +42,32 @@ para = terraflow.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-operator = terraflow.operator.FiniteVolumeMethodOperator()
+method = terraflow.discretization.operator.FiniteVolumeMethod()
 
 # %%
-state_cls, static_cls = terraflow.discretization.equation.shallow_water.ShallowWaterVariablesBuilder.from_model(coord)
+testcase = terraflow.test_case.swe.RossbyHaurwitzWaveTestCase(para)
 
-state = state_cls.from_testcase(coord, para)
+state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(coord)
 
-static = static_cls.from_testcase(coord, para)
+state = state_cls.from_testcase(coord, para, case=testcase)
+
+static = static_cls.from_testcase(coord, para, case=testcase)
 
 
 # %%
-equation = terraflow.discretization.equation.shallow_water.ShallowWaterEquationSetBuilder.from_model(
+equation = terraflow.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
-    operator=operator,
+    method=method,
     static=static,
     form="vector_invariant",
     ode_kind="explicit",
 )
 
 # %%
-equation.dundt.nonlinear_coriolis_term.build_with_trisk()
+equation.dhdt.div_mfx.flux_recon_at_primal_edge.wrf3()
+equation.dundt.coriolis.flux_recon_at_primal_edge.wrf3()
+equation.dundt.coriolis.pv_at_dual_edge.flux_recon_at_dual_edge.wrf3()
 
 equation.build_default()
 
@@ -84,8 +85,8 @@ import jax
 
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-21T00:00:00",
+    start_time="0001-01-01T00:00:00",
+    end_time="0001-02-20T00:00:00",
     start_with_input=True,
     output_fields=True,
 ))
@@ -105,7 +106,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-_, da = diag_tools.tangent_velocity_at_edge(final).to_structured_grid(
+_, da = diag_tools.thickness_at_primal_cell(state).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -122,7 +123,7 @@ lat_np = np.asarray(lat_np)
 extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
 
 fig = plt.figure(figsize=(10, 5))
-ax = plt.axes(projection=ccrs.Robinson())
+ax = plt.axes(projection=ccrs.PlateCarree())
 ax.set_global()
 img = ax.imshow(
     data,
@@ -151,6 +152,75 @@ cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 plt.tight_layout()
 
 # %%
+# %matplotlib inline
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import BoundaryNorm
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+
+_, ds = diag_tools.uv_at_primal_cell(final).to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="inverse_distance_weighted",
+    with_reshaped_ds=True
+)
+
+lon_np = ds["face_lon"]
+lat_np = ds["face_lat"]
+data = ds["u_pc"].data
+
+lon_np = np.asarray(lon_np)
+lat_np = np.asarray(lat_np)
+
+extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
+
+vmin, vmax, interval = -16, 38, 5
+tick_vals = np.arange(vmin, vmax + interval, interval)
+bounds = tick_vals
+cmap = plt.get_cmap("coolwarm")
+norm = BoundaryNorm(bounds, ncolors=cmap.N, extend="both")
+
+fig = plt.figure(figsize=(10, 5))
+ax = plt.axes(projection=ccrs.PlateCarree())
+ax.set_global()
+img = ax.imshow(
+    data,
+    origin="lower",
+    extent=extent,
+    transform=ccrs.PlateCarree(),
+    cmap=cmap,
+    norm=norm,
+    interpolation="bilinear",
+)
+contour = ax.contour(
+    lon_np,
+    lat_np,
+    data,
+    levels=bounds,
+    alpha=0.8,
+    colors="black",
+    # linestyles="--",
+    linewidths=1.5,
+    transform=ccrs.PlateCarree()
+)
+# ax.coastlines()
+# ax.add_feature(cfeature.BORDERS, linestyle=":")
+ax.set_title(f"Remapped {ds['u_pc'].attrs['name']} on Lat-Lon Grid")
+cbar = plt.colorbar(
+    img, 
+    ax=ax, 
+    orientation="horizontal", 
+    pad=0.02, 
+    shrink=0.8, 
+    aspect=30, 
+    ticks=bounds
+)
+cbar.ax.tick_params(labelsize=10)
+cbar.set_label(f"{ds['u_pc'].attrs['name']} at primal cell ({ds['u_pc'].attrs['units']})")
+plt.tight_layout()
+
+# %%
 from matplotlib import animation
 from IPython.display import HTML
 
@@ -161,7 +231,7 @@ plt.rcParams["animation.embed_limit"] = 200
 n_frames = trajectory.to_arrays().h_pc.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
-ax = plt.axes(projection=ccrs.Robinson())
+ax = plt.axes(projection=ccrs.PlateCarree())
 ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
@@ -216,7 +286,7 @@ qv = ax.quiver(
     u_s0,
     v_s0,
     transform=ccrs.PlateCarree(),
-    scale=800,
+    scale=1500,
     width=0.003,
     color="black",
 )
@@ -232,7 +302,59 @@ def update(frame):
 
 # Cartopy axes generally do not support blitting; keep blit=False
 anim = animation.FuncAnimation(fig, update, frames=n_frames, interval=200, blit=False)
-anim.save("trajectory.mp4", writer="ffmpeg", dpi=120, fps=5)
+anim.save("thickness_uv.mp4", writer="ffmpeg", dpi=120, fps=5)
+plt.close(fig)
+HTML(anim.to_jshtml())
+
+# %%
+from matplotlib import animation
+from IPython.display import HTML
+
+# Increase animation embed limit (e.g., to 50 MB)
+plt.rcParams["animation.embed_limit"] = 200
+
+# Get number of time steps
+n_frames = trajectory.to_arrays().h_pc.shape[0]
+
+fig = plt.figure(figsize=(10, 5))
+ax = plt.axes(projection=ccrs.PlateCarree())
+ax.set_global()
+ax.coastlines()
+ax.add_feature(cfeature.BORDERS, linestyle=":")
+
+trajectory_data = trajectory_tools.pv_at_dual_cell(trajectory)
+_, da = trajectory_data.to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="inverse_distance_weighted",
+    with_reshaped_da=True,
+)
+lon_np = np.asarray(da["face_lon"])
+lat_np = np.asarray(da["face_lat"])
+extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
+
+img = ax.imshow(
+    da.isel(n_time=0).data,
+    origin="lower",
+    extent=extent,
+    transform=ccrs.PlateCarree(),
+    cmap="plasma",
+    interpolation="nearest",
+    animated=True,
+)
+
+cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
+cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
+title = ax.set_title("Trajectory Step: 0")
+
+def update(frame):
+    img.set_data(da.isel(n_time=frame).data)
+    title.set_text(f"Trajectory Step: {frame}")
+    return img, title
+
+# Cartopy axes generally do not support blitting; keep blit=False
+anim = animation.FuncAnimation(fig, update, frames=n_frames, interval=200, blit=False)
+# anim.save(f"{da.attrs['name']}.mp4", writer="ffmpeg", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 
