@@ -1,3 +1,4 @@
+from ast import In
 from typing import TypeVar, Self, Protocol
 from abc import ABC
 import jax.numpy as jnp
@@ -8,8 +9,10 @@ from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.operator import FiniteVolumeMethod
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev import \
-    flux_reconstruct as fr, interp
+from terraflow.discretization.operator.fvm.odm.trisk.single_lev import (
+    flux_reconstruct as fr,
+    interp
+)
 from terraflow.discretization.operator.fvm.odm.trisk.single_lev import base
 from terraflow.discretization.abstract import DiscretizationInfo
 from terraflow.discretization.abstract import AbstractEquationTerm
@@ -289,6 +292,129 @@ class ThicknessAtDualCell(Term):
         return self
 
 
+class InterpPotentialVorticityMidpoint(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod
+    ):
+        super().__init__(disc, coord, para, method)
+        self.recon_scheme = fr.CentralDifference2AtDualEdge(
+            coord, para
+        )
+        self.order = 2
+
+    def __call__(
+        self,
+        pv_at_dual_cell: Float[Array, "nDual_cell"],
+        normal_u_at_edge: Float[Array, "nEdge"],
+        tangent_u_at_edge: Float[Array, "nEdge"],
+    ) -> Float[Array, "nEdge"]:
+        return self.recon_scheme(
+            x_at_dual_cell=pv_at_dual_cell,
+            normal_u_at_edge=normal_u_at_edge,
+            tangent_u_at_edge=tangent_u_at_edge
+        )
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
+
+
+class InterpPotentialVorticityUpwind(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+        order: int = 3
+    ):
+        super().__init__(disc, coord, para, method)
+        self.central_difference_scheme = fr.CentralDifference2AtDualEdge(
+            coord, para
+        )
+        if order == 3:
+            self.recon_scheme = fr.WRF3AtDualEdge(coord, para)
+        elif order == 5:
+            self.recon_scheme = fr.WRF5AtDualEdge(coord, para)
+        else:
+            raise ValueError(
+                f"Unsupported order {order} for upwind interpolation."
+            )
+        self.order = order
+
+    def __call__(
+        self,
+        pv_at_dual_cell: Float[Array, "nDual_cell"],
+        normal_u_at_edge: Float[Array, "nEdge"],
+        tangent_u_at_edge: Float[Array, "nEdge"],
+    ) -> Float[Array, "nEdge"]:
+        b = jnp.abs(normal_u_at_edge) / jnp.sqrt(
+            normal_u_at_edge ** 2 + tangent_u_at_edge ** 2 + 1.0
+        )
+        flux1 = self.central_difference_scheme(
+            x_at_dual_cell=pv_at_dual_cell,
+            tangent_u_at_edge=tangent_u_at_edge
+        )
+        flux2 = self.recon_scheme(
+            x_at_dual_cell=pv_at_dual_cell,
+            tangent_u_at_edge=tangent_u_at_edge
+        )
+        return (1 - b) * flux1 + b * flux2
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
+
+
+class InterpPotentialVorticityAtDualEdge(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod
+    ):
+        super().__init__(disc, coord, para, method)
+
+    def __call__(
+        self,
+        pv_at_dual_cell: Float[Array, "nDual_cell"],
+        normal_u_at_edge: Float[Array, "nEdge"],
+        tangent_u_at_edge: Float[Array, "nEdge"],
+    ) -> Float[Array, "nEdge"]:
+        return self.adv_scheme(
+            pv_at_dual_cell=pv_at_dual_cell,
+            normal_u_at_edge=normal_u_at_edge,
+            tangent_u_at_edge=tangent_u_at_edge
+        )
+
+    def midpoint(self) -> Self:
+        self.adv_scheme = InterpPotentialVorticityMidpoint(
+            self._disc, self.coord, self.para, self.method
+        )
+        self._built = True
+        return self
+
+    def upwind(self, order: int) -> Self:
+        self.adv_scheme = InterpPotentialVorticityUpwind(
+            self._disc, self.coord, self.para, self.method, order=order
+        )
+        self._built = True
+        return self
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self.upwind(order=3)
+        return self
+
+
 class PotentialVorticityAtDualEdge(Term):
 
     class _PVAtDualCell(Protocol):
@@ -302,7 +428,7 @@ class PotentialVorticityAtDualEdge(Term):
     abs_vor_at_dual_cell: AbsoluteVorticityAtDualCell
     thickness_at_dual_cell: ThicknessAtDualCell
     pv_at_dual_cell: _PVAtDualCell
-    flux_recon_at_dual_edge: FluxReconstructAtDualEdge
+    interp: InterpPotentialVorticityAtDualEdge
 
     def __init__(
         self,
@@ -314,7 +440,10 @@ class PotentialVorticityAtDualEdge(Term):
         self.abs_vor_at_dual_cell = AbsoluteVorticityAtDualCell(
             disc, coord, para, method
         )
-        self.flux_recon_at_dual_edge = FluxReconstructAtDualEdge(
+        self._flux_recon_central_difference = fr.CentralDifference2AtDualEdge(
+            coord, para
+        )
+        self.interp = InterpPotentialVorticityAtDualEdge(
             disc, coord, para, method
         )
         self.thickness_at_dual_cell = ThicknessAtDualCell(
@@ -332,12 +461,12 @@ class PotentialVorticityAtDualEdge(Term):
 
     def __call__(
         self,
-        normal_velocity_at_edge: Float[Array, "nEdge"],
-        tangent_velocity_at_edge: Float[Array, "nEdge"],
+        normal_u_at_edge: Float[Array, "nEdge"],
+        tangent_u_at_edge: Float[Array, "nEdge"],
         thickness_at_primal_cell: Float[Array, "nPrimal_cell"]
     ) -> Float[Array, "nEdge"]:
         abs_vor_at_dual_cell = self.abs_vor_at_dual_cell(
-            normal_velocity_at_edge
+            normal_u_at_edge
         )
         thickness_at_dual_cell = self.thickness_at_dual_cell(
             thickness_at_primal_cell,
@@ -345,13 +474,15 @@ class PotentialVorticityAtDualEdge(Term):
         pv_at_dual_cell = self.pv_at_dual_cell(
             abs_vor_at_dual_cell, thickness_at_dual_cell
         )
-        return self.flux_recon_at_dual_edge(
-            pv_at_dual_cell, tangent_velocity_at_edge
+        return self.interp(
+            pv_at_dual_cell=pv_at_dual_cell,
+            normal_u_at_edge=normal_u_at_edge,
+            tangent_u_at_edge=tangent_u_at_edge
         )
 
     def build_default(self) -> "PotentialVorticityAtDualEdge":
         if not self.has_built():
-            self.flux_recon_at_dual_edge.build_default()
+            self.interp.build_default()
             self._built = True
         return self
 

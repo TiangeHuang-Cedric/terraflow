@@ -404,9 +404,10 @@ class DiagnosticsTools(
             in_axes=(0, 0),
             out_axes=0
         )
+        ut = self.tangent_velocity_at_edge(state).data
         state_array = state.to_arrays()
         return Field.create(
-            data=fn(state_array.un_e, state_array.h_pc),
+            data=fn(state_array.un_e, ut, state_array.h_pc),
             meta=StaggeredFieldMetaData(
                 name="pv_de",
                 dims=self.process_dims(("nDual_edge",)),

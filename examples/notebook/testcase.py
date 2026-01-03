@@ -45,7 +45,7 @@ para = terraflow.planet.PlanetParameterSet.from_si(
 method = terraflow.discretization.operator.FiniteVolumeMethod()
 
 # %%
-testcase = terraflow.test_case.swe.RossbyHaurwitzWaveTestCase(para)
+testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
 
 state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(coord)
 
@@ -65,9 +65,9 @@ equation = terraflow.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.dhdt.div_mfx.flux_recon_at_primal_edge.wrf3()
-equation.dundt.coriolis.flux_recon_at_primal_edge.wrf3()
-equation.dundt.coriolis.pv_at_dual_edge.flux_recon_at_dual_edge.wrf3()
+equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
+equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
+equation.dundt.coriolis.pv_at_dual_edge.interp.upwind(3)
 
 # %%
 import datetime
@@ -105,7 +105,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-_, da = diag_tools.thickness_at_primal_cell(state).to_structured_grid(
+_, da = diag_tools.thickness_at_primal_cell(final).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -154,7 +154,7 @@ plt.tight_layout()
 # %matplotlib inline
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.colors import BoundaryNorm
+from matplotlib.colors import BoundaryNorm 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 

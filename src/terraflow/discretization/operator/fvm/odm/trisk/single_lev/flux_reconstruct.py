@@ -62,6 +62,7 @@ class CentralDifference2AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
         self,
         x_at_dual_cell: Float[Array, "nCell"],
         *args,
+        **kwargs,
     ) -> Float[Array, "nEdge"]:
         return central_difference_2nd_order(
             x_at_dual_cell,
@@ -88,11 +89,11 @@ class AbstractWRF34AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nCell"],
-        normal_u: Float[Array, "nEdge"]
+        normal_u_at_edge: Float[Array, "nEdge"]
     ):
         return wrf_3rd4th_order(
             x_at_primal_cell,
-            normal_u,
+            normal_u_at_edge,
             self.mesh.dual.edge.endpoints,
             self.mesh.dual.edge.length,
             self.mesh.aux.edpnr_eddtg,
@@ -149,11 +150,11 @@ class AbstractWRF56AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nCell"],
-        normal_u: Float[Array, "nEdge"]
+        normal_u_at_edge: Float[Array, "nEdge"]
     ):
         return wrf_5th6th_order(
             x_at_primal_cell,
-            normal_u,
+            normal_u_at_edge,
             self.mesh.dual.edge.endpoints,
             self.mesh.dual.edge.length,
             self.mesh.aux.edpnr_eddtg,
@@ -207,12 +208,12 @@ class AbstractWRF34AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        scalar_flux_at_dual_cell: Float[Array, "nCell"],
-        tangent_u: Float[Array, "nEdge"]
+        x_at_dual_cell: Float[Array, "nCell"],
+        tangent_u_at_edge: Float[Array, "nEdge"]
     ):
         return wrf_3rd4th_order(
-            scalar_flux_at_dual_cell,
-            tangent_u,
+            x_at_dual_cell,
+            tangent_u_at_edge,
             self.mesh.primal.edge.endpoints,
             self.mesh.primal.edge.length,
             self.mesh.aux.edp12_edptg,
@@ -270,11 +271,11 @@ class AbstractWRF56AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
     def __call__(
         self,
         x_at_dual_cell: Float[Array, "nCell"],
-        tangent_u: Float[Array, "nEdge"]
+        tangent_u_at_edge: Float[Array, "nEdge"]
     ):
         return wrf_5th6th_order(
             x_at_dual_cell,
-            tangent_u,
+            tangent_u_at_edge,
             self.mesh.primal.edge.endpoints,
             self.mesh.primal.edge.length,
             self.mesh.aux.edp12_edptg,
