@@ -69,12 +69,11 @@ equation.dhdt.div_mfx.flux_recon_at_primal_edge.wrf3()
 equation.dundt.coriolis.flux_recon_at_primal_edge.wrf3()
 equation.dundt.coriolis.pv_at_dual_edge.flux_recon_at_dual_edge.wrf3()
 
-equation.build_default()
-
 # %%
 import datetime
 
 solver = terraflow.solver.ExRungeKutta3Solver(
+    equation=equation,
     dt=datetime.timedelta(seconds=120.0),
     save_interval=datetime.timedelta(seconds=3600.0*6),
     dev=dev,
@@ -257,7 +256,14 @@ img = ax.imshow(
     animated=True,
 )
 
-cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
+cbar = plt.colorbar(
+    img, 
+    ax=ax, 
+    orientation="horizontal", 
+    pad=0.04, 
+    shrink=0.8, 
+    aspect=30
+)
 cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
@@ -302,7 +308,7 @@ def update(frame):
 
 # Cartopy axes generally do not support blitting; keep blit=False
 anim = animation.FuncAnimation(fig, update, frames=n_frames, interval=200, blit=False)
-anim.save("thickness_uv.mp4", writer="ffmpeg", dpi=120, fps=5)
+anim.save("thickness_uv.gif", writer="pillow", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 

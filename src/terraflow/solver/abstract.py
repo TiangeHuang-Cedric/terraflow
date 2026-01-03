@@ -10,10 +10,14 @@ from terraflow.util import typing, device
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
     from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
+    import terraflow.dynamics.shallow_water.vars as swe_vars
 
 
 class AbstractODE(ABC):
-    pass
+
+    @abstractmethod
+    def build_default(self) -> None:
+        raise NotImplementedError
 
 
 class AbstractExplicitODE(AbstractODE):
@@ -65,9 +69,8 @@ class MultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: terraflow.equation.shallow_water.vars.unstructure.StateFields,
-    ) -> Tuple[
-        terraflow.equation.shallow_water.vars.unstructure.StateFields, terraflow.equation.shallow_water.vars.unstructure.StateFields]:
+        x: swe_vars.unstructure.StateFields,
+    ) -> Tuple[swe_vars.unstructure.StateFields, swe_vars.unstructure.StateFields]:
         ...
 
     @overload
@@ -106,9 +109,8 @@ class MultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: terraflow.equation.shallow_water.vars.unstructure.StateFields,
-    ) -> Tuple[
-        terraflow.equation.shallow_water.vars.unstructure.StateArrays, terraflow.equation.shallow_water.vars.unstructure.StateArrays]:
+        x: swe_vars.unstructure.StateFields,
+    ) -> Tuple[swe_vars.unstructure.StateArrays, swe_vars.unstructure.StateArrays]:
         ...
 
     @overload
@@ -213,10 +215,13 @@ class AbstractSolver(Generic[ODE], ABC):
 
     def __init__(
         self,
+        equation: ODE,
         dt: datetime.timedelta,
         save_interval: datetime.timedelta,
         dev: device.AbstractDevice
     ):
+        equation.build_default()
+        self.equation = equation
         self.dt = dt
         self.save_interval = save_interval
         self.dev = dev

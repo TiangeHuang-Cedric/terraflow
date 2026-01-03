@@ -22,11 +22,12 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
 
     def __init__(
         self,
+        equation: AbstractExplicitODE,
         dt: datetime.timedelta,
         save_interval: datetime.timedelta,
         dev: device.AbstractDevice
     ):
-        super().__init__(dt, save_interval, dev)
+        super().__init__(equation, dt, save_interval, dev)
         self.nrk = 3
         self.dt_rk = [dt / (self.nrk - irk) for irk in range(self.nrk)]
         self.dt_rk_seconds = jnp.asarray(

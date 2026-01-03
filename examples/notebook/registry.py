@@ -10,7 +10,7 @@
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
-#     name: terraflow-dev
+#     name: terraflow
 # ---
 
 # %%
