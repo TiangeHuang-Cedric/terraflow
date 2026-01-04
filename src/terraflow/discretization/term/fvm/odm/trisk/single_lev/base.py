@@ -62,7 +62,9 @@ class FluxReconstructAtPrimalEdge(Term):
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nPrimal_cell"],
-        normal_u_at_edge: Float[Array, "nEdge"]
+        normal_u_at_edge: Float[Array, "nEdge"],
+        *args,
+        **kwargs
     ) -> Float[Array, "nEdge"]:
         return self.scheme(x_at_primal_cell, normal_u_at_edge)
 
@@ -142,7 +144,9 @@ class FluxReconstructAtDualEdge(Term):
     def __call__(
         self,
         x_at_dual_cell: Float[Array, "nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nEdge"]
+        tangent_u_at_edge: Float[Array, "nEdge"],
+        *args,
+        **kwargs
     ) -> Float[Array, "nEdge"]:
         return self.scheme(x_at_dual_cell, tangent_u_at_edge)
 
@@ -154,31 +158,35 @@ class FluxReconstructAtDualEdge(Term):
         self._built = True
         return self.scheme
 
-    def wrf3(self) -> fr.WRF3AtDualEdge:
+    def wrf3(self, use_mbs: bool = True) -> fr.WRF3AtDualEdge:
         self.scheme_name = "wrf3"
         self.scheme = fr.WRF3AtDualEdge(
-            self.coord, self.para
+            self.coord, self.para, use_mbs=use_mbs
         )
         self._built = True
         return self.scheme
 
-    def wrf4(self) -> fr.WRF4AtDualEdge:
+    def wrf4(self, use_mbs: bool = True) -> fr.WRF4AtDualEdge:
         self.scheme_name = "wrf4"
         self.scheme = fr.WRF4AtDualEdge(
-            self.coord, self.para
+            self.coord, self.para, use_mbs=use_mbs
         )
         self._built = True
         return self.scheme
 
-    def hybrid_wrf34(self, beta: FloatType = 0.25) -> fr.HybridWRF34AtDualEdge:
+    def hybrid_wrf34(
+        self,
+        beta: FloatType = 0.25,
+        use_mbs: bool = True
+    ) -> fr.HybridWRF34AtDualEdge:
         self.scheme_name = "hybrid_wrf34"
         self.scheme = fr.HybridWRF34AtDualEdge(
-            self.coord, self.para, beta
+            self.coord, self.para, beta, use_mbs=use_mbs
         )
         self._built = True
         return self.scheme
 
-    def wrf5(self, use_mbs: bool = False) -> fr.WRF5AtDualEdge:
+    def wrf5(self, use_mbs: bool = True) -> fr.WRF5AtDualEdge:
         self.scheme_name = "wrf5"
         self.scheme = fr.WRF5AtDualEdge(
             self.coord, self.para, use_mbs=use_mbs
@@ -186,7 +194,7 @@ class FluxReconstructAtDualEdge(Term):
         self._built = True
         return self.scheme
 
-    def wrf6(self, use_mbs: bool = False) -> fr.WRF6AtDualEdge:
+    def wrf6(self, use_mbs: bool = True) -> fr.WRF6AtDualEdge:
         self.scheme_name = "wrf6"
         self.scheme = fr.WRF6AtDualEdge(
             self.coord, self.para, use_mbs=use_mbs
@@ -197,7 +205,7 @@ class FluxReconstructAtDualEdge(Term):
     def hybrid_wrf56(
         self,
         beta: FloatType = 0.25,
-        use_mbs: bool = False
+        use_mbs: bool = True
     ) -> fr.HybridWRF56AtDualEdge:
         self.scheme_name = "hybrid_wrf56"
         self.scheme = fr.HybridWRF56AtDualEdge(
@@ -310,13 +318,13 @@ class InterpPotentialVorticityMidpoint(Term):
     def __call__(
         self,
         pv_at_dual_cell: Float[Array, "nDual_cell"],
-        normal_u_at_edge: Float[Array, "nEdge"],
         tangent_u_at_edge: Float[Array, "nEdge"],
+        normal_u_at_edge: Float[Array, "nEdge"],
     ) -> Float[Array, "nEdge"]:
         return self.recon_scheme(
             x_at_dual_cell=pv_at_dual_cell,
+            tangent_u_at_edge=tangent_u_at_edge,
             normal_u_at_edge=normal_u_at_edge,
-            tangent_u_at_edge=tangent_u_at_edge
         )
 
     def build_default(self) -> Self:
@@ -332,16 +340,17 @@ class InterpPotentialVorticityUpwind(Term):
         coord: CoordSys,
         para: PlanetParameterSet,
         method: FiniteVolumeMethod,
-        order: int = 3
+        order: int = 3,
+        use_mbs: bool = True
     ):
         super().__init__(disc, coord, para, method)
         self.central_difference_scheme = fr.CentralDifference2AtDualEdge(
             coord, para
         )
         if order == 3:
-            self.recon_scheme = fr.WRF3AtDualEdge(coord, para)
+            self.recon_scheme = fr.WRF3AtDualEdge(coord, para, use_mbs=use_mbs)
         elif order == 5:
-            self.recon_scheme = fr.WRF5AtDualEdge(coord, para)
+            self.recon_scheme = fr.WRF5AtDualEdge(coord, para, use_mbs=use_mbs)
         else:
             raise ValueError(
                 f"Unsupported order {order} for upwind interpolation."
@@ -351,8 +360,8 @@ class InterpPotentialVorticityUpwind(Term):
     def __call__(
         self,
         pv_at_dual_cell: Float[Array, "nDual_cell"],
-        normal_u_at_edge: Float[Array, "nEdge"],
         tangent_u_at_edge: Float[Array, "nEdge"],
+        normal_u_at_edge: Float[Array, "nEdge"],
     ) -> Float[Array, "nEdge"]:
         b = jnp.abs(normal_u_at_edge) / jnp.sqrt(
             normal_u_at_edge ** 2 + tangent_u_at_edge ** 2 + 1.0
@@ -386,13 +395,13 @@ class InterpPotentialVorticityAtDualEdge(Term):
     def __call__(
         self,
         pv_at_dual_cell: Float[Array, "nDual_cell"],
-        normal_u_at_edge: Float[Array, "nEdge"],
         tangent_u_at_edge: Float[Array, "nEdge"],
+        normal_u_at_edge: Float[Array, "nEdge"],
     ) -> Float[Array, "nEdge"]:
         return self.adv_scheme(
-            pv_at_dual_cell=pv_at_dual_cell,
-            normal_u_at_edge=normal_u_at_edge,
-            tangent_u_at_edge=tangent_u_at_edge
+            pv_at_dual_cell,
+            tangent_u_at_edge,
+            normal_u_at_edge,
         )
 
     def midpoint(self) -> Self:
@@ -402,10 +411,30 @@ class InterpPotentialVorticityAtDualEdge(Term):
         self._built = True
         return self
 
-    def upwind(self, order: int) -> Self:
+    def upwind(self, order: int, use_mbs: bool = True) -> Self:
         self.adv_scheme = InterpPotentialVorticityUpwind(
-            self._disc, self.coord, self.para, self.method, order=order
+            self._disc,
+            self.coord,
+            self.para,
+            self.method,
+            order=order,
+            use_mbs=use_mbs
         )
+        self._built = True
+        return self
+
+    def pure_upwind(self, order: int, use_mbs: bool = True) -> Self:
+        self.adv_scheme = FluxReconstructAtDualEdge(
+            self._disc, self.coord, self.para, self.method
+        )
+        if order == 3:
+            self.adv_scheme.wrf3(use_mbs=use_mbs)
+        elif order == 5:
+            self.adv_scheme.wrf5(use_mbs=use_mbs)
+        else:
+            raise ValueError(
+                f"Unsupported order {order} for pure upwind interpolation."
+            )
         self._built = True
         return self
 
@@ -476,8 +505,8 @@ class PotentialVorticityAtDualEdge(Term):
         )
         return self.interp(
             pv_at_dual_cell=pv_at_dual_cell,
+            tangent_u_at_edge=tangent_u_at_edge,
             normal_u_at_edge=normal_u_at_edge,
-            tangent_u_at_edge=tangent_u_at_edge
         )
 
     def build_default(self) -> "PotentialVorticityAtDualEdge":

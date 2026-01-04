@@ -196,7 +196,7 @@ class AbstractWRF34AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
         coord: CoordSys,
         para: PlanetParameterSet,
         beta: FloatType,
-        use_mbs: bool = False
+        use_mbs: bool
     ):
         super().__init__(coord, para)
         stencil_idxes, edp_v_fcoe = init_dual_bmatrix_at_primal_edge(
@@ -225,14 +225,24 @@ class AbstractWRF34AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
 
 class WRF3AtDualEdge(AbstractWRF34AtDualEdge):
 
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=1.0)
+    def __init__(
+        self,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        use_mbs: bool = True
+    ):
+        super().__init__(coord, para, beta=1.0, use_mbs=use_mbs)
 
 
 class WRF4AtDualEdge(AbstractWRF34AtDualEdge):
 
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=0.0)
+    def __init__(
+        self,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        use_mbs: bool = True
+    ):
+        super().__init__(coord, para, beta=0.0, use_mbs=use_mbs)
 
 
 class HybridWRF34AtDualEdge(AbstractWRF34AtDualEdge):
@@ -241,9 +251,10 @@ class HybridWRF34AtDualEdge(AbstractWRF34AtDualEdge):
         self,
         coord: CoordSys,
         para: PlanetParameterSet,
-        beta: FloatType
+        beta: FloatType,
+        use_mbs: bool = True
     ):
-        super().__init__(coord, para, beta=beta)
+        super().__init__(coord, para, beta=beta, use_mbs=use_mbs)
 
 
 class AbstractWRF56AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
@@ -292,7 +303,7 @@ class WRF5AtDualEdge(AbstractWRF56AtDualEdge):
         self,
         coord: CoordSys,
         para: PlanetParameterSet,
-        use_mbs: bool = False
+        use_mbs: bool = True
     ):
         super().__init__(coord, para, beta=1.0, use_mbs=use_mbs)
 
@@ -302,7 +313,7 @@ class WRF6AtDualEdge(AbstractWRF56AtDualEdge):
         self,
         coord: CoordSys,
         para: PlanetParameterSet,
-        use_mbs: bool = False
+        use_mbs: bool = True
     ):
         super().__init__(coord, para, beta=0.0, use_mbs=use_mbs)
 
@@ -313,7 +324,7 @@ class HybridWRF56AtDualEdge(AbstractWRF56AtDualEdge):
         coord: CoordSys,
         para: PlanetParameterSet,
         beta: FloatType,
-        use_mbs: bool = False
+        use_mbs: bool = True
     ):
         super().__init__(coord, para, beta=beta, use_mbs=use_mbs)
 
@@ -457,12 +468,16 @@ class FluxReconstructInfoAtPrimalMesh(AbstractFluxReconstructInfo[PrimalMeshEnti
 
 
 class FluxReconstructInfoAtDualMesh(AbstractFluxReconstructInfo[DualMeshEntity]):
-    def __init__(self, polynomial_order: int, use_mbs: bool = False):
+    def __init__(self, polynomial_order: int, use_mbs: bool = True):
         super().__init__(polynomial_order)
         self.mesh_type = "dual"
         if self.polynomial_order == 2:
-            self.max_member = 12
-            self.stencil_fn = tr_stencil_member_list_2nd_order
+            if use_mbs:
+                self.max_member = 12
+                self.stencil_fn = tr_stencil_member_list_2nd_order_mbs
+            else:
+                self.max_member = 9
+                self.stencil_fn = tr_stencil_member_list_2nd_order
         elif self.polynomial_order == 4:
             if use_mbs:
                 self.max_member = 21
@@ -593,6 +608,41 @@ def hx_stencil_member_list_4th_order(
 
 
 def tr_stencil_member_list_2nd_order(
+    dual: DualMeshEntity
+) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
+    """9/10 point stencil for 2nd order reconstruction on triangular mesh."""
+    tri_nb = dual.cell.adjacency  # (nDual_cell, 3)
+    ncell = tri_nb.shape[0]
+    maxnnb = tri_nb.shape[1]
+
+    def cell_body(_, cell_idx):
+        nb = tri_nb[cell_idx, :]  # (3,)
+        nb_of_nb = tri_nb[nb, :]  # (3, 3)
+        # padding invalid index value using -1
+        nb_of_nb = jnp.where(
+            nb_of_nb >= 0, nb_of_nb, -1
+        )  # (3, maxnnb)
+        # Mask out the home cell contributions
+        nb_of_nb = jnp.where(
+            nb_of_nb == cell_idx, -1, nb_of_nb
+        )  # (3, maxnnb)
+        # Gather all neighboring cells
+        nb_of_nb = nb_of_nb.reshape((3 * maxnnb, ))  # (3, maxnnb)
+        stencil_idx = jnp.concatenate(
+            [nb, nb_of_nb],
+            axis=0
+        )  # (3 + 3*maxnnb,)
+        stencil_idx = jax_tools.filter_ordered_unique(
+            stencil_idx, size=9, fill_value=-1
+        )  # (9,)
+        return None, stencil_idx
+
+    _, stencil_idx = jax.lax.scan(cell_body, None, xs=jnp.arange(ncell))
+    stencil_num = jnp.sum(stencil_idx >= 0, axis=-1)
+    return stencil_num, stencil_idx
+
+
+def tr_stencil_member_list_2nd_order_mbs(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
     """11/12 point stencil for 2nd order reconstruction on triangular mesh."""
@@ -742,133 +792,6 @@ def recon_4th_polynomial(
     )  # (max_m, 14)
 
 
-# def recon_b_matrix(
-#     local_x: Int[Array, "max_m"],
-#     local_y: Int[Array, "max_m"],
-#     recon_polynomial_fn: Callable,
-# ) -> Float[Array, "n_coeff max_m"]:
-#     b_matrix = recon_polynomial_fn(local_x, local_y)  # (max_m, n_coeff)
-#     recon_b_matrix = b_matrix.T @ b_matrix  # (n_coeff, n_coeff)
-#     recon_b_matrix = jnp.linalg.pinv(
-#         recon_b_matrix
-#     )  # (n_coeff, n_coeff)
-#     return recon_b_matrix @ b_matrix.T  # (n_coeff, max_m)
-
-
-# def primal_calc_least_square_matrix(
-#     mesh: OrthogonalDualMesh,
-#     order: int
-# ) -> Float[Array, "ncell maxnnb n_coeff max_m"]:
-#     plg_nb = mesh.primal.cell.adjacency
-#     ncell = plg_nb.shape[0]
-#     maxnnb = plg_nb.shape[1]
-#     plg_centroid_cart = mesh.primal.cell.centroid.cartesian  # (ncell, 3)
-#     if order == 2:
-#         fn = hx_stencil_member_list_2nd_order
-#     elif order == 4:
-#         fn = hx_stencil_member_list_4th_order
-#     else:
-#         raise ValueError("Only 2nd and 4th order least square supported.")
-#     _, stencil_idxes = jax.jit(fn)(mesh)
-
-#     def cell_body(_, cell_idx):
-#         op0 = plg_centroid_cart[cell_idx, :]  # (3,)
-#         is_valid = stencil_idxes[cell_idx, :] >= 0  # (max_m, )
-
-#         def nb_body(_, nb_idx):
-#             nb = plg_nb[cell_idx, nb_idx]
-#             op1 = plg_centroid_cart[nb, :]  # (3, )
-#             p0p1 = math._project_sphere2plane(op0, op1)  # (3, )
-#             tx = p0p1 / jnp.linalg.norm(p0p1)  # (3,)
-#             tmp = jnp.cross(-tx, op0)  # (3,)
-#             ty = tmp / jnp.linalg.norm(tmp)  # (3,)
-
-#             stencil_idx = stencil_idxes[cell_idx, :]  # (max_m, )
-#             p0pi_batch = math.project_sphere2plane(
-#                 op0, plg_centroid_cart[stencil_idx, :]
-#             )  # (max_m, 3)
-#             local_x = jnp.sum(p0pi_batch * tx[None, :], axis=-1)  # (max_m, )
-#             local_y = jnp.sum(p0pi_batch * ty[None, :], axis=-1)  # (max_m, )
-#             b_matrix = recon_polynomial(
-#                 local_x, local_y, order
-#             )  # (max_m, n_coeff)
-#             recon_b_matrix = b_matrix.T @ b_matrix  # (n_coeff, n_coeff)
-#             recon_b_matrix = jnp.linalg.pinv(
-#                 recon_b_matrix
-#             )  # (n_coeff, n_coeff)
-#             return None, recon_b_matrix @ b_matrix.T  # (n_coeff, max_m)
-
-#         _, recon_b_matrix = jax.lax.scan(
-#             nb_body, init=None, xs=jnp.arange(maxnnb)
-#         )
-
-#         recon_b_matrix = jnp.where(
-#             is_valid[None, :], recon_b_matrix, 0.0
-#         )
-
-#         return None, recon_b_matrix
-
-#     @jax.jit
-#     def wrapper() -> Float[Array, "ncell maxnnb n_coeff max_m"]:
-#         _, recon_b_matrix = jax.lax.scan(
-#             cell_body, init=None, xs=jnp.arange(ncell)
-#         )
-#         return recon_b_matrix
-
-#     return wrapper()
-
-
-# def remap_b_matrix_to_edp(mesh: OrthogonalDualMesh, order: int):
-#     b_matrix = primal_calc_least_square_matrix(mesh, order)
-#     max_m = b_matrix.shape[-1]
-#     nedge = mesh.primal.edge.endpoints.shape[0]
-#     maxnnb = mesh.primal.cell.adjacency.shape[1]
-#     if order == 2:
-#         spec_loc = 4
-#     elif order == 4:
-#         spec_loc = 10
-#     else:
-#         raise ValueError("Only 2nd and 4th order least square supported.")
-
-#     def edge_body(_, ie):
-
-#         def vtx_body(_, iv):
-#             v_idx = mesh.primal.edge.endpoints[ie, iv]
-
-#             def nb_body(_, inb):
-#                 globel_idx_ed = mesh.dual.cell.edges[v_idx, inb]
-
-#                 def do_nothing():
-#                     return jnp.zeros((max_m,), dtype=mesh.dev.float_type)
-
-#                 def get_value():
-#                     return b_matrix[v_idx, inb, spec_loc, :]
-
-#                 return None, jax.lax.cond(
-#                     globel_idx_ed == ie,
-#                     get_value,
-#                     do_nothing,
-#                 )
-
-#             _, b_remapped = jax.lax.scan(
-#                 nb_body, init=None, xs=jnp.arange(maxnnb)
-#             )
-#             b_remapped = jnp.sum(b_remapped, axis=0)  # (max_m,)
-#             return None, b_remapped
-#         return jax.lax.scan(
-#             vtx_body, init=None, xs=jnp.arange(2)
-#         )  # (2, max_m,)
-
-#     @jax.jit
-#     def wrapper() -> Float[Array, "nedge 2 max_m"]:
-#         _, b_remapped = jax.lax.scan(
-#             edge_body, init=None, xs=jnp.arange(nedge)
-#         )  # (nedge, 2, max_m)
-#         return b_remapped  # (nedge, 2, max_m)
-
-#     return wrapper()
-
-
 def set_lob_xy(
     op0: Float[Array, "3"],
     op1: Float[Array, "3"],
@@ -908,58 +831,6 @@ def get_lob_xy(
     local_x = jnp.where(is_valid_stencil, local_x, 0.0)  # (max_m,)
     local_y = jnp.where(is_valid_stencil, local_y, 0.0)  # (max_m,)
     return local_x, local_y
-
-
-# def dual_calc_least_square_matrix(
-#     mesh: OrthogonalDualMesh,
-#     order: int
-# ) -> Float[Array, "ncell maxnnb n_coeff max_m"]:
-#     dual_nb = mesh.dual.cell.adjacency  # (ncell, maxnnb)
-#     ncell = dual_nb.shape[0]
-#     maxnnb = dual_nb.shape[1]
-#     dual_centroid_cart = mesh.dual.cell.centroid.cartesian  # (ncell, 3)
-#     if order == 2:
-#         fn = tr_stencil_member_list_2nd_order
-#     elif order == 4:
-#         fn = tr_stencil_member_list_4th_order
-#     else:
-#         raise ValueError("Only 2nd and 4th order least square supported.")
-#     _, stencil_idxes = jax.jit(fn)(mesh)
-
-#     def cell_body(_, cell_idx):
-#         op0 = dual_centroid_cart[cell_idx, :]  # (3,)
-#         is_valid = stencil_idxes[cell_idx, :] >= 0  # (max_m, )
-
-#         def nb_body(_, nb_idx):
-#             nb = dual_nb[cell_idx, nb_idx]
-#             op1 = dual_centroid_cart[nb, :]  # (3, )
-#             tx, ty = set_lob_xy(op0, op1)
-
-#             stencil_idx = stencil_idxes[cell_idx, :]  # (max_m, )
-#             p0pi_batch = math.project_sphere2plane(
-#                 op0, dual_centroid_cart[stencil_idx, :]
-#             )  # (max_m, 3)
-#             local_x, local_y = get_lob_xy(
-#                 op0, p0pi_batch, tx, ty, is_valid
-#             )  # (max_m, ), (max_m, )
-#             b_matrix = recon_polynomial(
-#                 local_x, local_y, order
-#             )  # (max_m, n_coeff)
-#             return None, b_matrix
-
-#         _, b_matrix = jax.lax.scan(
-#             nb_body, init=None, xs=jnp.arange(maxnnb)
-#         )
-
-#         b_matrix = jnp.where(
-#             is_valid[None, :], b_matrix, 0.0
-#         )
-
-#         return None, b_matrix
-
-#     return jax.lax.scan(
-#         cell_body, init=None, xs=jnp.arange(ncell)
-#     )[1]
 
 
 def _calc_b_matrix_in_a_direction_of_cell(
@@ -1006,14 +877,6 @@ def _calc_b_matrix_at_single_cell(
     )
 
 
-# _calc_b_matrix_at_cells = jax.jit(
-#     jax.vmap(
-#         _calc_b_matrix_at_single_cell,
-#         in_axes=(0, 0, 0, 0, 0, None),
-#         out_axes=0
-#     ),
-# )
-
 @jax.jit
 def _calc_b_matrix_at_cells(
     op0: Float[Array, "ncell 3"],
@@ -1048,7 +911,7 @@ def _calc_b_matrix_at_cells(
 def calc_b_matrix_at_dual_cells(
     mesh: OrthogonalDualMesh,
     polynomial_order: int,
-    use_mbs: bool = False
+    use_mbs: bool = True
 ) -> Float[Array, "ncell maxnnb n_coeff max_m"]:
     op0 = mesh.dual.cell.centroid.cartesian  # (ncell, 3)
     dual_nb = mesh.dual.cell.adjacency  # (ncell, maxnnb)

@@ -125,9 +125,9 @@ class NonlinearCoriolisTermAtDualEdge(tm.Term, NonlinearCoriolisTermProtocol):
             state, recon_tangent_velocity=True
         )
         pv_at_dual_edge = self.pv_at_dual_edge(
-            normal_u_at_edge,
-            tangent_u_at_edge,
-            thickness_at_primal_cell
+            normal_u_at_edge=normal_u_at_edge,
+            tangent_u_at_edge=tangent_u_at_edge,
+            thickness_at_primal_cell=thickness_at_primal_cell
         )  # (nedge, )
         pv_iee = pv_at_dual_edge
         pv_iep = jnp.take(

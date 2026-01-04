@@ -19,8 +19,8 @@ import jax.numpy as jnp
 import terraflow.util.device as device
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 # %%
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
@@ -67,14 +67,14 @@ equation = terraflow.dynamics.ShallowWaterEquation.from_model(
 # %%
 equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.pv_at_dual_edge.interp.upwind(3)
+equation.dundt.coriolis.pv_at_dual_edge.interp.upwind(3, use_mbs=True)
 
 # %%
 import datetime
 
 solver = terraflow.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=120.0),
+    dt=datetime.timedelta(seconds=60.0),                                                     
     save_interval=datetime.timedelta(seconds=3600.0*6),
     dev=dev,
 )
@@ -85,7 +85,7 @@ import jax
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
     start_time="0001-01-01T00:00:00",
-    end_time="0001-02-20T00:00:00",
+    end_time="0001-02-21T00:00:00",
     start_with_input=True,
     output_fields=True,
 ))
