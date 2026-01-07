@@ -3,7 +3,7 @@ from jax import numpy as jnp
 from jax import lax, debug
 
 from terraflow.util import typing
-from terraflow.discretization.operator.abstract import AbstractOperator
+from terraflow.discretization.abstract import AbstractOperator
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout

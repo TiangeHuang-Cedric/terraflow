@@ -1,7 +1,13 @@
 from abc import ABC, abstractmethod
+from typing import Generic, TypeVar
+from terraflow.util.history.setup.vert import AbstractVertHistorySetup
+from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
 
 
-class AbstractVertCoordinate(ABC):
+VMST = TypeVar("VMST", bound=AbstractVertHistorySetup)
+
+
+class AbstractVertCoordinate(ABC, Generic[VMST]):
     """
     AbstractVertCoordinate is the base class for vertical coordinate systems.
     """
@@ -12,8 +18,17 @@ class AbstractVertCoordinate(ABC):
         """Return the alias name of the vertical coordinate system."""
         raise NotImplementedError
 
+    @abstractmethod
+    def history_builder(
+        self,
+        file_path: str,
+        *args,
+        **kwargs
+    ) -> VMST:
+        raise NotImplementedError
 
-class OneLayerVertCoordinate(AbstractVertCoordinate):
+
+class OneLayerVertCoordinate(AbstractVertCoordinate[OneLayerVerticalCoordinateSetup]):
     """
     OneLayerVertCoordinate represents a vertical coordinate system with a single layer.
     """
@@ -22,6 +37,16 @@ class OneLayerVertCoordinate(AbstractVertCoordinate):
     def alias_name() -> str:
         """Return the alias name of the one-layer vertical coordinate system."""
         return "1level"
+
+    def __len__(self):
+        return 1
+
+    @property
+    def shape(self):
+        return (1,)
+
+    def history_builder(self, file_path: str) -> OneLayerVerticalCoordinateSetup:
+        return OneLayerVerticalCoordinateSetup(file_path, self)
 
 
 class AbstractMultiLayerVertCoordinate(AbstractVertCoordinate):

@@ -54,7 +54,7 @@ class SphericalCoordinates:
                 data=np.asarray(lon),
                 dims=(f"n_{location}",),
                 attrs=dict(
-                    standard_name=f"longitude of {location} in {mesh_header} mesh",
+                    long_name=f"longitude of {location} in {mesh_header} mesh",
                     units="degrees_east"
                 ),
             )
@@ -65,7 +65,7 @@ class SphericalCoordinates:
                 data=np.asarray(lat),
                 dims=(f"n_{location}",),
                 attrs=dict(
-                    standard_name=f"latitude of {location} in {mesh_header} mesh",
+                    long_name=f"latitude of {location} in {mesh_header} mesh",
                     units="degrees_north"
                 ),
             )
@@ -121,7 +121,7 @@ class CartesianCoordinates:
                 data=np.asarray(x),
                 dims=(f"n_{location}",),
                 attrs=dict(
-                    standard_name=f"x direction of {location} cartesian coordinate in {mesh_header} mesh",
+                    long_name=f"x direction of {location} cartesian coordinate in {mesh_header} mesh",
                     units="m"
                 ),
             )
@@ -132,7 +132,7 @@ class CartesianCoordinates:
                 data=np.asarray(y),
                 dims=(f"n_{location}",),
                 attrs=dict(
-                    standard_name=f"y direction of {location} cartesian coordinate in {mesh_header} mesh",
+                    long_name=f"y direction of {location} cartesian coordinate in {mesh_header} mesh",
                     units="m"
                 ),
             )
@@ -143,7 +143,7 @@ class CartesianCoordinates:
                 data=np.asarray(z),
                 dims=(f"n_{location}",),
                 attrs=dict(
-                    standard_name=f"z direction of {location} cartesian coordinate in {mesh_header} mesh",
+                    long_name=f"z direction of {location} cartesian coordinate in {mesh_header} mesh",
                     units="m"
                 ),
             )
@@ -337,7 +337,7 @@ class EdgeConvention(AbstractElementConvention):
                 data=np.asarray(edge_node_connectivity),
                 dims=dims if is_edge_dimension_first else dims[::-1],
                 attrs=dict(
-                    standard_name=f"Nodes at the ends of {header} edges",
+                    long_name=f"Nodes at the ends of {header} edges",
                     start_index=start_index,
                     _FillValue=fill_value,
                 )
@@ -350,7 +350,7 @@ class EdgeConvention(AbstractElementConvention):
                 data=np.asarray(edge_face_connectivity),
                 dims=dims if is_edge_dimension_first else dims[::-1],
                 attrs=dict(
-                    standard_name=f"Faces on either side of {header} edges",
+                    long_name=f"Faces on either side of {header} edges",
                     start_index=start_index,
                     _FillValue=fill_value,
                 )
@@ -467,7 +467,7 @@ class FaceConvention(AbstractElementConvention):
                 data=np.asarray(n_nodes_per_face),
                 dims=(f"n{header}_face",),
                 attrs=dict(
-                    standard_name=f"Maximum number of nodes for each face in {header} mesh",
+                    long_name=f"Maximum number of nodes for each face in {header} mesh",
                 )
             )
         }
@@ -478,7 +478,7 @@ class FaceConvention(AbstractElementConvention):
                 data=np.asarray(face_node_connectivity),
                 dims=dims if is_face_dimension_first else dims[::-1],
                 attrs=dict(
-                    standard_name=f"Nodes defining {header} faces in {header} mesh",
+                    long_name=f"Nodes defining {header} faces in {header} mesh",
                     start_index=start_index,
                     _FillValue=fill_value,
                 )
@@ -491,7 +491,7 @@ class FaceConvention(AbstractElementConvention):
                 data=np.asarray(face_edge_connectivity),
                 dims=dims if is_face_dimension_first else dims[::-1],
                 attrs=dict(
-                    standard_name=f"Edges defining {header} faces in {header} mesh",
+                    long_name=f"Edges defining {header} faces in {header} mesh",
                     start_index=start_index,
                     _FillValue=fill_value,
                 )
@@ -504,7 +504,7 @@ class FaceConvention(AbstractElementConvention):
                 data=np.asarray(face_face_connectivity),
                 dims=dims if is_face_dimension_first else dims[::-1],
                 attrs=dict(
-                    standard_name=f"Adjacent faces to {header} faces in {header} mesh",
+                    long_name=f"Adjacent faces to {header} faces in {header} mesh",
                     start_index=start_index,
                     _FillValue=fill_value,
                 )
@@ -929,12 +929,12 @@ class UGRIDDataArray:
         data = da.data
         dims = da.dims
         var_name = da.name if da.name is not None else "variable"
-        standard_name = da.attrs.get("standard_name", "")
+        long_name = da.attrs.get("long_name", "")
         unit = da.attrs.get("units", "")
         location = da.attrs.get("location", "")
-        if unit == "" or standard_name == "":
+        if unit == "" or long_name == "":
             raise ValueError(
-                f"Variable {var_name} must have 'standard_name/units' attribute to be added to UGRIDDataset."
+                f"Variable {var_name} must have 'long_name/units' attribute to be added to UGRIDDataset."
             )
         if location == "" or data is None or dims == ():
             raise ValueError(
@@ -1167,7 +1167,7 @@ class UGRIDDataset:
         self,
         data: Array,
         dims: Tuple[Hashable, ...],
-        standard_name: str,
+        long_name: str,
         units: str,
         location: str,
         **kwargs
@@ -1177,7 +1177,7 @@ class UGRIDDataset:
             data=np.asarray(data),
             dims=dims,
             attrs=dict(
-                standard_name=standard_name,
+                long_name=long_name,
                 units=units,
                 location=location,
                 **kwargs
@@ -1197,12 +1197,12 @@ class UGRIDDataset:
         for var_name, var_data in ds.items():
             data = var_data.data
             dims = var_data.dims
-            standard_name = var_data.attrs.get("standard_name", "")
+            long_name = var_data.attrs.get("long_name", "")
             unit = var_data.attrs.get("units", "")
             location = var_data.attrs.get("location", "")
-            if unit == "" or standard_name == "":
+            if unit == "" or long_name == "":
                 raise ValueError(
-                    f"Variable {var_name} must have 'standard_name/units' attribute to be added to UGRIDDataset."
+                    f"Variable {var_name} must have 'long_name/units' attribute to be added to UGRIDDataset."
                 )
             if location == "" or data is None or dims == ():
                 raise ValueError(
@@ -1439,19 +1439,16 @@ def format_terraflow2ugrid(
     if len(meta["dims"]) == 1:
         dims = (f"n_{location}",)
     elif len(meta["dims"]) == 2:
-        if "nTime" in meta["dims"]:
-            dims = (f"n_time", f"n_{location}",)
-        else:
-            dims = (f"nlev_{meta['vert_location']}", f"n_{location}",)
+        dims = (meta["dims"][0], f"n_{location}")
     elif len(meta["dims"]) == 3:
         dims = (
-            f"n_time",
-            f"nlev_{meta['vert_location']}",
+            meta["dims"][0],
+            meta["dims"][1],
             f"n_{location}",
         )
     else:
         raise ValueError(
-            f"Variable dims must be 1D, 2D or 3D, got {meta['dims'].shape[0]}D."
+            f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
         )
     coordinates = f"{location}_lon {location}_lat"
     return xr.DataArray(
@@ -1463,7 +1460,7 @@ def format_terraflow2ugrid(
             "location": location,
             "coordinates": coordinates,
             "units": units,
-            "standard_name": meta["standard_name"],
+            "long_name": meta["long_name"],
             "description": meta["description"],
         }
     )

@@ -10,7 +10,7 @@
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
-#     name: terraflow
+#     name: terraflow-dev
 # ---
 
 # %%
@@ -42,12 +42,12 @@ para = terraflow.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.operator.FiniteVolumeMethod()
+method = terraflow.discretization.FiniteVolumeMethod()
 
 # %%
 import holoviews as hv
 
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev.flux_reconstruct import (
+from terraflow.discretization.fvm.odm.trisk.single_lev.operator.flux_reconstruct import (
     tr_stencil_member_list_4th_order_mbs
 )
 

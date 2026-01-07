@@ -28,8 +28,8 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
         "h_pc": StaggeredFieldMetaData(
             name="h_pc",
-            dims=("nPrimal_cell",),
-            standard_name="thickness at primal cell",
+            dims=("nPrimal_Cell",),
+            long_name="thickness at primal cell",
             description="Fluid thickness at primal cell centers",
             units="m",
             hori_location=MeshEntity.Cell,
@@ -38,11 +38,12 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
             output=True,
             staggered_kind="C",
             mesh_name="primal",
+            coordinates="lon_pc lat_pc",
         ),
         "un_e": StaggeredFieldMetaData(
             name="un_e",
-            dims=("nDual_edge",),
-            standard_name="normal velocity at dual edge midpoints",
+            dims=("nDual_Edge",),
+            long_name="normal velocity at dual edge midpoints",
             description="Normal velocity at dual edge midpoints",
             units="m/s",
             hori_location=MeshEntity.Edge,
@@ -51,6 +52,7 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
             output=True,
             staggered_kind="C",
             mesh_name="primal",
+            coordinates="lon_de lat_de",
         )
     }
 
@@ -288,8 +290,8 @@ def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
         "topo": StaggeredFieldMetaData(
             name="hs_pc",
-            dims=("nPrimal_face",),
-            standard_name="topography at primal cell",
+            dims=("nPrimal_Cell",),
+            long_name="topography at primal cell",
             description="Topography height at primal cell centers",
             units="m",
             hori_location=MeshEntity.Cell,
@@ -298,6 +300,7 @@ def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
             output=False,
             staggered_kind="C",
             mesh_name="primal",
+            coordinates="lon_pc lat_pc",
         )
     }
 

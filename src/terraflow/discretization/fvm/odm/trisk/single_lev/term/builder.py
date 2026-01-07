@@ -6,11 +6,11 @@ from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.discretization.operator import FiniteVolumeMethod
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev import interp
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev import base
 from terraflow.discretization.abstract import DiscretizationInfo
-import terraflow.discretization.term.fvm.odm.trisk.single_lev.base as tm
+from terraflow.discretization.abstract import FiniteVolumeMethod
+from terraflow.discretization.fvm.odm.trisk.single_lev.operator import interp
+from terraflow.discretization.fvm.odm.trisk.single_lev.operator import base
+import terraflow.discretization.fvm.odm.trisk.single_lev.term.base as tm
 from terraflow.dynamics.shallow_water.vars.unstructure import StateArrays
 from terraflow.dynamics.shallow_water.vars.unstructure import StaticArrays
 

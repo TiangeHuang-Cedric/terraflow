@@ -10,17 +10,17 @@ from terraflow.planet import PlanetParameterSet
 from terraflow.mesh import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import AbstractLayout, CoordinateSystem
-from terraflow.discretization.operator import AbstractDiscretizationMethod
 from terraflow.solver.abstract import AbstractExplicitODE
 import terraflow.discretization.abstract as disc
+from terraflow.discretization.abstract import AbstractDiscretizationMethod
 from terraflow.dynamics.shallow_water.vars.unstructure import StateArrays, StaticArrays, StaticFields
 
 if TYPE_CHECKING:
     from terraflow.mesh import OrthogonalDualMesh
     from terraflow.vert_coord import OneLayerVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-    from terraflow.discretization.operator import FiniteVolumeMethod
-    import terraflow.discretization.term.fvm.odm.trisk.single_lev.builder as fvm_odm_trisk_1lev_builder
+    from terraflow.discretization.abstract import FiniteVolumeMethod
+    import terraflow.discretization.fvm.odm.trisk.single_lev.term.builder as fvm_odm_trisk_1lev_builder
 
 
 HM = TypeVar("HM", bound=AbstractMesh)

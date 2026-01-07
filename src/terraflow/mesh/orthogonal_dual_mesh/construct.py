@@ -4,13 +4,14 @@ import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import typing, device
-from terraflow.util import math
+from terraflow.util import math, history
+from terraflow.util.uxarray import UGRIDGrid, AttributeConvention
 from terraflow.mesh import AbstractUnstructuredMesh
 from terraflow.mesh.orthogonal_dual_mesh.base import Point
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalCell, RefDualCell
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalEdge, RefDualEdge
 from terraflow.mesh.orthogonal_dual_mesh.grist_mesh import GristRefMesh
-from terraflow.util.uxarray import UGRIDGrid, AttributeConvention
+
 
 Float = typing.Float
 Array = typing.Array
@@ -1778,6 +1779,16 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
         """Convert the OrthogonalDualMesh to a UGRIDGrid representation."""
         return UGRIDGrid.from_orthogonal_dual_mesh(
             self, attributes=attributes, use_dual=use_dual, **kwargs
+        )
+
+    def history_builder(
+        self,
+        file_path: str,
+        output_type: str
+    ) -> history.setup.mesh.OrthogonalDualMeshHistorySetup:
+        """Get history builder for the mesh."""
+        return history.setup.mesh.OrthogonalDualMeshHistorySetup(
+            file_path, self, output_type
         )
 
 

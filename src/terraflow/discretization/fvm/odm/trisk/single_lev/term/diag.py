@@ -1,17 +1,17 @@
 import xarray as xr
 
 from terraflow.util import typing, uxarray as tux
-from terraflow.layout import Field, StaggeredFieldMetaData
-from terraflow.discretization import AbstractDiagnosticTools
-import terraflow.dynamics.shallow_water.vars.unstructure as vars
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
+from terraflow.layout import Field, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.discretization.operator import FiniteVolumeMethod
+import terraflow.dynamics.shallow_water.vars.unstructure as vars
+from terraflow.discretization.abstract import AbstractDiagnosticTools
+from terraflow.discretization.abstract import FiniteVolumeMethod
 from terraflow.dynamics.shallow_water.types import (
     ExVifShallowWaterEquationSet4UGRID
 )
-from terraflow.discretization.term.fvm.odm.trisk.single_lev.builder import (
+from terraflow.discretization.fvm.odm.trisk.single_lev.term.builder import (
     DivergenceOfMassFluxAtPrimalCell,
     NonlinearCoriolisTermAtDualEdge,
     GradientOfKineticEnergyAtDualEdge,
@@ -58,7 +58,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name=h_pc.meta.name,
                 dims=self.process_dims(h_pc.meta.dims),
-                standard_name=h_pc.meta.standard_name,
+                long_name=h_pc.meta.long_name,
                 description=h_pc.meta.description,
                 units=h_pc.meta.units,
                 hori_location=h_pc.meta.hori_location,
@@ -89,7 +89,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name=un_e.meta.name,
                 dims=self.process_dims((un_e.meta.dims)),
-                standard_name=un_e.meta.standard_name,
+                long_name=un_e.meta.long_name,
                 description=un_e.meta.description,
                 units=un_e.meta.units,
                 hori_location=un_e.meta.hori_location,
@@ -126,7 +126,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="u_pc",
                 dims=self.process_dims(("nPrimal_cell",)),
-                standard_name="Zonal velocity at primal cell center",
+                long_name="Zonal velocity at primal cell center",
                 description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
                 units="m/s",
                 hori_location="cell",
@@ -142,7 +142,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="v_pc",
                 dims=self.process_dims(("nPrimal_cell",)),
-                standard_name="Meridional velocity at primal cell center",
+                long_name="Meridional velocity at primal cell center",
                 description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
                 units="m/s",
                 hori_location="cell",
@@ -188,7 +188,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="ut_e",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tangential velocity at dual edge midpoint",
+                long_name="Tangential velocity at dual edge midpoint",
                 description="Tangential velocity at dual edge midpoint calculated from normal velocity",
                 units="m/s",
                 hori_location="edge",
@@ -225,7 +225,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="h_pe",
                 dims=self.process_dims(("nPrimal_edge",)),
-                standard_name="Thickness at primal edge midpoint",
+                long_name="Thickness at primal edge midpoint",
                 description="Thickness at primal edge midpoint calculated from thickness at primal cell center",
                 units="m",
                 hori_location="edge",
@@ -254,7 +254,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="h_pe_flux",
                 dims=self.process_dims(("nPrimal_edge",)),
-                standard_name="Thickness flux at primal edge midpoint",
+                long_name="Thickness flux at primal edge midpoint",
                 description="Thickness flux at primal edge midpoint calculated from thickness at primal cell center",
                 units="m^2/s",
                 hori_location="edge",
@@ -282,7 +282,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="rel_vor_dc",
                 dims=self.process_dims(("nDual_cell",)),
-                standard_name="Relative vorticity at dual cell center",
+                long_name="Relative vorticity at dual cell center",
                 description=(
                     "Relative vorticity at dual cell center calculated from "
                     "normal velocity at dual edge"
@@ -313,7 +313,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="abs_vor_dc",
                 dims=self.process_dims(("nDual_cell",)),
-                standard_name="Absolute vorticity at dual cell center",
+                long_name="Absolute vorticity at dual cell center",
                 description=(
                     "Absolute vorticity at dual cell center "
                     "calculated from normal velocity at dual edge"
@@ -344,7 +344,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="h_dc",
                 dims=self.process_dims(("nDual_cell",)),
-                standard_name="Thickness at dual cell center",
+                long_name="Thickness at dual cell center",
                 description=(
                     "Thickness at dual cell center calculated from "
                     "thickness at primal cell center"
@@ -380,7 +380,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="pv_dc",
                 dims=self.process_dims(("nDual_cell",)),
-                standard_name="Potential vorticity at dual cell center",
+                long_name="Potential vorticity at dual cell center",
                 description=(
                     "Potential vorticity at dual cell center calculated from "
                     "absolute vorticity and thickness at dual cell center"
@@ -401,7 +401,7 @@ class DiagnosticsTools(
     ) -> tux.UGRIDDataArray:
         fn = self.process_fn(
             self.equation.dundt.coriolis.pv_at_dual_edge,
-            in_axes=(0, 0),
+            in_axes=(0, 0, 0),
             out_axes=0
         )
         ut = self.tangent_velocity_at_edge(state).data
@@ -411,7 +411,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="pv_de",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Potential vorticity at dual edge center",
+                long_name="Potential vorticity at dual edge center",
                 description=(
                     "Potential vorticity at dual edge center calculated from "
                     "absolute vorticity and thickness at dual edge center"
@@ -441,7 +441,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="ke_pc",
                 dims=self.process_dims(("nPrimal_cell",)),
-                standard_name="Kinetic energy at primal cell center",
+                long_name="Kinetic energy at primal cell center",
                 description="Kinetic energy at primal cell center calculated from normal velocity at dual edge",
                 units="m²/s²",
                 hori_location="cell",
@@ -468,7 +468,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dhdt",
                 dims=self.process_dims(("nPrimal_cell",)),
-                standard_name="Tendency of thickness",
+                long_name="Tendency of thickness",
                 description="Tendency of thickness calculated from state variables",
                 units="m/s",
                 hori_location="cell",
@@ -495,7 +495,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dhdt_div_h",
                 dims=self.process_dims(("nPrimal_cell",)),
-                standard_name="Tendency of thickness due to divergence term",
+                long_name="Tendency of thickness due to divergence term",
                 description="Tendency of thickness due to divergence term calculated from state variables",
                 units="1/s",
                 hori_location="cell",
@@ -523,7 +523,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dundt",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity",
+                long_name="Tendency of normal velocity",
                 description="Tendency of normal velocity calculated from state variables",
                 units="m/s²",
                 hori_location="edge",
@@ -550,7 +550,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dundt_coriolis",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity due to Coriolis term",
+                long_name="Tendency of normal velocity due to Coriolis term",
                 description="Tendency of normal velocity due to Coriolis term calculated from state variables",
                 units="m/s²",
                 hori_location="edge",
@@ -577,7 +577,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dundt_grad_ke",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity due to gradient of kinetic energy term",
+                long_name="Tendency of normal velocity due to gradient of kinetic energy term",
                 description="Tendency of normal velocity due to gradient of kinetic energy term calculated from state variables",
                 units="m/s²",
                 hori_location="edge",
@@ -605,7 +605,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dundt_pgf",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity due to pressure gradient force term",
+                long_name="Tendency of normal velocity due to pressure gradient force term",
                 description="Tendency of normal velocity due to pressure gradient force term calculated from state variables",
                 units="m/s²",
                 hori_location="edge",
@@ -632,7 +632,7 @@ class DiagnosticsTools(
             meta=StaggeredFieldMetaData(
                 name="dundt_grad_term",
                 dims=self.process_dims(("nDual_edge",)),
-                standard_name="Tendency of normal velocity due to gradient term",
+                long_name="Tendency of normal velocity due to gradient term",
                 description="Tendency of normal velocity due to gradient calculated from state variables",
                 units="m/s²",
                 hori_location="edge",

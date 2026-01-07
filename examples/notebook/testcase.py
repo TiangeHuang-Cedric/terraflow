@@ -19,8 +19,8 @@ import jax.numpy as jnp
 import terraflow.util.device as device
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
@@ -42,7 +42,7 @@ para = terraflow.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.operator.FiniteVolumeMethod()
+method = terraflow.discretization.FiniteVolumeMethod()
 
 # %%
 testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
@@ -67,10 +67,17 @@ equation = terraflow.dynamics.ShallowWaterEquation.from_model(
 # %%
 equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.pv_at_dual_edge.interp.upwind(3, use_mbs=True)
+equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(5, use_mbs=True)
 
 # %%
+from terraflow.util.datetime import DateTimeManager
 import datetime
+
+time_manager = DateTimeManager(
+    start_time="0001-01-01T00:00:00",
+    end_time="0001-01-21T00:00:00",
+    save_interval="6 hours",
+)
 
 solver = terraflow.solver.ExRungeKutta3Solver(
     equation=equation,
@@ -84,8 +91,7 @@ import jax
 
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
-    start_time="0001-01-01T00:00:00",
-    end_time="0001-02-21T00:00:00",
+    time_manager=time_manager,
     start_with_input=True,
     output_fields=True,
 ))
@@ -105,7 +111,7 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-_, da = diag_tools.thickness_at_primal_cell(final).to_structured_grid(
+_, da = diag_tools.thickness_at_primal_edge(state).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -247,7 +253,7 @@ lat_np = np.asarray(da["face_lat"])
 extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
 
 img = ax.imshow(
-    da.isel(n_time=0).data,
+    da.isel(time=0).data,
     origin="lower",
     extent=extent,
     transform=ccrs.PlateCarree(),
@@ -275,8 +281,8 @@ _, ds = trajectory_uv_pc.to_structured_grid(
     remap_method="nearest_neighbor",
     with_reshaped_ds=True,
 )
-u_0 = ds["u_pc"].isel(n_time=0).data
-v_0 = ds["v_pc"].isel(n_time=0).data
+u_0 = ds["u_pc"].isel(time=0).data
+v_0 = ds["v_pc"].isel(time=0).data
 
 # Downsample the vector field to avoid shape mismatch on updates
 ny, nx = u_0.shape
@@ -299,9 +305,9 @@ qv = ax.quiver(
 
 
 def update(frame):
-    img.set_data(da.isel(n_time=frame).data)
-    u = ds["u_pc"].isel(n_time=frame).data[::stride, ::stride]
-    v = ds["v_pc"].isel(n_time=frame).data[::stride, ::stride]
+    img.set_data(da.isel(time=frame).data)
+    u = ds["u_pc"].isel(time=frame).data[::stride, ::stride]
+    v = ds["v_pc"].isel(time=frame).data[::stride, ::stride]
     qv.set_UVC(u, v)
     title.set_text(f"Trajectory Step: {frame}")
     return img, qv, title
@@ -328,7 +334,7 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-trajectory_data = trajectory_tools.pv_at_dual_cell(trajectory)
+trajectory_data = trajectory_tools.pv_at_dual_edge(trajectory)
 _, da = trajectory_data.to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
@@ -340,7 +346,7 @@ lat_np = np.asarray(da["face_lat"])
 extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
 
 img = ax.imshow(
-    da.isel(n_time=0).data,
+    da.isel(time=0).data,
     origin="lower",
     extent=extent,
     transform=ccrs.PlateCarree(),
@@ -354,7 +360,7 @@ cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
 def update(frame):
-    img.set_data(da.isel(n_time=frame).data)
+    img.set_data(da.isel(time=frame).data)
     title.set_text(f"Trajectory Step: {frame}")
     return img, title
 

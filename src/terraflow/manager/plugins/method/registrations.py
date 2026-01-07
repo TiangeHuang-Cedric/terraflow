@@ -14,7 +14,7 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    import terraflow.discretization.operator as op
+    import terraflow.discretization.abstract as op
 
     # Register method
     model.method.register(

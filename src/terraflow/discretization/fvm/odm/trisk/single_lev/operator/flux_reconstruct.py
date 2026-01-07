@@ -7,7 +7,7 @@ import equinox as eqx
 
 from terraflow.util import typing, jax_tools, math
 from terraflow.planet import PlanetParameterSet
-from terraflow.discretization.operator.abstract import AbstractOperator
+from terraflow.discretization.abstract import AbstractOperator
 from terraflow.mesh.orthogonal_dual_mesh.construct import (
     AbstractMeshEntity,
     PrimalMeshEntity,

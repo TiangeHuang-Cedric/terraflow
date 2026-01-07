@@ -14,7 +14,6 @@ from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import CoordinateSystem, AbstractLayout
 from terraflow.layout import AbstractFieldMetaData, StaggeredFieldMetaData
 from terraflow.layout import Field, QuantityField, ArrayField, FieldLike
-from terraflow.discretization.operator import AbstractDiscretizationMethod
 from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
@@ -26,10 +25,64 @@ Array = typing.Array
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
-DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
+DM = TypeVar("DM", bound="AbstractDiscretizationMethod")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
+
+
+class AbstractDiscretizationMethod(ABC):
+    """Abstract base class for operators."""
+
+    @staticmethod
+    @abstractmethod
+    def alias_name() -> str:
+        """Return the alias name of the operator."""
+        raise NotImplementedError
+
+
+class FiniteVolumeMethod(AbstractDiscretizationMethod):
+    """Finite Volume Method operator implementation."""
+
+    @staticmethod
+    def alias_name() -> str:
+        return "fvm"
+
+
+class AbstractOperator(Generic[HM, VM, LO], ABC):
+    """Abstract base class for operators."""
+
+    def __init__(
+        self,
+        coord: CoordinateSystem[HM, VM, LO],
+        para: PlanetParameterSet
+    ):
+        self._coord = coord
+        self._para = para
+
+    @property
+    def coord(self) -> CoordinateSystem[HM, VM, LO]:
+        return self._coord
+
+    @property
+    def para(self) -> PlanetParameterSet:
+        return self._para
+
+    @property
+    def mesh(self) -> HM:
+        return self.coord.mesh
+
+    @property
+    def vert(self) -> VM:
+        return self.coord.vert
+
+    @property
+    def layout(self) -> LO:
+        return self.coord.layout
+
+    @abstractmethod
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError
 
 
 class DiscretizationInfo:
@@ -403,6 +456,15 @@ class AbstractVariableSet(eqx.Module, ABC):
             variables
         )
 
+    def keys(self) -> List[str]:
+        return list(self.variables.keys())
+
+    def values(self) -> List[Any]:
+        return list(self.variables.values())
+
+    def items(self) -> List[tuple[str, Any]]:
+        return list(self.variables.items())
+
     def isel(self, index: int, axis: int) -> Self:
         """Index select along a specific dimension for all variables."""
         new_vars: Dict[str, Any] = {}
@@ -420,7 +482,8 @@ class AbstractVariableSet(eqx.Module, ABC):
     def to_netcdf(
         self,
         coord: CoordinateSystem[HM, VM, LO],
-        path: str, format="UGRID",
+        path: str,
+        format="UGRID",
         use_dual: bool = False,
         **kwargs
     ) -> None:
@@ -636,7 +699,7 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
             return self.default_fields(as_quantity=as_quantity)
         else:
             if self.is_fields():
-                return self.values()
+                return self.variables
             else:
                 raise TypeError("Variables are not stored as Fields.")
 
@@ -654,18 +717,6 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
     def varnames(self) -> List[str]:
         return list(self.variables.keys())
 
-    def keys(self) -> List[str]:
-        return list(self.variables.keys())
-
-    def values(self) -> Dict[str, FieldLike]:
-        """Return variables values."""
-        if self.is_fields():
-            return self.variables
-        else:
-            raise TypeError(
-                "Variables are not stored as Fields."
-            )
-
     def is_fields(self) -> bool:
         """Check if all stored variables are Fields."""
         return all(isinstance(v, Field) for v in self.variables.values())
@@ -677,10 +728,6 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
     def is_quantities(self) -> bool:
         """Check if all stored variables are AbstractQuantities."""
         return all(v.is_quantity() for v in self.variables.values())
-
-    def items(self) -> List[tuple[str, FieldLike]]:
-        """Return variable items as (name, value) pairs."""
-        return list(self.variables.items())
 
     def get(self, name: str, default=None) -> Any:
         return self.variables.get(name, default)
@@ -856,7 +903,7 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
             return self.default_quantities()
         else:
             if self.is_quantities():
-                return self.values()
+                return self.variables
             else:
                 raise TypeError("Variables are not stored as Quantities.")
 
@@ -870,25 +917,9 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
     def varnames(self) -> List[str]:
         return list(self.variables.keys())
 
-    def keys(self) -> List[str]:
-        return list(self.variables.keys())
-
-    def values(self) -> Dict[str, ux.AbstractQuantity]:
-        """Return variables values."""
-        if self.is_quantities():
-            return self.variables
-        else:
-            raise TypeError(
-                "Variables are not stored as Quantities."
-            )
-
     def is_quantities(self) -> bool:
         """Check if all stored variables are AbstractQuantities."""
         return all(isinstance(v, ux.AbstractQuantity) for v in self.variables.values())
-
-    def items(self) -> List[tuple[str, ux.AbstractQuantity]]:
-        """Return variable items as (name, value) pairs."""
-        return list(self.variables.items())
 
     def get(self, name: str, default=None) -> Any:
         return self.variables.get(name, default)
@@ -970,7 +1001,7 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
         existing_meta = self.existing_meta()
         for key, var in self.items():
             if isinstance(var, Field):
-                new_variables[key] = var.to_si()
+                new_variables[key] = var.to_si().to_quantity().data
                 existing_meta[key] = self._convert_meta_unit(
                     existing_meta[key], ux.unitsystems.si
                 )
@@ -1067,7 +1098,7 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
             return self.default_array_dict()
         else:
             if self.is_arrays():
-                return self.values()
+                return self.variables
             else:
                 raise TypeError("Variables are not stored as Arrays.")
 
@@ -1081,25 +1112,9 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
     def varnames(self) -> List[str]:
         return list(self.variables.keys())
 
-    def keys(self) -> List[str]:
-        return list(self.variables.keys())
-
-    def values(self) -> Dict[str, Array]:
-        """Return variables values."""
-        if self.is_arrays():
-            return self.variables
-        else:
-            raise TypeError(
-                "Variables are not stored as Arrays."
-            )
-
     def is_arrays(self) -> bool:
         """Check if all stored variables are Arrays."""
         return all(isinstance(v, Array) for v in self.variables.values())
-
-    def items(self) -> List[tuple[str, Array]]:
-        """Return variable items as (name, value) pairs."""
-        return list(self.variables.items())
 
     def get(self, name: str, default=None) -> Any:
         return self.variables.get(name, default)
@@ -1225,10 +1240,10 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES], ABC):
             dims: Original dimension tuple. The order of dimensions should be (time, vertical, horizontal...).
 
         Returns:
-            Processed dimension tuple. if trajectory is True, prepend 'nTime' to dims. Otherwise, return dims as is.
+            Processed dimension tuple. if trajectory is True, prepend 'time' to dims. Otherwise, return dims as is.
         """
         if self.trajectory:
-            return ("nTime",) + dims
+            return ("time",) + dims
         else:
             return dims
 

@@ -4,6 +4,9 @@ from typing import overload, TYPE_CHECKING, cast
 
 from terraflow.manager.registry import navigate
 
+from .abstract import AbstractOperator
+from .abstract import AbstractDiscretizationMethod
+from .abstract import FiniteVolumeMethod
 from .abstract import AbstractDiagnosticTools
 from .abstract import AbstractArrayBasedVariableSet
 from .abstract import AbstractQuantityBasedVariableSet
@@ -16,8 +19,7 @@ from .abstract import AbstractEquationForm
 from .abstract import AbstractEquationSet
 from .abstract import DiscretizationInfo
 
-from . import term
-from . import operator
+from . import fvm
 
 if TYPE_CHECKING:
     from terraflow.dynamics.shallow_water.types import ExVif_SWE_ODM_TriSKCGrid_FVM
@@ -51,7 +53,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         equation: ExVif_SWE_ODM_TriSKCGrid_FVM,
         jit: bool = False,
         trajectory: bool = False,
-    ) -> "term.fvm.odm.trisk.single_lev.diag.DiagnosticsTools":
+    ) -> "fvm.odm.trisk.single_lev.term.diag.DiagnosticsTools":
         ...
 
     @overload
@@ -76,6 +78,9 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
 
 
 __all__ = [
+    "AbstractOperator",
+    "AbstractDiscretizationMethod",
+    "FiniteVolumeMethod",
     "DiscretizationInfo",
     "AbstractEquationSet",
     "AbstractEquationForm",

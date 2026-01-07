@@ -1,4 +1,3 @@
-from ast import In
 from typing import TypeVar, Self, Protocol
 from abc import ABC
 import jax.numpy as jnp
@@ -8,12 +7,12 @@ from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.discretization.operator import FiniteVolumeMethod
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev import (
+from terraflow.discretization.abstract import FiniteVolumeMethod
+from terraflow.discretization.fvm.odm.trisk.single_lev.operator import (
     flux_reconstruct as fr,
     interp
 )
-from terraflow.discretization.operator.fvm.odm.trisk.single_lev import base
+from terraflow.discretization.fvm.odm.trisk.single_lev.operator import base
 from terraflow.discretization.abstract import DiscretizationInfo
 from terraflow.discretization.abstract import AbstractEquationTerm
 from terraflow.planet import PlanetParameterSet

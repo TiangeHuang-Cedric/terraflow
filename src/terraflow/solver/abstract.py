@@ -1,11 +1,13 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable, TypeVar, Generic, Tuple
-from typing import Literal, overload, TYPE_CHECKING
+from typing import Literal, overload, Self, TYPE_CHECKING
 import datetime
 import jax
+import jax.experimental
 
-from terraflow.util import typing, device
+from terraflow.util import typing, device, history
+from terraflow.util.datetime import DateTimeManager
 
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
@@ -16,7 +18,7 @@ if TYPE_CHECKING:
 class AbstractODE(ABC):
 
     @abstractmethod
-    def build_default(self) -> None:
+    def build_default(self) -> Self:
         raise NotImplementedError
 
 
@@ -52,6 +54,82 @@ def repeated(
         x_final, _ = scan_fn(g, x_initial, xs=None, length=steps)
         return x_final
     return f_repeated
+
+
+class HistoryMultiStepWithFieldsOutput:
+
+    def __init__(
+        self,
+        step: Callable,
+        outer_steps: int,
+        outer_scan_fn: Callable = jax.lax.scan,
+    ):
+        self.step = step
+        self.outer_steps = outer_steps
+        self.outer_scan_fn = outer_scan_fn
+
+    @overload
+    def __call__(
+        self,
+        x: swe_vars.unstructure.StateFields,
+    ) -> swe_vars.unstructure.StateFields:
+        ...
+
+    @overload
+    def __call__(
+        self,
+        x: AbstractFieldBasedVariableSet,
+    ) -> AbstractFieldBasedVariableSet:
+        ...
+
+    def __call__(
+        self,
+        x: AbstractFieldBasedVariableSet,
+    ) -> AbstractFieldBasedVariableSet:
+        """Returns a version of this MultiStep that outputs fields."""
+        time_step = 1
+        x_array = x.to_arrays()
+        return self.outer_scan_fn(
+            self.step, (x_array, time_step), xs=None, length=self.outer_steps
+        )[0]
+
+
+class HistoryMultiStepWithArrayOutput:
+
+    def __init__(
+        self,
+        step: Callable,
+        outer_steps: int,
+        outer_scan_fn: Callable = jax.lax.scan,
+    ):
+        self.step = step
+        self.outer_steps = outer_steps
+        self.outer_scan_fn = outer_scan_fn
+
+    @overload
+    def __call__(
+        self,
+        x: swe_vars.unstructure.StateFields,
+    ) -> swe_vars.unstructure.StateArrays:
+        ...
+
+    @overload
+    def __call__(
+        self,
+        x: AbstractFieldBasedVariableSet,
+    ) -> AbstractArrayBasedVariableSet:
+        ...
+
+    def __call__(
+        self,
+        x: AbstractFieldBasedVariableSet,
+    ) -> AbstractArrayBasedVariableSet:
+        """Returns a version of this MultiStep that outputs arrays."""
+        time_step = 1
+        x_array = x.to_arrays()
+        return self.outer_scan_fn(
+            self.step, (x_array, time_step), xs=None, length=self.outer_steps
+        )[0]
 
 
 class MultiStepWithFieldsOutput:
@@ -131,34 +209,46 @@ class MultiStepWithArrayOutput:
         )
 
 
-@overload
-def trajectory_from_step(
+def io_callback(
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
     *,
-    start_with_input: bool = False,
-    post_process_fn: Callable = lambda x: x,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
-    output_fields: Literal[True],
-) -> MultiStepWithFieldsOutput:
-    ...
+    output_fields: bool = True,
+    history_file: history.AbstractHistory
+) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
+    if inner_steps != 1:
+        step_fn = repeated(
+            fn=step_fn,
+            steps=inner_steps,
+            scan_fn=inner_scan_fn
+        )
+    else:
+        raise ValueError(f"Unsupported format: {format}")
 
+    def step(carry_in, _):
+        state, save_idx = carry_in
+        jax.experimental.io_callback(
+            history_file.prepare_for_advance,
+            None,
+            save_idx
+        )
+        state_out = step_fn(state)
+        jax.experimental.io_callback(
+            history_file.advance_forward_in_time,
+            None,
+            save_idx,
+            state_out,
+        )
+        new_save_idx = save_idx + 1
+        return (state_out, new_save_idx), None
 
-@overload
-def trajectory_from_step(
-    step_fn: Callable,
-    outer_steps: int,
-    inner_steps: int,
-    *,
-    start_with_input: bool = False,
-    post_process_fn: Callable = lambda x: x,
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
-    output_fields: Literal[False],
-) -> MultiStepWithArrayOutput:
-    ...
+    if output_fields:
+        return HistoryMultiStepWithFieldsOutput(step, outer_steps, outer_scan_fn)
+    else:
+        return HistoryMultiStepWithArrayOutput(step, outer_steps, outer_scan_fn)
 
 
 def trajectory_from_step(
@@ -217,13 +307,13 @@ class AbstractSolver(Generic[ODE], ABC):
         self,
         equation: ODE,
         dt: datetime.timedelta,
-        save_interval: datetime.timedelta,
+        time_manager: DateTimeManager,
         dev: device.AbstractDevice
     ):
         equation.build_default()
         self.equation = equation
+        self.time_manager = time_manager
         self.dt = dt
-        self.save_interval = save_interval
         self.dev = dev
 
     @abstractmethod
@@ -234,8 +324,7 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        start_time: datetime.datetime | str,
-        end_time: datetime.datetime | str,
+        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -249,8 +338,7 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        start_time: datetime.datetime | str,
-        end_time: datetime.datetime | str,
+        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -263,8 +351,7 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        start_time: datetime.datetime | str,
-        end_time: datetime.datetime | str,
+        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -275,17 +362,16 @@ class AbstractSolver(Generic[ODE], ABC):
         """Solve the ODE from start_time to end_time.
 
         Args:
-            start_time: Initial time.
-            end_time: Final time.
             equation: Equation to solve the ODE.
+            time_manager: DateTimeManager managing start and end times.
         """
-        if isinstance(start_time, str):
-            start_time = datetime.datetime.fromisoformat(start_time)
-        if isinstance(end_time, str):
-            end_time = datetime.datetime.fromisoformat(end_time)
+        start_time = time_manager.start_time
+        end_time = time_manager.end_time
+        save_interval = time_manager.save_interval
+        dt = self.dt
 
-        outer_steps = int((end_time - start_time) / self.save_interval)
-        inner_steps = int((self.save_interval) / self.dt)
+        outer_steps = int((end_time - start_time) / save_interval)
+        inner_steps = int((save_interval) / dt)
 
         stepper = self.stepper(equation)
 
@@ -298,6 +384,68 @@ class AbstractSolver(Generic[ODE], ABC):
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
             output_fields=output_fields,
+        )
+
+    @overload
+    def io_callback(
+        self,
+        equation: ODE,
+        time_manager: DateTimeManager,
+        history_file: history.AbstractHistory,
+        *,
+        outer_scan_fn: Callable = jax.lax.scan,
+        inner_scan_fn: Callable = jax.lax.scan,
+        output_fields: Literal[False],
+    ) -> HistoryMultiStepWithArrayOutput:
+        ...
+
+    @overload
+    def io_callback(
+        self,
+        equation: ODE,
+        time_manager: DateTimeManager,
+        history_file: history.AbstractHistory,
+        *,
+        outer_scan_fn: Callable = jax.lax.scan,
+        inner_scan_fn: Callable = jax.lax.scan,
+        output_fields: Literal[True],
+    ) -> HistoryMultiStepWithFieldsOutput:
+        ...
+
+    def io_callback(
+        self,
+        equation: ODE,
+        time_manager: DateTimeManager,
+        history_file: history.AbstractHistory,
+        *,
+        outer_scan_fn: Callable = jax.lax.scan,
+        inner_scan_fn: Callable = jax.lax.scan,
+        output_fields: bool = True,
+    ) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
+        """Solve the ODE from start_time to end_time.
+
+        Args:
+            equation: Equation to solve the ODE.
+            time_manager: DateTimeManager managing start and end times.
+        """
+        start_time = time_manager.start_time
+        end_time = time_manager.end_time
+        save_interval = time_manager.save_interval
+        dt = self.dt
+
+        outer_steps = int((end_time - start_time) / save_interval)
+        inner_steps = int((save_interval) / dt)
+
+        stepper = self.stepper(equation)
+
+        return io_callback(
+            stepper,
+            outer_steps,
+            inner_steps,
+            outer_scan_fn=outer_scan_fn,
+            inner_scan_fn=inner_scan_fn,
+            output_fields=output_fields,
+            history_file=history_file
         )
 
 

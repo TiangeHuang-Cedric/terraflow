@@ -38,13 +38,14 @@ class AbstractFieldMetaData(eqx.Module, ABC):
     """Abstract metadata for AbstractField."""
     name: str = eqx.field(static=True, default="")
     dims: tuple[str, ...] = eqx.field(static=True, default=())
-    standard_name: str = eqx.field(static=True, default="")
+    long_name: str = eqx.field(static=True, default="")
     description: str = eqx.field(static=True, default="")
     units: str = eqx.field(static=True, default="")
     hori_location: str = eqx.field(static=True, default="")
     vert_location: str = eqx.field(static=True, default="")
     basis: str = eqx.field(static=True, default="")
     output: bool = eqx.field(static=True, default=False)
+    coordinates: str = eqx.field(static=True, default="")
 
     @abstractmethod
     def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
@@ -73,13 +74,14 @@ class AbstractFieldMetaData(eqx.Module, ABC):
         return {
             "name": self.name,
             "dims": self.dims,
-            "standard_name": self.standard_name,
+            "long_name": self.long_name,
             "description": self.description,
             "units": self.units,
             "hori_location": self.hori_location,
             "vert_location": self.vert_location,
             "basis": self.basis,
             "output": self.output,
+            "coordinates": self.coordinates,
         }
 
 
@@ -100,13 +102,14 @@ class FieldMetaData(AbstractFieldMetaData):
         return type(self)(
             name=self.name,
             dims=self.dims,
-            standard_name=self.standard_name,
+            long_name=self.long_name,
             description=self.description,
             units=units,
             hori_location=self.hori_location,
             vert_location=self.vert_location,
             basis=self.basis,
             output=self.output,
+            coordinates=self.coordinates,
         )
 
     @classmethod
@@ -115,13 +118,14 @@ class FieldMetaData(AbstractFieldMetaData):
         return cls(
             name=kwargs.get("name", ""),
             dims=kwargs.get("dims", ()),
-            standard_name=kwargs.get("standard_name", ""),
+            long_name=kwargs.get("long_name", ""),
             description=kwargs.get("description", ""),
             units=kwargs.get("units", ""),
             hori_location=kwargs.get("hori_location", ""),
             vert_location=kwargs.get("vert_location", ""),
             basis=kwargs.get("basis", ""),
             output=kwargs.get("output", False),
+            coordinates=kwargs.get("coordinates", ""),
         )
 
     @classmethod
@@ -130,13 +134,14 @@ class FieldMetaData(AbstractFieldMetaData):
         return cls(
             name=meta.get("name", ""),
             dims=tuple(meta.get("dims", ())),
-            standard_name=meta.get("standard_name", ""),
+            long_name=meta.get("long_name", ""),
             description=meta.get("description", ""),
             units=meta.get("units", ""),
             hori_location=meta.get("hori_location", ""),
             vert_location=meta.get("vert_location", ""),
             basis=meta.get("basis", ""),
             output=meta.get("output", False),
+            coordinates=meta.get("coordinates", ""),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -159,13 +164,14 @@ class StaggeredFieldMetaData(FieldMetaData):
         return type(self)(
             name=self.name,
             dims=self.dims,
-            standard_name=self.standard_name,
+            long_name=self.long_name,
             description=self.description,
             units=units,
             hori_location=self.hori_location,
             vert_location=self.vert_location,
             basis=self.basis,
             output=self.output,
+            coordinates=self.coordinates,
             staggered_kind=self.staggered_kind,
             mesh_name=self.mesh_name,
         )
@@ -176,13 +182,14 @@ class StaggeredFieldMetaData(FieldMetaData):
         return cls(
             name=kwargs.get("name", ""),
             dims=kwargs.get("dims", ()),
-            standard_name=kwargs.get("standard_name", ""),
+            long_name=kwargs.get("long_name", ""),
             description=kwargs.get("description", ""),
             units=kwargs.get("units", ""),
             hori_location=kwargs.get("hori_location", ""),
             vert_location=kwargs.get("vert_location", ""),
             basis=kwargs.get("basis", ""),
             output=kwargs.get("output", False),
+            coordinates=kwargs.get("coordinates", ""),
             staggered_kind=kwargs.get("staggered_kind", ""),
             mesh_name=kwargs.get("mesh_name", ""),
         )
@@ -193,13 +200,14 @@ class StaggeredFieldMetaData(FieldMetaData):
         return cls(
             name=meta.get("name", ""),
             dims=tuple(meta.get("dims", ())),
-            standard_name=meta.get("standard_name", ""),
+            long_name=meta.get("long_name", ""),
             description=meta.get("description", ""),
             units=meta.get("units", ""),
             hori_location=meta.get("hori_location", ""),
             vert_location=meta.get("vert_location", ""),
             basis=meta.get("basis", ""),
             output=meta.get("output", False),
+            coordinates=meta.get("coordinates", ""),
             staggered_kind=meta.get("staggered_kind", ""),
             mesh_name=meta.get("mesh_name", ""),
         )

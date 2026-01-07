@@ -19,6 +19,7 @@
 
 # %%
 # %matplotlib inline
+from terraflow.dynamics import ShallowWaterVariables
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import holoviews as hv
@@ -51,7 +52,7 @@ para = terraflow.planet.PlanetParameterSet.from_si(
 )
 
 # %%
-state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(coord)
+state_cls, static_cls = ShallowWaterVariables.from_model(coord)
 
 state = state_cls.from_testcase(coord, para)
 
@@ -327,7 +328,7 @@ u_pc = xr.DataArray(
     data=u_pc,
     dims=("n_face",),
     attrs={
-        "standard_name": "u component wind",
+        "long_name": "u component wind",
         "units": "m/s",
         "mesh": "primal",
         "location": "face",
@@ -339,7 +340,7 @@ v_pc = xr.DataArray(
     data=v_pc,
     dims=("n_face",),
     attrs={
-        "standard_name": "v component wind",
+        "long_name": "v component wind",
         "units": "m/s",
         "mesh": "primal",
         "location": "face",
@@ -423,7 +424,12 @@ filled = ax.contourf(
     levels=20,
     alpha=0.7
 )
-plt.colorbar(filled, ax=ax, orientation="vertical", pad=0.04, label="Wind Speed (m/s)")
+plt.colorbar(
+    filled,
+    ax=ax,
+    orientation="vertical",
+    pad=0.04, label="Wind Speed (m/s)"
+)
 ax.streamplot(
     lon, lat, u, v,
     transform=ccrs.PlateCarree(),

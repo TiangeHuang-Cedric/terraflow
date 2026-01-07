@@ -14,7 +14,7 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    import terraflow.discretization.operator.fvm.odm.trisk.single_lev as op
+    import terraflow.discretization.fvm.odm.trisk.single_lev.operator as op
 
     # Define belong key for FVM triskC ODM operators
     belong_key = "fvm::triskC::odm::1level"

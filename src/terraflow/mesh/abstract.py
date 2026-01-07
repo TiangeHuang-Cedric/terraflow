@@ -7,6 +7,7 @@ from terraflow.util import typing, device
 
 if TYPE_CHECKING:
     from terraflow.util import uxarray as tux
+    from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
 Array = typing.Array
 
 
@@ -27,6 +28,17 @@ class AbstractMesh(eqx.Module, ABC):
     @abstractmethod
     def to_ugrid(self, **kwargs) -> tux.UGRIDGrid:
         """Convert the mesh to UGRID format Dataset."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def history_builder(
+        self,
+        file_path: str,
+        output_type: str,
+        *args,
+        **kwargs
+    ) -> AbstractMeshHistorySetup:
+        """Get history builder for the mesh."""
         raise NotImplementedError
 
 
