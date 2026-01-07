@@ -28,7 +28,7 @@ para = terraflow.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.operator.FiniteVolumeMethod()
+method = terraflow.discretization.FiniteVolumeMethod()
 
 
 testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
