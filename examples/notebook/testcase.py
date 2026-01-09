@@ -14,6 +14,18 @@
 # ---
 
 # %%
+from matplotlib.colors import BoundaryNorm
+from matplotlib import pyplot as plt
+from IPython.display import HTML
+from matplotlib import animation
+import cartopy.feature as cfeature
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import numpy as np
+import jax
+import datetime
+from terraflow.util.datetime import DateTimeManager
+import terraflow
 import jax.numpy as jnp
 
 import terraflow.util.device as device
@@ -26,7 +38,6 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-import terraflow
 
 mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
@@ -47,7 +58,8 @@ method = terraflow.discretization.FiniteVolumeMethod()
 # %%
 testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
 
-state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(coord)
+state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(
+    coord)
 
 state = state_cls.from_testcase(coord, para, case=testcase)
 
@@ -70,8 +82,6 @@ equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(5, use_mbs=True)
 
 # %%
-from terraflow.util.datetime import DateTimeManager
-import datetime
 
 time_manager = DateTimeManager(
     start_time="0001-01-01T00:00:00",
@@ -81,13 +91,12 @@ time_manager = DateTimeManager(
 
 solver = terraflow.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=60.0),                                                     
+    dt=datetime.timedelta(seconds=60.0),
     save_interval=datetime.timedelta(seconds=3600.0*6),
     dev=dev,
 )
 
 # %%
-import jax
 
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
@@ -100,16 +109,14 @@ integrate_fn = jax.jit(solver.trajectory(
 final, trajectory = integrate_fn(state)
 
 # %%
-diag_tools = terraflow.discretization.DiagnosticToolsBuilder.from_equation(equation, jit=True)
+diag_tools = terraflow.discretization.DiagnosticTools.from_equation(
+    equation, jit=True)
 
-trajectory_tools = terraflow.discretization.DiagnosticToolsBuilder.from_equation(equation, trajectory=True, jit=True)
+trajectory_tools = terraflow.discretization.DiagnosticTools.from_equation(
+    equation, trajectory=True, jit=True)
 
 # %%
 # %matplotlib inline
-import numpy as np
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 
 _, da = diag_tools.thickness_at_primal_edge(state).to_structured_grid(
     east_west_resolution=1.0,
@@ -158,11 +165,6 @@ plt.tight_layout()
 
 # %%
 # %matplotlib inline
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.colors import BoundaryNorm 
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
 
 _, ds = diag_tools.uv_at_primal_cell(final).to_structured_grid(
     east_west_resolution=1.0,
@@ -213,21 +215,20 @@ contour = ax.contour(
 # ax.add_feature(cfeature.BORDERS, linestyle=":")
 ax.set_title(f"Remapped {ds['u_pc'].attrs['name']} on Lat-Lon Grid")
 cbar = plt.colorbar(
-    img, 
-    ax=ax, 
-    orientation="horizontal", 
-    pad=0.02, 
-    shrink=0.8, 
-    aspect=30, 
+    img,
+    ax=ax,
+    orientation="horizontal",
+    pad=0.02,
+    shrink=0.8,
+    aspect=30,
     ticks=bounds
 )
 cbar.ax.tick_params(labelsize=10)
-cbar.set_label(f"{ds['u_pc'].attrs['name']} at primal cell ({ds['u_pc'].attrs['units']})")
+cbar.set_label(
+    f"{ds['u_pc'].attrs['name']} at primal cell ({ds['u_pc'].attrs['units']})")
 plt.tight_layout()
 
 # %%
-from matplotlib import animation
-from IPython.display import HTML
 
 # Increase animation embed limit (e.g., to 50 MB)
 plt.rcParams["animation.embed_limit"] = 200
@@ -263,11 +264,11 @@ img = ax.imshow(
 )
 
 cbar = plt.colorbar(
-    img, 
-    ax=ax, 
-    orientation="horizontal", 
-    pad=0.04, 
-    shrink=0.8, 
+    img,
+    ax=ax,
+    orientation="horizontal",
+    pad=0.04,
+    shrink=0.8,
     aspect=30
 )
 cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
@@ -312,15 +313,15 @@ def update(frame):
     title.set_text(f"Trajectory Step: {frame}")
     return img, qv, title
 
+
 # Cartopy axes generally do not support blitting; keep blit=False
-anim = animation.FuncAnimation(fig, update, frames=n_frames, interval=200, blit=False)
+anim = animation.FuncAnimation(
+    fig, update, frames=n_frames, interval=200, blit=False)
 anim.save("thickness_uv.gif", writer="pillow", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 
 # %%
-from matplotlib import animation
-from IPython.display import HTML
 
 # Increase animation embed limit (e.g., to 50 MB)
 plt.rcParams["animation.embed_limit"] = 200
@@ -359,23 +360,22 @@ cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
 cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
+
 def update(frame):
     img.set_data(da.isel(time=frame).data)
     title.set_text(f"Trajectory Step: {frame}")
     return img, title
 
+
 # Cartopy axes generally do not support blitting; keep blit=False
-anim = animation.FuncAnimation(fig, update, frames=n_frames, interval=200, blit=False)
+anim = animation.FuncAnimation(
+    fig, update, frames=n_frames, interval=200, blit=False)
 # anim.save(f"{da.attrs['name']}.mp4", writer="ffmpeg", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 
 # %%
 # %matplotlib inline
-import cartopy.crs as ccrs
-from matplotlib import pyplot as plt
-import cartopy.feature as cfeature
-import numpy as np
 
 _, ds = diag_tools.uv_at_primal_cell(final).to_structured_grid(
     east_west_resolution=1.0,
@@ -408,9 +408,9 @@ cbar.set_label("Wind Speed (m/s)")
 q = ax.quiver(
     lon, lat, u, v,
     transform=ccrs.PlateCarree(),
-    regrid_shape=20, # sample every 20 points, to avoid overcrowding
-    scale=500, # ajust arrow length
-    width=0.003, # ajust arrow width
+    regrid_shape=20,  # sample every 20 points, to avoid overcrowding
+    scale=500,  # ajust arrow length
+    width=0.003,  # ajust arrow width
     color="black",
 )
 plt.tight_layout()
@@ -431,7 +431,8 @@ filled = ax.contourf(
     levels=20,
     alpha=0.7
 )
-plt.colorbar(filled, ax=ax, orientation="vertical", pad=0.04, label="Wind Speed (m/s)")
+plt.colorbar(filled, ax=ax, orientation="vertical",
+             pad=0.04, label="Wind Speed (m/s)")
 ax.streamplot(
     lon, lat, u, v,
     transform=ccrs.PlateCarree(),
@@ -446,7 +447,6 @@ plt.tight_layout()
 plt.show()
 
 # %%
-import cartopy.crs as ccrs
 
 diag_tools.dundt(final).to_uxarray().plot(
     height=500,

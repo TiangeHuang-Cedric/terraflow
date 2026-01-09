@@ -44,7 +44,6 @@ class AbstractFieldMetaData(eqx.Module, ABC):
     hori_location: str = eqx.field(static=True, default="")
     vert_location: str = eqx.field(static=True, default="")
     basis: str = eqx.field(static=True, default="")
-    output: bool = eqx.field(static=True, default=False)
     coordinates: str = eqx.field(static=True, default="")
 
     @abstractmethod
@@ -80,7 +79,6 @@ class AbstractFieldMetaData(eqx.Module, ABC):
             "hori_location": self.hori_location,
             "vert_location": self.vert_location,
             "basis": self.basis,
-            "output": self.output,
             "coordinates": self.coordinates,
         }
 
@@ -108,7 +106,6 @@ class FieldMetaData(AbstractFieldMetaData):
             hori_location=self.hori_location,
             vert_location=self.vert_location,
             basis=self.basis,
-            output=self.output,
             coordinates=self.coordinates,
         )
 
@@ -124,7 +121,6 @@ class FieldMetaData(AbstractFieldMetaData):
             hori_location=kwargs.get("hori_location", ""),
             vert_location=kwargs.get("vert_location", ""),
             basis=kwargs.get("basis", ""),
-            output=kwargs.get("output", False),
             coordinates=kwargs.get("coordinates", ""),
         )
 
@@ -140,7 +136,6 @@ class FieldMetaData(AbstractFieldMetaData):
             hori_location=meta.get("hori_location", ""),
             vert_location=meta.get("vert_location", ""),
             basis=meta.get("basis", ""),
-            output=meta.get("output", False),
             coordinates=meta.get("coordinates", ""),
         )
 
@@ -170,7 +165,6 @@ class StaggeredFieldMetaData(FieldMetaData):
             hori_location=self.hori_location,
             vert_location=self.vert_location,
             basis=self.basis,
-            output=self.output,
             coordinates=self.coordinates,
             staggered_kind=self.staggered_kind,
             mesh_name=self.mesh_name,
@@ -188,7 +182,6 @@ class StaggeredFieldMetaData(FieldMetaData):
             hori_location=kwargs.get("hori_location", ""),
             vert_location=kwargs.get("vert_location", ""),
             basis=kwargs.get("basis", ""),
-            output=kwargs.get("output", False),
             coordinates=kwargs.get("coordinates", ""),
             staggered_kind=kwargs.get("staggered_kind", ""),
             mesh_name=kwargs.get("mesh_name", ""),
@@ -206,7 +199,6 @@ class StaggeredFieldMetaData(FieldMetaData):
             hori_location=meta.get("hori_location", ""),
             vert_location=meta.get("vert_location", ""),
             basis=meta.get("basis", ""),
-            output=meta.get("output", False),
             coordinates=meta.get("coordinates", ""),
             staggered_kind=meta.get("staggered_kind", ""),
             mesh_name=meta.get("mesh_name", ""),

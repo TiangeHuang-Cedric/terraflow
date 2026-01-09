@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 DIAG = TypeVar("DIAG", bound=AbstractDiagnosticTools)
 
 
-class DiagnosticToolsBuilder(Generic[DIAG]):
+class DiagnosticTools(Generic[DIAG]):
 
     @classmethod
     def select(cls, equation: AbstractEquationSet) -> Callable[..., DIAG]:
@@ -53,6 +53,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         equation: ExVif_SWE_ODM_TriSKCGrid_FVM,
         jit: bool = False,
         trajectory: bool = False,
+        **kwargs,
     ) -> "fvm.odm.trisk.single_lev.term.diag.DiagnosticsTools":
         ...
 
@@ -63,6 +64,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         equation: AbstractEquationSet,
         jit: bool = False,
         trajectory: bool = False,
+        **kwargs,
     ) -> AbstractDiagnosticTools:
         ...
 
@@ -72,9 +74,10 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         equation: AbstractEquationSet,
         jit: bool = False,
         trajectory: bool = False,
+        **kwargs,
     ) -> AbstractDiagnosticTools:
         diag_factory = cls.select(equation)
-        return diag_factory(equation, jit=jit, trajectory=trajectory)
+        return diag_factory(equation, jit=jit, trajectory=trajectory, **kwargs)
 
 
 __all__ = [
@@ -92,5 +95,5 @@ __all__ = [
     "AbstractQuantityBasedVariableSet",
     "AbstractArrayBasedVariableSet",
     "AbstractDiagnosticTools",
-    "DiagnosticToolsBuilder",
+    "DiagnosticTools",
 ]

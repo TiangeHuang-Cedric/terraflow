@@ -1,3 +1,4 @@
+from terraflow.discretization import DiagnosticTools
 import jax
 import datetime
 import jax.numpy as jnp
@@ -47,11 +48,6 @@ time_manager = DateTimeManager(
     save_interval="6 hours",
 )
 
-h0 = history.UGRIDHistory(
-    coord=coord,
-    time_manager=time_manager,
-    file_path="terraflow.nc",
-).setup(state, static)
 
 equation = terraflow.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
@@ -62,10 +58,21 @@ equation = terraflow.dynamics.ShallowWaterEquation.from_model(
     ode_kind="explicit",
 )
 
-
 equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(3, use_mbs=True)
+
+
+diag_tool = DiagnosticTools.from_equation(
+    equation=equation, jit=True
+)
+
+h0 = history.Unstructured2StructuredHistory(
+    coord=coord,
+    time_manager=time_manager,
+    file_path="terraflow.nc",
+    diag_tool=diag_tool,
+).setup(state, static)
 
 
 solver = terraflow.solver.ExRungeKutta3Solver(

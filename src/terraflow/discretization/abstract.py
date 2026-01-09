@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Generic, LiteralString, Mapping, TypeVar, Type, overload, Tuple
 from typing import Optional, Union, List, Dict, Self, cast, Literal, Any, Sequence
+from cycler import V
 import equinox as eqx
 import unxt as ux
 import jax
@@ -29,6 +30,7 @@ DM = TypeVar("DM", bound="AbstractDiscretizationMethod")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
+VARSET = TypeVar("VARSET", bound="AbstractVariableSet")
 
 
 class AbstractDiscretizationMethod(ABC):
@@ -1222,12 +1224,136 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
         return quantity_cls(variables=new_variables, meta=existing_meta)
 
 
-class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES], ABC):
+class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
+    variables: Dict[str, FieldLike] = eqx.field()
+
+    def __init__(self, variables: Dict[str, FieldLike] = {}):
+        # Use object.__setattr__ to bypass equinox checks
+        # This avoids warnings while maintaining static field performance benefits
+        object.__setattr__(self, 'variables', variables)
+
+    def copy(self) -> Self:
+        return type(self)(
+            variables=self.variables.copy()
+        )
+
+    @overload
+    def existing_values(
+        self,
+        as_quantity: Literal[True]
+    ) -> Dict[str, QuantityField[FMT]]:
+        ...
+
+    @overload
+    def existing_values(
+        self,
+        as_quantity: Literal[False]
+    ) -> Dict[str, ArrayField[FMT]]:
+        ...
+
+    def existing_values(
+        self,
+        as_quantity: bool = False
+    ) -> Mapping[str, FieldLike]:
+        """Return existing variables."""
+        if getattr(self, "variables", None) is None:
+            raise ValueError(
+                "No variables stored, cannot retrieve existing values."
+            )
+        else:
+            if self.is_fields():
+                return self.variables
+            else:
+                raise TypeError("Variables are not stored as Fields.")
+
+    def existing_meta(self) -> Dict[str, FMT]:
+        """Return metadata of existing variables."""
+        if getattr(self, "variables", None) is None:
+            raise ValueError("No variables stored, cannot retrieve metadata.")
+        else:
+            meta: Dict[str, FMT] = {}
+            for key, var in self.variables.items():
+                if isinstance(var, Field):
+                    meta[key] = var.meta
+        return meta
+
+    def varnames(self) -> List[str]:
+        return list(self.variables.keys())
+
+    def is_fields(self) -> bool:
+        """Check if all stored variables are Fields."""
+        return all(isinstance(v, Field) for v in self.variables.values())
+
+    def is_arrays(self) -> bool:
+        """Check if all stored variables are Arrays."""
+        return all(v.is_array() for v in self.variables.values())
+
+    def is_quantities(self) -> bool:
+        """Check if all stored variables are AbstractQuantities."""
+        return all(v.is_quantity() for v in self.variables.values())
+
+    def get(self, name: str, default=None) -> Any:
+        return self.variables.get(name, default)
+
+    def unwrap(self) -> Mapping[str, Union[Array, ux.AbstractQuantity]]:
+        vars: Dict[str, Union[Array, ux.AbstractQuantity]] = {}
+        for key, var in self.items():
+            if isinstance(var, Field):
+                vars[key] = var.unwrap()
+            else:
+                vars[key] = var
+        if all(isinstance(v, Array) for v in vars.values()):
+            return cast(Dict[str, Array], vars)
+        elif all(isinstance(v, ux.AbstractQuantity) for v in vars.values()):
+            return cast(Dict[str, ux.AbstractQuantity], vars)
+        else:
+            raise TypeError(
+                "Incompatible variable types after unwrapping; "
+                "neither all Arrays nor all AbstractQuantities."
+            )
+
+    @classmethod
+    def wrap(cls, vars_dict: Dict[str, FieldLike]) -> Self:
+        if all(isinstance(v, Field) for v in vars_dict.values()):
+            vars_dict = cast(Dict[str, FieldLike], vars_dict)
+        else:
+            raise TypeError(
+                "Incompatible variable types for wrapping, must be Fields"
+            )
+        return cls(variables=vars_dict)
+
+    def is_staggered_fields(self) -> bool:
+        """Check if all stored variables are staggered Fields."""
+        return all(
+            isinstance(v.meta, StaggeredFieldMetaData)
+            for v in self.variables.values()
+        )
+
+    def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
+        """Get the meta needed for UGRID NetCDF Format"""
+        if not self.is_staggered_fields():
+            raise TypeError(
+                "Variables are not all staggered Fields, cannot convert to UGRID format."
+            )
+        var_ds: Dict[str, xr.DataArray] = {}
+        for key, var in self.variables.items():
+            var_ds[key] = tuxr.format_terraflow2ugrid(
+                var.data, var.meta.to_dict(), use_dual=use_dual
+            )
+        return xr.Dataset(data_vars=var_ds)
+
+
+class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, VARSET, FMT], ABC):
 
     def __init__(self, equation: ES, jit: bool = False, trajectory: bool = False):
         self._equation = equation
         self.jit = jit
         self.trajectory = trajectory
+
+    @abstractmethod
+    def compute(self, states: VARSET) -> DiagnosticVariableSet[FMT]:
+        """Compute diagnostic variables based on the input state."""
+        raise NotImplementedError
 
     def process_dims(
         self,

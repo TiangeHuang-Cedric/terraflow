@@ -1,4 +1,4 @@
-from typing import TypeVar, Self
+from typing import TypeVar, Self, Optional
 from abc import ABC, abstractmethod
 import netCDF4 as nc4
 import numpy as np
@@ -12,10 +12,12 @@ from terraflow import mesh
 from terraflow import vert_coord
 from terraflow import layout
 from terraflow.layout.abstract import CoordinateSystem
+from terraflow.discretization.abstract import DiagnosticVariableSet
 from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
 from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
 from terraflow.discretization.abstract import AbstractQuantityBasedVariableSet
 from terraflow.discretization.abstract import AbstractVariableSet
+from terraflow.discretization.abstract import AbstractDiagnosticTools
 
 logger.remove()
 
@@ -54,12 +56,14 @@ class AbstractHistory(ABC):
     file_path: str
     time_manager: DateTimeManager
     _built: bool
+    diag_tool: Optional[AbstractDiagnosticTools]
 
     @abstractmethod
     def __init__(
         self,
         time_manager: DateTimeManager,
         file_path: str = "terraflow.nc",
+        diag_tool: Optional[AbstractDiagnosticTools] = None,
     ) -> None:
         ds = nc4.Dataset(file_path, mode="w", format="NETCDF4")
         ds.sync()
@@ -67,10 +71,14 @@ class AbstractHistory(ABC):
         self.file_path = file_path
         self.time_manager = time_manager
         self._built = False
+        self.diag_tool = diag_tool
 
     @abstractmethod
     def setup(self, *args, **kwargs) -> Self:
         raise NotImplementedError
+
+    def has_diag_output(self) -> bool:
+        return self.diag_tool is not None
 
     def has_built(self) -> bool:
         return self._built
@@ -98,11 +106,14 @@ class AbstractHistory(ABC):
         time_var[current_length] = interval
         ds.close()
         self.write_vars(fields)
+        if self.diag_tool is not None:
+            diag = self.diag_tool.compute(fields)
+            self.write_vars(diag)
         self.log_done_write()
         return None
 
     def write_vars(self, fields: AbstractVariableSet) -> None:
-        if isinstance(fields, AbstractFieldBasedVariableSet):
+        if isinstance(fields, AbstractFieldBasedVariableSet | DiagnosticVariableSet):
             self._write_fields(fields)
         elif isinstance(fields, AbstractArrayBasedVariableSet):
             self._write_arrays(fields)
@@ -110,7 +121,10 @@ class AbstractHistory(ABC):
             self._write_quantities(fields)
         return None
 
-    def _write_fields(self, fields: AbstractFieldBasedVariableSet) -> None:
+    def _write_fields(
+        self,
+        fields: AbstractFieldBasedVariableSet | DiagnosticVariableSet
+    ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         for field_name in fields.keys():
@@ -148,6 +162,7 @@ class AbstractHistory(ABC):
 class UGRIDHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
+    diag_tool: Optional[AbstractDiagnosticTools]
     use_dual: bool
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
@@ -160,9 +175,14 @@ class UGRIDHistory(AbstractHistory):
         coord: CoordinateSystem[HM, VM, LO],
         time_manager: DateTimeManager,
         file_path: str = "terraflow.nc",
+        diag_tool: Optional[AbstractDiagnosticTools] = None,
         use_dual: bool = False,
     ) -> None:
-        super().__init__(time_manager=time_manager, file_path=file_path)
+        super().__init__(
+            time_manager=time_manager,
+            file_path=file_path,
+            diag_tool=diag_tool
+        )
         self.use_dual = use_dual
         self.attr = st.base.GlobalAttributesSetup(file_path)
         self.time = st.base.TimeSetup(
@@ -192,9 +212,16 @@ class UGRIDHistory(AbstractHistory):
            self.mesh.has_built() and self.vert.has_built():
             self.add_fields(state)
             self.add_fields(static)
+            if self.diag_tool is not None:
+                diag = self.diag_tool.compute(state)
+                self.add_fields(diag)
+            else:
+                diag = None
             self.prepare_for_advance(0)
             self.write_vars(state)
             self.write_vars(static)
+            if diag is not None:
+                self.write_vars(diag)
             self.log_done_write()
             self._built = True
         return self
@@ -221,6 +248,7 @@ class UGRIDHistory(AbstractHistory):
 class UnstructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
+    diag: Optional[AbstractDiagnosticTools]
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
     mesh: st.mesh.AbstractMeshHistorySetup
@@ -231,9 +259,14 @@ class UnstructuredHistory(AbstractHistory):
         self,
         coord: CoordinateSystem[UM, VM, LO],
         time_manager: DateTimeManager,
-        file_path: str = "terraflow.nc"
+        file_path: str = "terraflow.nc",
+        diag_tool: Optional[AbstractDiagnosticTools] = None,
     ) -> None:
-        super().__init__(time_manager=time_manager, file_path=file_path)
+        super().__init__(
+            time_manager=time_manager,
+            file_path=file_path,
+            diag_tool=diag_tool
+        )
         self.attr = st.base.GlobalAttributesSetup(file_path)
         self.time = st.base.TimeSetup(
             file_path=file_path,
@@ -248,7 +281,7 @@ class UnstructuredHistory(AbstractHistory):
     def setup(
         self,
         state: AbstractVariableSet,
-        static: AbstractVariableSet,
+        static: AbstractVariableSet
     ) -> Self:
         if self.has_built():
             return self
@@ -264,9 +297,16 @@ class UnstructuredHistory(AbstractHistory):
            self.mesh.has_built() and self.vert.has_built():
             self.add_fields(state)
             self.add_fields(static)
+            if self.diag_tool is not None:
+                diag = self.diag_tool.compute(state)
+                self.add_fields(diag)
+            else:
+                diag = None
             self.prepare_for_advance(0)
             self.write_vars(state)
             self.write_vars(static)
+            if diag is not None:
+                self.write_vars(diag)
             self.log_done_write()
             self._built = True
         return self
@@ -290,6 +330,7 @@ class UnstructuredHistory(AbstractHistory):
 class Unstructured2StructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
+    diag_tool: Optional[AbstractDiagnosticTools]
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
     mesh: st.mesh.AbstractMeshHistorySetup
@@ -310,6 +351,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         coord: CoordinateSystem[UM, VM, LO],
         time_manager: DateTimeManager,
         file_path: str = "terraflow.nc",
+        diag_tool: Optional[AbstractDiagnosticTools] = None,
         remap_method: str = "nearest_neighbor",
         remap_to: str = "faces",
         lon_west: float = -180,
@@ -319,7 +361,11 @@ class Unstructured2StructuredHistory(AbstractHistory):
         east_west_resolution: float = 1.0,
         south_north_resolution: float = 1.0,
     ) -> None:
-        super().__init__(time_manager=time_manager, file_path=file_path)
+        super().__init__(
+            time_manager=time_manager,
+            file_path=file_path,
+            diag_tool=diag_tool
+        )
         self.attr = st.base.GlobalAttributesSetup(file_path)
         self.time = st.base.TimeSetup(
             file_path=file_path,
@@ -368,9 +414,16 @@ class Unstructured2StructuredHistory(AbstractHistory):
            self.mesh.has_built() and self.vert.has_built():
             self.add_fields(state)
             self.add_fields(static)
+            if self.diag_tool is not None:
+                diag = self.diag_tool.compute(state)
+                self.add_fields(diag)
+            else:
+                diag = None
             self.prepare_for_advance(0)
             self.write_vars(state)
             self.write_vars(static)
+            if diag is not None:
+                self.write_vars(diag)
             self.log_done_write()
             self._built = True
         return self
