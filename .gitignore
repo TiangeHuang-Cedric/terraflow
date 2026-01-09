@@ -16,6 +16,7 @@ uv.lock
 
 # IDE settings
 .vscode/
+.VSCodeCounter/
 .idea/
 
 # Jupyter Notebook checkpoints and ipynb files
