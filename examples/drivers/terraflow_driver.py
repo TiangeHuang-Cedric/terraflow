@@ -1,11 +1,11 @@
-from terraflow.discretization import DiagnosticTools
 import jax
 import datetime
 import jax.numpy as jnp
-import terraflow
+import terraflow as tf
 from terraflow.util.datetime import DateTimeManager
 import terraflow.util.history as history
 import terraflow.util.device as device
+from terraflow.discretization import DiagnosticTools
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
@@ -15,27 +15,25 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 
-mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = terraflow.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
 
-para = terraflow.planet.PlanetParameterSet.from_si(
+para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.FiniteVolumeMethod()
+method = tf.discretization.FiniteVolumeMethod()
 
+testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
-
-state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(
-    coord)
+state_cls, static_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
 state = state_cls.from_testcase(coord, para, case=testcase)
 
@@ -49,7 +47,7 @@ time_manager = DateTimeManager(
 )
 
 
-equation = terraflow.dynamics.ShallowWaterEquation.from_model(
+equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
     method=method,
@@ -67,7 +65,7 @@ diag_tool = DiagnosticTools.from_equation(
     equation=equation, jit=True
 )
 
-h0 = history.Unstructured2StructuredHistory(
+h0 = history.UnstructuredHistory(
     coord=coord,
     time_manager=time_manager,
     file_path="terraflow.nc",
@@ -75,7 +73,7 @@ h0 = history.Unstructured2StructuredHistory(
 ).setup(state, static)
 
 
-solver = terraflow.solver.ExRungeKutta3Solver(
+solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     dt=datetime.timedelta(seconds=120.0),
     save_interval=datetime.timedelta(seconds=3600.0*6),
