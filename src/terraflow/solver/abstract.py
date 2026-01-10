@@ -324,7 +324,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -338,7 +337,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -351,7 +349,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def trajectory(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -365,9 +362,9 @@ class AbstractSolver(Generic[ODE], ABC):
             equation: Equation to solve the ODE.
             time_manager: DateTimeManager managing start and end times.
         """
-        start_time = time_manager.start_time
-        end_time = time_manager.end_time
-        save_interval = time_manager.save_interval
+        start_time = self.time_manager.start_time
+        end_time = self.time_manager.end_time
+        save_interval = self.time_manager.save_interval
         dt = self.dt
 
         outer_steps = int((end_time - start_time) / save_interval)
@@ -390,7 +387,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def io_callback(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         history_file: history.AbstractHistory,
         *,
         outer_scan_fn: Callable = jax.lax.scan,
@@ -403,7 +399,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def io_callback(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         history_file: history.AbstractHistory,
         *,
         outer_scan_fn: Callable = jax.lax.scan,
@@ -415,7 +410,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def io_callback(
         self,
         equation: ODE,
-        time_manager: DateTimeManager,
         history_file: history.AbstractHistory,
         *,
         outer_scan_fn: Callable = jax.lax.scan,
@@ -428,9 +422,9 @@ class AbstractSolver(Generic[ODE], ABC):
             equation: Equation to solve the ODE.
             time_manager: DateTimeManager managing start and end times.
         """
-        start_time = time_manager.start_time
-        end_time = time_manager.end_time
-        save_interval = time_manager.save_interval
+        start_time = self.time_manager.start_time
+        end_time = self.time_manager.end_time
+        save_interval = self.time_manager.save_interval
         dt = self.dt
 
         outer_steps = int((end_time - start_time) / save_interval)

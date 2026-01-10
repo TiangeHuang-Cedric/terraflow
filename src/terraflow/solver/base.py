@@ -4,6 +4,7 @@ import tree_math
 import jax.numpy as jnp
 
 from terraflow.util import typing, device
+from terraflow.util.datetime import DateTimeManager
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
 
@@ -24,10 +25,10 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         self,
         equation: AbstractExplicitODE,
         dt: datetime.timedelta,
-        save_interval: datetime.timedelta,
+        time_manager: DateTimeManager,
         dev: device.AbstractDevice
     ):
-        super().__init__(equation, dt, save_interval, dev)
+        super().__init__(equation, dt, time_manager, dev)
         self.nrk = 3
         self.dt_rk = [dt / (self.nrk - irk) for irk in range(self.nrk)]
         self.dt_rk_seconds = jnp.asarray(

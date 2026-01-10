@@ -82,7 +82,6 @@ equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
 equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(5, use_mbs=True)
 
 # %%
-
 time_manager = DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-21T00:00:00",
@@ -92,7 +91,7 @@ time_manager = DateTimeManager(
 solver = terraflow.solver.ExRungeKutta3Solver(
     equation=equation,
     dt=datetime.timedelta(seconds=60.0),
-    save_interval=datetime.timedelta(seconds=3600.0*6),
+    time_manager=time_manager,
     dev=dev,
 )
 
@@ -100,13 +99,15 @@ solver = terraflow.solver.ExRungeKutta3Solver(
 
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
-    time_manager=time_manager,
     start_with_input=True,
     output_fields=True,
 ))
 
 # %%
 final, trajectory = integrate_fn(state)
+
+jax.block_until_ready(final)
+jax.block_until_ready(trajectory)
 
 # %%
 diag_tools = terraflow.discretization.DiagnosticTools.from_equation(

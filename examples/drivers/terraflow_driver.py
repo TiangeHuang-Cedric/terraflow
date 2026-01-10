@@ -1,4 +1,6 @@
+from loguru import logger
 import jax
+import time
 import datetime
 import jax.numpy as jnp
 import terraflow as tf
@@ -8,8 +10,8 @@ import terraflow.util.device as device
 from terraflow.discretization import DiagnosticTools
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
@@ -75,18 +77,21 @@ h0 = history.UnstructuredHistory(
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=120.0),
-    save_interval=datetime.timedelta(seconds=3600.0*6),
+    dt=datetime.timedelta(seconds=300.0),
+    time_manager=time_manager,
     dev=dev,
 )
 
 
 integrate_fn = jax.jit(solver.io_callback(
     equation=equation,
-    time_manager=time_manager,
     history_file=h0,
     output_fields=True,
 ))
 
-
-final = integrate_fn(state)
+logger.info("Start integrating...")
+t0 = time.perf_counter()
+final, _ = integrate_fn(state)
+jax.block_until_ready(final)
+t1 = time.perf_counter()
+logger.success(f"Integration took {t1 - t0} seconds.")

@@ -168,13 +168,22 @@ def calc_trsk_weight(
                     return jnp.sum(riv * mask3)
 
                 riv_sum = lax.cond(
-                    iep > iee, condition_greater, lambda _: 0.0, None
+                    iep > iee,
+                    condition_greater,
+                    lambda _: jnp.array(0.0, dtype=dtype),
+                    None
                 )
                 riv_sum = lax.cond(
-                    iep < iee, condition_less, lambda _: riv_sum, None
+                    iep < iee,
+                    condition_less,
+                    lambda _: riv_sum,
+                    None
                 )
                 riv_sum = lax.cond(
-                    iep == iee, condition_equal, lambda _: riv_sum, None
+                    iep == iee,
+                    condition_equal,
+                    lambda _: riv_sum,
+                    None
                 )
                 nei = plg.nr[ic, iep]
                 # --------------------------------------------------------------
@@ -227,7 +236,7 @@ def calc_trsk_weight(
                 )
 
                 def is_iee_equal_iep(_):
-                    return 0.0
+                    return jnp.array(0.0, dtype=dtype)
 
                 def is_iee_not_equal_iep(_):
                     return (riv_sum - alpha) * signator
