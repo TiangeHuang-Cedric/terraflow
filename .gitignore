@@ -2,8 +2,8 @@
 poetry.lock
 poetry.toml
 
-# uv lock file
-uv.lock
+# pixi lock file
+pixi.lock
 
 # Python version file
 .python-version
@@ -12,7 +12,7 @@ uv.lock
 .envrc
 
 # virtual environment folder
-.venv/
+.pixi/
 
 # IDE settings
 .vscode/
@@ -32,3 +32,6 @@ dist/
 
 # mypy cache
 .mypy_cache/
+
+# egg info
+src/terraflow.egg-info/

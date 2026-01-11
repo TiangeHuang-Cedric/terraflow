@@ -46,42 +46,58 @@ method = terraflow.discretization.FiniteVolumeMethod()
 
 # %%
 import holoviews as hv
+import cartopy.crs as ccrs
 
 from terraflow.discretization.fvm.odm.trisk.single_lev.operator.flux_reconstruct import (
     tr_stencil_member_list_4th_order_mbs
 )
 
-hv.extension("bokeh")  # make sure Holoviews renders in the notebook
-
+hv.extension("matplotlib")  # matplotlib backend so we can use cartopy projections
+cell = 800  # face index to inspect
 uxgrid = mesh.to_ugrid(use_dual=True).to_uxgrid()
 _, stencil_idxes = tr_stencil_member_list_4th_order_mbs(mesh.dual)
-cell = 800  # face index to inspect
 
 member_faces = stencil_idxes[cell, :]
 member_faces = member_faces[member_faces >= 0]  # ignore padded entries
 face_lon_center = uxgrid.face_lon.isel(n_face=cell).values
 face_lat_center = uxgrid.face_lat.isel(n_face=cell).values
+
+# projections
+src_crs = ccrs.PlateCarree()           # data lon/lat
+map_crs = ccrs.Orthographic(
+    central_longitude=float(face_lon_center), 
+    central_latitude=float(face_lat_center)
+) # target map projection
+
 face_lon = uxgrid.face_lon.isel(n_face=member_faces).values
 face_lat = uxgrid.face_lat.isel(n_face=member_faces).values
 
+# project lon/lat into the target map projection for matplotlib backend
+projected = map_crs.transform_points(src_crs, face_lon, face_lat)
+x_proj = projected[:, 0]
+y_proj = projected[:, 1]
+
 points = hv.Points(
     {
-        "lon": face_lon,
-        "lat": face_lat,
+        "x": x_proj,
+        "y": y_proj,
         "member": member_faces,
     },
-    kdims=["lon", "lat"],
+    kdims=["x", "y"],
     vdims=["member"],
 ).opts(
     color="member",
     cmap="viridis",
-    size=5,
-    marker="circle",
-    line_color="black",
-    tools=["hover"],  # inspect member ordering
+    projection=map_crs,  # set axes projection
+    s=30,                # marker size for matplotlib backend
+    marker="o",
+    edgecolor="black",
 )
 
-uxgrid.plot(
+base = uxgrid.plot(
+    projection=map_crs,
     height=500,
     width=1000,
-) * points
+)
+
+base * points

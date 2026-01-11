@@ -11,7 +11,7 @@
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
-#     name: terraflow
+#     name: terraflow-dev
 # ---
 
 # %% [markdown]
@@ -90,15 +90,17 @@ ugrid_ds.uxds
 ugrid_ds.uxgrid.plot(
     height=500,
     width=1000,
+    backend="matplotlib",
 )
 
 # %%
 ugrid_ds.uxgrid.plot(
     projection=ccrs.Orthographic(central_latitude=0, central_longitude=0),
-    line_width=0.5,
+    linewidth=0.5,
     title="Spherical voronoi Triangulation",
     height=500,
     width=1000,
+    backend="matplotlib",
 )
 
 # %% [markdown]
