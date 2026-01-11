@@ -236,11 +236,16 @@ def io_callback(
             save_idx
         )
         state_out = step_fn(state)
+        if history_file.diag_tool is not None:
+            diag = history_file.diag_tool.compute(state_out)
+        else:
+            diag = None
         jax.experimental.io_callback(
             history_file.advance_forward_in_time,
             None,
             save_idx,
             state_out,
+            diag
         )
         new_save_idx = save_idx + 1
         return (state_out, new_save_idx), None

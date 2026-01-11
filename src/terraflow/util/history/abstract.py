@@ -97,7 +97,8 @@ class AbstractHistory(ABC):
     def advance_forward_in_time(
         self,
         save_interval_idx: int,
-        fields: AbstractVariableSet
+        fields: AbstractVariableSet,
+        diag: Optional[AbstractVariableSet] = None
     ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         time_var = ds.variables["time"]
@@ -106,8 +107,7 @@ class AbstractHistory(ABC):
         time_var[current_length] = interval
         ds.close()
         self.write_vars(fields)
-        if self.diag_tool is not None:
-            diag = self.diag_tool.compute(fields)
+        if diag is not None:
             self.write_vars(diag)
         self.log_done_write()
         return None
