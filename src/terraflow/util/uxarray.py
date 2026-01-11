@@ -462,10 +462,11 @@ class FaceConvention(AbstractElementConvention):
             z=face_z
         )
         self.face_dimension = f"n_face"
+        dims = (f"n_face",)
         self.n_nodes_per_face = {
             f"n_nodes_per_face": xr.DataArray(
                 data=np.asarray(n_nodes_per_face),
-                dims=(f"n{header}_face",),
+                dims=dims,
                 attrs=dict(
                     long_name=f"Maximum number of nodes for each face in {header} mesh",
                 )
