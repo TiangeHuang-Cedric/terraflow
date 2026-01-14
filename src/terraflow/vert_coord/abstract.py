@@ -56,7 +56,7 @@ class AbstractMultiLayerVertCoordinate(AbstractVertCoordinate):
     pass
 
 
-class LorenzCoordinate(AbstractMultiLayerVertCoordinate):
+class AbstractLorenzCoordinate(AbstractMultiLayerVertCoordinate):
     """
     LorenzCoordinate represents a vertical coordinate system following the Lorenz staggering.
     """

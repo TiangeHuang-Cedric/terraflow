@@ -3,7 +3,7 @@ import jax.numpy as jnp
 
 from terraflow.util import typing
 from terraflow.vert_coord import AbstractVertCoordinate
-from terraflow.vert_coord import LorenzCoordinate
+from terraflow.vert_coord import AbstractLorenzCoordinate
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.layout.abstract import AbstractCGridStaggeringLayout
 from terraflow.layout.abstract import Basis, MeshEntity, VertLoc
@@ -70,7 +70,7 @@ class TriSKBasedCGridStaggeringLayout(
                 "Unsupported combination of horizontal location"
                 f"{hori_loc} and basis {basis} for trisk layout"
             )
-        if isinstance(coord.vert, LorenzCoordinate):
+        if isinstance(coord.vert, AbstractLorenzCoordinate):
             if vert_loc == VertLoc.FullLev:
                 vert_point = coord.vert.get_full_lev()
             elif vert_loc == VertLoc.HalfLev:
