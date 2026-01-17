@@ -1439,7 +1439,12 @@ def format_terraflow2ugrid(
     location = "node" if location == "cell" and mesh_name == "dual" else location
     if len(meta["dims"]) == 1:
         dims = (f"n_{location}",)
+        if len(var.shape) == 2:
+            var = var.squeeze()
     elif len(meta["dims"]) == 2:
+        # Only squeeze level dimension
+        if meta["dims"][0] == "time" and len(var.shape) == 3:
+            var = var.squeeze(axis=1)
         dims = (meta["dims"][0], f"n_{location}")
     elif len(meta["dims"]) == 3:
         dims = (

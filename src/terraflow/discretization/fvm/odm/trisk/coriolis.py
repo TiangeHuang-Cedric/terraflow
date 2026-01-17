@@ -1,11 +1,14 @@
-from typing import Optional
+from typing import TypeVar
 from jax import numpy as jnp
 from jax import lax, debug
+import jax
 
 from terraflow.util import typing
-from terraflow.discretization.abstract import AbstractOperator
+from terraflow.planet import PlanetParameterSet
+from terraflow.operator import FiniteVolumeMethodOperator
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.abstract import OneLayerVertCoordinate
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.abstract import CoordinateSystem
 
@@ -13,93 +16,28 @@ Int = typing.Int
 Float = typing.Float
 Array = typing.Array
 
-FVM_Op_ODM_OneLev_TriSK = AbstractOperator[
+VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+
+FVM_ODM_TriSK = FiniteVolumeMethodOperator[
     OrthogonalDualMesh,
-    OneLayerVertCoordinate,
+    VM,
     TriSKBasedCGridStaggeringLayout
 ]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
-    OneLayerVertCoordinate,
+    VM,
     TriSKBasedCGridStaggeringLayout
 ]
 
 
-class InterpWeightedAddEdp2Plg(FVM_Op_ODM_OneLev_TriSK):
-    """Interpolation from primal edge to primal cell."""
+class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
 
-    def __call__(
+    def __init__(
         self,
-        x_at_primal_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nPrimal_cell"]:
-        plg_ed = self.mesh.primal.cell.edges  # (nplg, maxnnb)
-        plg_area = self.mesh.primal.cell.area  # (nplg,)
-        edp_length = self.mesh.primal.edge.length  # (nedg,)
-        edd_length = self.mesh.dual.edge.length  # (nedg,)
-        ed_idx = plg_ed  # (nplg, maxnnb)
-        Ae = edp_length[ed_idx] * edd_length[ed_idx] / 2.0
-        x_tile = x_at_primal_edge[ed_idx]
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(Ae * x_tile, axis=-1) / plg_area
-
-
-class InterpWeightedAddEdd2Dua(FVM_Op_ODM_OneLev_TriSK):
-    """Interpolation from dual edge to dual cell."""
-
-    def __call__(
-        self,
-        x_at_dual_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nDual_cell"]:
-        dua_ed = self.mesh.dual.cell.edges  # (ndual, maxnnb)
-        dua_area = self.mesh.dual.cell.area  # (ndual,)
-        edp_length = self.mesh.primal.edge.length  # (nedg,)
-        edd_length = self.mesh.dual.edge.length  # (nedg,)
-        ed_idx = dua_ed  # (ndual, maxnnb)
-        Ae = edd_length[ed_idx] * edp_length[ed_idx] / 2.0
-        x_tile = x_at_dual_edge[ed_idx]
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(Ae * x_tile, axis=-1) / dua_area
-
-
-class InterpWeightedAddPlg2Dua(FVM_Op_ODM_OneLev_TriSK):
-    """Interpolation from primal cell to dual cell."""
-
-    def __call__(
-        self,
-        x_at_primal_cell: Float[Array, "nPrimal_cell"],
-    ) -> Float[Array, "nDual_cell"]:
-        dua_v = self.mesh.dual.cell.nodes  # (ndual, maxnnb)
-        dua_kite_area = self.mesh.dual.cell.kite_area  # (ndual, maxnnb)
-        dua_area = self.mesh.dual.cell.area  # (ndual,)
-        plg_idx = dua_v  # (ndual, maxnnb)
-        x_tile = x_at_primal_cell[plg_idx]  # (ndual, maxnnb)
-        x_tile = jnp.where(plg_idx < 0, 0.0, x_tile)  # (ndual, maxnnb)
-        Adv = dua_kite_area
-        return jnp.sum(Adv * x_tile, axis=-1) / dua_area
-
-
-class InterpWeightedAddDua2Plg(FVM_Op_ODM_OneLev_TriSK):
-    """Interpolation from dual cell to primal cell."""
-
-    def __call__(
-        self,
-        x_at_dual_cell: Float[Array, "nDual_cell"],
-    ) -> Float[Array, "nPrimal_cell"]:
-        plg_v = self.mesh.primal.cell.nodes  # (nplg, maxnnb)
-        plg_kite_area = self.mesh.primal.cell.kite_area  # (nplg, maxnnb)
-        plg_area = self.mesh.primal.cell.area  # (nplg,)
-        dua_idx = plg_v  # (nplg, maxnnb)
-        x_tile = x_at_dual_cell[dua_idx]  # (nplg, maxnnb)
-        x_tile = jnp.where(dua_idx < 0, 0.0, x_tile)  # (nplg, maxnnb)
-        Adv = plg_kite_area
-        return jnp.sum(Adv * x_tile, axis=-1) / plg_area
-
-
-class InterpWeightedAddPairMeetingEdges2Edge(FVM_Op_ODM_OneLev_TriSK):
-    """Interpolation from pair of meeting edges to edge."""
-
-    def __init__(self, coord: CoordSys, para):
+        coord: CoordSys,
+        para: PlanetParameterSet,
+    ):
         super().__init__(coord, para)
         collection = trisk_weighted_interpolation_operator(self.mesh)
         self.edp_numb_on_edge = collection[0]
@@ -109,18 +47,60 @@ class InterpWeightedAddPairMeetingEdges2Edge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        x_at_edge: Float[Array, "nEdge"],
-        aux_tile: Optional[Float[Array, "nEdge maxnnb*2"]] = None
-    ) -> Float[Array, "nEdge"]:
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        thickness_at_primal_edge: Float[Array, "nlev nPrimal_edge"],
+        pv_at_dual_edge: Float[Array, "nlev nEdge"],
+    ) -> Float[Array, "nlev nEdge"]:
         edd_length = self.mesh.dual.edge.length  # (nedg,)
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
-        x_tile = jnp.take(x_at_edge, ep_idx)
-        x_tile = jnp.where(ep_idx < 0, 0.0, x_tile)
-        if aux_tile is not None:
-            x_tile = x_tile * aux_tile
-        return jnp.sum(weight * lenp * x_tile, axis=-1) / edd_length
+
+        def _wrap(
+            normal_u_at_edge: Float[Array, "nEdge"],
+            thickness_at_primal_edge: Float[Array, "nPrimal_edge"],
+            pv_at_dual_edge: Float[Array, "nEdge"],
+        ) -> Float[Array, "nEdge"]:
+            pv_iee = pv_at_dual_edge
+            pv_iep = jnp.take(
+                pv_at_dual_edge,
+                ep_idx,
+                axis=0
+            )  # (nedge, max_numb*2)
+            pv_eep = (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
+            mfx_at_primal_edge = normal_u_at_edge * thickness_at_primal_edge
+
+            mfx_tile = mfx_at_primal_edge[ep_idx]  # (nedg, maxnnb*2)
+            mfx_tile = jnp.where(ep_idx < 0, 0.0, mfx_tile)
+            mfx_tile = mfx_tile * pv_eep
+            return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
+
+        return jax.vmap(_wrap, in_axes=(0, 0, 0), out_axes=0)(
+            normal_u_at_edge,
+            thickness_at_primal_edge,
+            pv_at_dual_edge
+        )
+
+    def recon_tangent_velocity(
+        self,
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+    ) -> Float[Array, "nlev nEdge"]:
+        """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
+        edd_length = self.mesh.dual.edge.length  # (nedg,)
+        ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
+        weight = self.edp_trsk_on_edge
+        lenp = self.edp_edpl_on_edge
+
+        def _wrap(
+            normal_u_at_edge: Float[Array, "nEdge"],
+        ) -> Float[Array, "nEdge"]:
+            wind_tile = normal_u_at_edge[ep_idx]  # (nedg, maxnnb*2)
+            wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
+            return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
+
+        return jax.vmap(_wrap, in_axes=0, out_axes=0)(
+            normal_u_at_edge,
+        )
 
 
 def calc_trsk_weight(

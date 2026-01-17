@@ -27,7 +27,7 @@ import cartopy.crs as ccrs
 import xarray as xr
 import numpy as np
 import jax.numpy as jnp
-import terraflow
+import terraflow as tf
 
 from terraflow.util.uxarray import UGRIDGrid, UGRIDDataset
 
@@ -35,19 +35,19 @@ grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
-dev = terraflow.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
-mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = terraflow.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
 
-para = terraflow.planet.PlanetParameterSet.from_si(
+para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
@@ -63,15 +63,15 @@ static = static_cls.from_testcase(coord, para)
 # ## Plot using easygems
 
 # %%
-h_pc = xr.DataArray(np.array(state.h_pc.unwrap()))
+h_pc = xr.DataArray(np.array(state.h_pc.unwrap()).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
-remap_h_pc = terraflow.util.easygems.terraflow2healpix(
+remap_h_pc = tf.util.easygems.terraflow2healpix(
     h_pc, from_lon, from_lat, 10
 )
 
-img = terraflow.util.easygems.plot_healpix_grid(remap_h_pc)
+img = tf.util.easygems.plot_healpix_grid(remap_h_pc)
 
 display(img)
 
@@ -327,7 +327,7 @@ ugrid_builder = UGRIDGrid.from_orthogonal_dual_mesh(
 uxgrid = ugrid_builder.to_uxgrid()
 
 u_pc = xr.DataArray(
-    data=u_pc,
+    data=u_pc.squeeze(),
     dims=("n_face",),
     attrs={
         "long_name": "u component wind",
@@ -339,7 +339,7 @@ u_pc = xr.DataArray(
 )
 
 v_pc = xr.DataArray(
-    data=v_pc,
+    data=v_pc.squeeze(),
     dims=("n_face",),
     attrs={
         "long_name": "v component wind",

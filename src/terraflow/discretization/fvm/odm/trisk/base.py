@@ -3,16 +3,13 @@ from abc import ABC
 import jax.numpy as jnp
 
 from terraflow.util import typing
+from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh import operator as op
+from terraflow.discretization.fvm.odm.trisk import flux_reconstruct as fr
 from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.discretization.abstract import FiniteVolumeMethod
-from terraflow.discretization.fvm.odm.trisk.single_lev.operator import (
-    flux_reconstruct as fr,
-    interp
-)
-from terraflow.discretization.fvm.odm.trisk.single_lev.operator import base
 from terraflow.discretization.abstract import DiscretizationInfo
 from terraflow.discretization.abstract import AbstractEquationTerm
 from terraflow.planet import PlanetParameterSet
@@ -60,11 +57,11 @@ class FluxReconstructAtPrimalEdge(Term):
 
     def __call__(
         self,
-        x_at_primal_cell: Float[Array, "nPrimal_cell"],
-        normal_u_at_edge: Float[Array, "nEdge"],
+        x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
         *args,
         **kwargs
-    ) -> Float[Array, "nEdge"]:
+    ) -> Float[Array, "nlev nEdge"]:
         return self.scheme(x_at_primal_cell, normal_u_at_edge)
 
     def central_difference(self) -> fr.CentralDifference2AtPrimalEdge:
@@ -142,8 +139,8 @@ class FluxReconstructAtDualEdge(Term):
 
     def __call__(
         self,
-        x_at_dual_cell: Float[Array, "nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nEdge"],
+        x_at_dual_cell: Float[Array, "nlev nDual_cell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
         *args,
         **kwargs
     ) -> Float[Array, "nEdge"]:
@@ -229,14 +226,14 @@ class RelativeVorticityAtDualCell(Term):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.curl_at_dual_cell = base.CurlAtDualCell(
+        self.curl_at_dual_cell = op.CurlAtDualCell(
             coord, para
         )
 
     def __call__(
         self,
-        normal_velocity_at_edge: Float[Array, "nEdge"]
-    ) -> Float[Array, "nDual_cell"]:
+        normal_velocity_at_edge: Float[Array, "nlev nEdge"]
+    ) -> Float[Array, "nlev nDual_cell"]:
         return self.curl_at_dual_cell(normal_velocity_at_edge)
 
     def build_default(self) -> Self:
@@ -261,12 +258,12 @@ class AbsoluteVorticityAtDualCell(Term):
 
     def __call__(
         self,
-        normal_velocity_at_edge: Float[Array, "nEdge"]
-    ) -> Float[Array, "nDual_cell"]:
+        normal_velocity_at_edge: Float[Array, "nlev nEdge"]
+    ) -> Float[Array, "nlev nDual_cell"]:
         rel_vor = self.relative_vorticity(normal_velocity_at_edge)
         omega = self.para.omega.unwrap()
         coriolis = 2 * omega * jnp.sin(self.mesh._dua.centroid.lat)
-        return coriolis + rel_vor
+        return coriolis[None, :] + rel_vor
 
     def build_default(self) -> Self:
         self._built = True
@@ -283,13 +280,13 @@ class ThicknessAtDualCell(Term):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.interp_weighted_add_plg2dua = interp.InterpWeightedAddPlg2Dua(
+        self.interp_weighted_add_plg2dua = op.InterpWeightedAddPlg2Dua(
             coord, para
         )
 
     def __call__(
-        self, thickness_at_primal_cell: Float[Array, "nPrimal_cell"]
-    ) -> Float[Array, "nDual_cell"]:
+        self, thickness_at_primal_cell: Float[Array, "nlev nPrimal_cell"]
+    ) -> Float[Array, "nlev nDual_cell"]:
         return self.interp_weighted_add_plg2dua(
             thickness_at_primal_cell
         )
@@ -316,10 +313,10 @@ class InterpPotentialVorticityMidpoint(Term):
 
     def __call__(
         self,
-        pv_at_dual_cell: Float[Array, "nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nEdge"],
-        normal_u_at_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nEdge"]:
+        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+    ) -> Float[Array, "nlev nEdge"]:
         return self.recon_scheme(
             x_at_dual_cell=pv_at_dual_cell,
             tangent_u_at_edge=tangent_u_at_edge,
@@ -358,10 +355,10 @@ class InterpPotentialVorticityUpwind(Term):
 
     def __call__(
         self,
-        pv_at_dual_cell: Float[Array, "nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nEdge"],
-        normal_u_at_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nEdge"]:
+        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+    ) -> Float[Array, "nlev nEdge"]:
         b = jnp.abs(normal_u_at_edge) / jnp.sqrt(
             normal_u_at_edge ** 2 + tangent_u_at_edge ** 2 + 1.0
         )
@@ -393,10 +390,10 @@ class InterpPotentialVorticityAtDualEdge(Term):
 
     def __call__(
         self,
-        pv_at_dual_cell: Float[Array, "nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nEdge"],
-        normal_u_at_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nEdge"]:
+        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+    ) -> Float[Array, "nlev nEdge"]:
         return self.adv_scheme(
             pv_at_dual_cell,
             tangent_u_at_edge,
@@ -479,9 +476,9 @@ class PotentialVorticityAtDualEdge(Term):
         )
 
         def _pv_at_dual_cell(
-            abs_vor_at_dual_cell: Float[Array, "nDual_cell"],
-            thickness_at_dual_cell: Float[Array, "nDual_cell"]
-        ) -> Float[Array, "nDual_cell"]:
+            abs_vor_at_dual_cell: Float[Array, "nlev nDual_cell"],
+            thickness_at_dual_cell: Float[Array, "nlev nDual_cell"]
+        ) -> Float[Array, "nlev nDual_cell"]:
             return abs_vor_at_dual_cell / thickness_at_dual_cell
 
         self.pv_at_dual_cell = _pv_at_dual_cell
@@ -525,14 +522,14 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.interp_weighted_add_edp2plg = interp.InterpWeightedAddEdp2Plg(
+        self.interp_weighted_add_edp2plg = op.InterpWeightedAddEdp2Plg(
             coord, para
         )
 
     def __call__(
         self,
-        normal_u_at_edge: Float[Array, "nEdge"]
-    ) -> Float[Array, "nPrimal_cell"]:
+        normal_u_at_edge: Float[Array, "nlev nEdge"]
+    ) -> Float[Array, "nlev nPrimal_cell"]:
         return self.interp_weighted_add_edp2plg(
             normal_u_at_edge ** 2,
         )
@@ -552,10 +549,10 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.interp_weighted_add_edd2dua = interp.InterpWeightedAddEdd2Dua(
+        self.interp_weighted_add_edd2dua = op.InterpWeightedAddEdd2Dua(
             coord, para
         )
-        self.interp_weighted_add_dua2plg = interp.InterpWeightedAddDua2Plg(
+        self.interp_weighted_add_dua2plg = op.InterpWeightedAddDua2Plg(
             coord, para
         )
         self.ringler_2010 = Ringler2010KineticEnergyAtPrimalCell(
@@ -565,13 +562,13 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
 
     def __call__(
         self,
-        normal_velocity_at_edge: Float[Array, "nEdge"]
-    ) -> Float[Array, "nPrimal_cell"]:
-        ke_edge = normal_velocity_at_edge ** 2
+        normal_u_at_edge: Float[Array, "nlev nEdge"]
+    ) -> Float[Array, "nlev nPrimal_cell"]:
+        ke_edge = normal_u_at_edge ** 2
         ke_dc = self.interp_weighted_add_edd2dua(
             ke_edge,
         )
-        ke_pc = self.ringler_2010(normal_velocity_at_edge)
+        ke_pc = self.ringler_2010(normal_u_at_edge)
         ke_dc_pc = self.interp_weighted_add_dua2plg(
             ke_dc,
         )
@@ -595,9 +592,9 @@ class KineticEnergyAtPrimalCell(Term):
 
     def __call__(
         self,
-        normal_velocity_at_edge: Float[Array, "nEdge"]
-    ) -> Float[Array, "nPrimal_cell"]:
-        return self.scheme(normal_velocity_at_edge)
+        normal_u_at_edge: Float[Array, "nlev nEdge"]
+    ) -> Float[Array, "nlev nPrimal_cell"]:
+        return self.scheme(normal_u_at_edge)
 
     def gassmann_2013(
         self,

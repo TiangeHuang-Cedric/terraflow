@@ -62,7 +62,9 @@ def init_h_in_case(
     meta = default_state_meta()
     lon = meta["h_pc"].get_position(coord).horizontal_coord["lon"]
     lat = meta["h_pc"].get_position(coord).horizontal_coord["lat"]
-    return test.init_thickness(lon, lat)
+    return test.init_thickness(
+        lon, lat
+    ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
 
 def init_un_in_case(
@@ -74,7 +76,9 @@ def init_un_in_case(
     lat = meta["un_e"].get_position(coord).horizontal_coord["lat"]
     cart = meta["un_e"].get_position(coord).horizontal_coord["cart"]
     nr = meta["un_e"].get_position(coord).horizontal_coord["nr_orient"]
-    return test.init_normal_velocity(lon, lat, cart, nr)
+    return test.init_normal_velocity(
+        lon, lat, cart, nr
+    ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
 
 class StateArrays(

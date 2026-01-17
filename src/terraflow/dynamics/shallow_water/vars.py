@@ -6,7 +6,7 @@ from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout
 
-from . import unstructure
+from terraflow.discretization.fvm.odm.trisk.single_lev import vars
 
 if TYPE_CHECKING:
     from terraflow.layout.abstract import CoordinateSystem
@@ -25,8 +25,8 @@ class ShallowWaterVariablesBuilder:
         cls,
         coord: CoordinateSystem[OrthogonalDualMesh, VM, LO],
     ) -> Tuple[
-        Type[unstructure.StateFields],
-        Type[unstructure.StaticFields]
+        Type[vars.StateFields],
+        Type[vars.StaticFields]
     ]:
         ...
 
@@ -50,8 +50,8 @@ class ShallowWaterVariablesBuilder:
         Type[AbstractFieldBasedVariableSet]
     ]:
         if isinstance(coord.mesh, OrthogonalDualMesh):
-            return (cast(Type[unstructure.StateFields], unstructure.StateFields),
-                    cast(Type[unstructure.StaticFields], unstructure.StaticFields))
+            return (cast(Type[vars.StateFields], vars.StateFields),
+                    cast(Type[vars.StaticFields], vars.StaticFields))
         else:
             raise NotImplementedError(
                 "ShallowWaterVariablesBuilder only supports unstructured mesh currently."

@@ -1,20 +1,19 @@
 from typing import overload, Literal
-from numpy import var
 import xarray as xr
 
 from terraflow.util import typing, uxarray as tux
+from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import Field, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-import terraflow.dynamics.shallow_water.vars.unstructure as vars
+import terraflow.discretization.fvm.odm.trisk.single_lev.vars as vars
 from terraflow.discretization.abstract import AbstractDiagnosticTools
 from terraflow.discretization.abstract import DiagnosticVariableSet
-from terraflow.discretization.abstract import FiniteVolumeMethod
 from terraflow.dynamics.shallow_water.types import (
     ExVifShallowWaterEquationSet4UGRID
 )
-from terraflow.discretization.fvm.odm.trisk.single_lev.term.builder import (
+from terraflow.discretization.fvm.odm.trisk.single_lev.term import (
     DivergenceOfMassFluxAtPrimalCell,
     NonlinearCoriolisTermAtDualEdge,
     GradientOfKineticEnergyAtDualEdge,
@@ -663,10 +662,10 @@ class DiagnosticsTools(
             out_axes=0
         )
         abs_vor_at_dual_cell = self.abs_vorticity_at_dual_cell(
-            state
+            state, to_ugrid=False
         ).data
         thickness_at_dual_cell = self.thickness_at_dual_cell(
-            state
+            state, to_ugrid=False
         ).data
         res = Field.create(
             data=fn(abs_vor_at_dual_cell, thickness_at_dual_cell),
@@ -719,7 +718,7 @@ class DiagnosticsTools(
             in_axes=(0, 0, 0),
             out_axes=0
         )
-        ut = self.tangent_velocity_at_edge(state).data
+        ut = self.tangent_velocity_at_edge(state, to_ugrid=False).data
         state_array = state.to_arrays()
         res = Field.create(
             data=fn(state_array.un_e, ut, state_array.h_pc),

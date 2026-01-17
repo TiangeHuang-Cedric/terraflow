@@ -393,6 +393,20 @@ class Field(eqx.Module, Generic[FDT, FMT]):
                 "data must be either a JAX-like array or an unxt.AbstractQuantity"
             )
 
+    def reshape(self, new_shape: tuple[int, ...]) -> Self:
+        """Reshape the underlying data array."""
+        if isinstance(self.data, Array):
+            return self._wrap(jnp.reshape(self.data, new_shape))
+        elif isinstance(self.data, ux.AbstractQuantity):
+            new_data = jnp.reshape(self.data.value, new_shape)
+            quantity_data = ux.Quantity(
+                new_data, self.data.unit)  # type: ignore
+            return self._wrap(quantity_data)
+        else:
+            raise TypeError(
+                "data must be either a JAX-like array or an unxt.AbstractQuantity"
+            )
+
     @overload
     @classmethod
     def create(

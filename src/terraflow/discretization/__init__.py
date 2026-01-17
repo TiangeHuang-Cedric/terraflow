@@ -4,9 +4,6 @@ from typing import overload, TYPE_CHECKING, cast
 
 from terraflow.manager.registry import navigate
 
-from .abstract import AbstractOperator
-from .abstract import AbstractDiscretizationMethod
-from .abstract import FiniteVolumeMethod
 from .abstract import AbstractDiagnosticTools
 from .abstract import AbstractArrayBasedVariableSet
 from .abstract import AbstractQuantityBasedVariableSet
@@ -54,7 +51,7 @@ class DiagnosticTools(Generic[DIAG]):
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
-    ) -> "fvm.odm.trisk.single_lev.term.diag.DiagnosticsTools":
+    ) -> "fvm.odm.trisk.single_lev.diag.DiagnosticsTools":
         ...
 
     @overload
@@ -81,9 +78,6 @@ class DiagnosticTools(Generic[DIAG]):
 
 
 __all__ = [
-    "AbstractOperator",
-    "AbstractDiscretizationMethod",
-    "FiniteVolumeMethod",
     "DiscretizationInfo",
     "AbstractEquationSet",
     "AbstractEquationForm",

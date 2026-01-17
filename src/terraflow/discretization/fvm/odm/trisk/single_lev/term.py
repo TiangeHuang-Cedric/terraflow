@@ -1,18 +1,15 @@
-import jax.numpy as jnp
-
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
+from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh import operator as op
 from terraflow.vert_coord import OneLayerVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import DiscretizationInfo
-from terraflow.discretization.abstract import FiniteVolumeMethod
-from terraflow.discretization.fvm.odm.trisk.single_lev.operator import interp
-from terraflow.discretization.fvm.odm.trisk.single_lev.operator import base
-import terraflow.discretization.fvm.odm.trisk.single_lev.term.base as tm
-from terraflow.dynamics.shallow_water.vars.unstructure import StateArrays
-from terraflow.dynamics.shallow_water.vars.unstructure import StaticArrays
+from terraflow.discretization.fvm.odm.trisk import coriolis, base as trisk
+from terraflow.discretization.fvm.odm.trisk.single_lev.vars import StateArrays
+from terraflow.discretization.fvm.odm.trisk.single_lev.vars import StaticArrays
 
 from terraflow.dynamics.shallow_water.types import (
     DivergenceOfMassFluxProtocol,
@@ -30,8 +27,8 @@ CoordSys = CoordinateSystem[
 ]
 
 
-class DivergenceOfMassFluxAtPrimalCell(tm.Term, DivergenceOfMassFluxProtocol):
-    flux_recon_at_primal_edge: tm.FluxReconstructAtPrimalEdge
+class DivergenceOfMassFluxAtPrimalCell(trisk.Term, DivergenceOfMassFluxProtocol):
+    flux_recon_at_primal_edge: trisk.FluxReconstructAtPrimalEdge
 
     def __init__(
         self,
@@ -41,10 +38,10 @@ class DivergenceOfMassFluxAtPrimalCell(tm.Term, DivergenceOfMassFluxProtocol):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.flux_recon_at_primal_edge = tm.FluxReconstructAtPrimalEdge(
+        self.flux_recon_at_primal_edge = trisk.FluxReconstructAtPrimalEdge(
             disc, coord, para, method
         )
-        self.div_at_primal_cell = base.DivAtPrimalCell(
+        self.div_at_primal_cell = op.DivAtPrimalCell(
             coord, para
         )
 
@@ -65,10 +62,10 @@ class DivergenceOfMassFluxAtPrimalCell(tm.Term, DivergenceOfMassFluxProtocol):
         return self
 
 
-class NonlinearCoriolisTermAtDualEdge(tm.Term, NonlinearCoriolisTermProtocol):
-    scheme: interp.InterpWeightedAddPairMeetingEdges2Edge
-    flux_recon_at_primal_edge: tm.FluxReconstructAtPrimalEdge
-    pv_at_dual_edge: tm.PotentialVorticityAtDualEdge
+class NonlinearCoriolisTermAtDualEdge(trisk.Term, NonlinearCoriolisTermProtocol):
+    scheme: coriolis.CoriolisForceAtDualEdge
+    flux_recon_at_primal_edge: trisk.FluxReconstructAtPrimalEdge
+    pv_at_dual_edge: trisk.PotentialVorticityAtDualEdge
 
     def __init__(
         self,
@@ -78,13 +75,13 @@ class NonlinearCoriolisTermAtDualEdge(tm.Term, NonlinearCoriolisTermProtocol):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.scheme = interp.InterpWeightedAddPairMeetingEdges2Edge(
+        self.scheme = coriolis.CoriolisForceAtDualEdge(
             coord, para
         )
-        self.flux_recon_at_primal_edge = tm.FluxReconstructAtPrimalEdge(
+        self.flux_recon_at_primal_edge = trisk.FluxReconstructAtPrimalEdge(
             disc, coord, para, method
         )
-        self.pv_at_dual_edge = tm.PotentialVorticityAtDualEdge(
+        self.pv_at_dual_edge = trisk.PotentialVorticityAtDualEdge(
             disc, coord, para, method
         )
 
@@ -96,16 +93,23 @@ class NonlinearCoriolisTermAtDualEdge(tm.Term, NonlinearCoriolisTermProtocol):
         normal_u_at_edge = state.un_e
         thickness_at_primal_cell = state.h_pc
         if recon_tangent_velocity:
-            ones_tile = jnp.ones_like(self.scheme.edp_edge_on_edge)
-            return self.scheme(normal_u_at_edge, aux_tile=ones_tile)
+            return self.scheme.recon_tangent_velocity(normal_u_at_edge)
         thickness_at_primal_edge = self.flux_recon_at_primal_edge(
-            thickness_at_primal_cell, normal_u_at_edge
+            x_at_primal_cell=thickness_at_primal_cell,
+            normal_u_at_edge=normal_u_at_edge
         )
-        pv_eep = self._energy_conserving_coriolis_term(state)
-        thickness_flux_at_primal_edge = normal_u_at_edge * thickness_at_primal_edge
+        tangent_u_at_edge = self.scheme.recon_tangent_velocity(
+            normal_u_at_edge=normal_u_at_edge
+        )
+        pv_at_dual_edge = self.pv_at_dual_edge(
+            normal_u_at_edge=normal_u_at_edge,
+            tangent_u_at_edge=tangent_u_at_edge,
+            thickness_at_primal_cell=thickness_at_primal_cell
+        )
         return self.scheme(
-            thickness_flux_at_primal_edge,  # thickness flux, not just normal wind
-            aux_tile=pv_eep
+            normal_u_at_edge=normal_u_at_edge,
+            thickness_at_primal_edge=thickness_at_primal_edge,
+            pv_at_dual_edge=pv_at_dual_edge
         )
 
     def build_default(self) -> "NonlinearCoriolisTermAtDualEdge":
@@ -115,30 +119,8 @@ class NonlinearCoriolisTermAtDualEdge(tm.Term, NonlinearCoriolisTermProtocol):
             self._built = True
         return self
 
-    def _energy_conserving_coriolis_term(
-        self,
-        state: StateArrays
-    ) -> Float[Array, "nEdge maxnumb*2"]:
-        normal_u_at_edge = state.un_e
-        thickness_at_primal_cell = state.h_pc
-        tangent_u_at_edge = self.__call__(
-            state, recon_tangent_velocity=True
-        )
-        pv_at_dual_edge = self.pv_at_dual_edge(
-            normal_u_at_edge=normal_u_at_edge,
-            tangent_u_at_edge=tangent_u_at_edge,
-            thickness_at_primal_cell=thickness_at_primal_cell
-        )  # (nedge, )
-        pv_iee = pv_at_dual_edge
-        pv_iep = jnp.take(
-            pv_at_dual_edge,
-            self.scheme.edp_edge_on_edge,
-            axis=0
-        )  # (nedge, max_numb*2)
-        return (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
 
-
-class PressureGradientForceAtDualEdge(tm.Term, PressureGradientForceTermProtocol):
+class PressureGradientForceAtDualEdge(trisk.Term, PressureGradientForceTermProtocol):
 
     def __init__(
         self,
@@ -148,7 +130,7 @@ class PressureGradientForceAtDualEdge(tm.Term, PressureGradientForceTermProtocol
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.grad_at_dual_edge = base.GradAtDualEdge(
+        self.grad_at_dual_edge = op.GradAtDualEdge(
             coord, para
         )
 
@@ -165,8 +147,8 @@ class PressureGradientForceAtDualEdge(tm.Term, PressureGradientForceTermProtocol
         return self
 
 
-class GradientOfKineticEnergyAtDualEdge(tm.Term, GradientOfKineticEnergyProtocol):
-    ke_at_primal_cell: tm.KineticEnergyAtPrimalCell
+class GradientOfKineticEnergyAtDualEdge(trisk.Term, GradientOfKineticEnergyProtocol):
+    ke_at_primal_cell: trisk.KineticEnergyAtPrimalCell
 
     def __init__(
         self,
@@ -176,10 +158,10 @@ class GradientOfKineticEnergyAtDualEdge(tm.Term, GradientOfKineticEnergyProtocol
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.ke_at_primal_cell = tm.KineticEnergyAtPrimalCell(
+        self.ke_at_primal_cell = trisk.KineticEnergyAtPrimalCell(
             disc, coord, para, method
         )
-        self.grad_at_dual_edge = base.GradAtDualEdge(
+        self.grad_at_dual_edge = op.GradAtDualEdge(
             coord, para
         )
 

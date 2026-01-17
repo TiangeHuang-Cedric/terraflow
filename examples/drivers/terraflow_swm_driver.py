@@ -31,7 +31,7 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = tf.discretization.FiniteVolumeMethod()
+method = tf.operator.FiniteVolumeMethod()
 
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
@@ -91,7 +91,7 @@ integrate_fn = jax.jit(solver.io_callback(
 
 logger.info("Start integrating...")
 t0 = time.perf_counter()
-final, _ = integrate_fn(state)
+final = integrate_fn(state)
 jax.block_until_ready(final)
 t1 = time.perf_counter()
 logger.success(f"Integration took {t1 - t0} seconds.")

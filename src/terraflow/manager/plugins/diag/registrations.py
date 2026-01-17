@@ -14,7 +14,7 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    import terraflow.discretization.fvm.odm.trisk.single_lev.term.diag as diag
+    import terraflow.discretization.fvm.odm.trisk.single_lev.diag as diag
 
     belong_key = "earth::atm::swe::vif::explicit::fvm::triskC::odm::1level"
 

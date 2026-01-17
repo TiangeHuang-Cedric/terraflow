@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import TypeAlias
 
+
 if TYPE_CHECKING:
     from terraflow.manager.registry import Catalog
 else:
@@ -14,7 +15,7 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    import terraflow.discretization.fvm.odm.trisk.single_lev.operator as op
+    import terraflow.mesh.orthogonal_dual_mesh.operator as op
 
     # Define belong key for FVM triskC ODM operators
     belong_key = "fvm::triskC::odm::1level"
@@ -22,91 +23,92 @@ def register(model: Catalog) -> None:
     # Register base operators
     model.op.register(
         belong_key, group="div",
-        factory=op.base.DivAtPrimalCell
+        factory=op.DivAtPrimalCell
     )
     model.op.register(
         belong_key, group="grad",
-        factory=op.base.GradAtDualEdge
+        factory=op.GradAtDualEdge
     )
     model.op.register(
         belong_key, group="curl",
-        factory=op.base.CurlAtDualCell
+        factory=op.CurlAtDualCell
+    )
+    model.op.register(
+        belong_key, group="interp",
+        factory=op.InterpWeightedAddEdp2Plg
+    )
+    model.op.register(
+        belong_key, group="interp",
+        factory=op.InterpWeightedAddEdd2Dua
+    )
+    model.op.register(
+        belong_key, group="interp",
+        factory=op.InterpWeightedAddDua2Plg
     )
 
-    # Register interpolation operators
+    # Register coriolis operators
+    from terraflow.discretization.fvm.odm.trisk import coriolis, flux_reconstruct
     model.op.register(
-        belong_key, group="interp",
-        factory=op.interp.InterpWeightedAddEdp2Plg
-    )
-    model.op.register(
-        belong_key, group="interp",
-        factory=op.interp.InterpWeightedAddEdd2Dua
-    )
-    model.op.register(
-        belong_key, group="interp",
-        factory=op.interp.InterpWeightedAddDua2Plg
-    )
-    model.op.register(
-        belong_key, group="interp",
-        factory=op.interp.InterpWeightedAddPairMeetingEdges2Edge
+        belong_key, group="coriolis",
+        factory=coriolis.CoriolisForceAtDualEdge
     )
 
     # Register flux reconstruction operators
     # Register various flux reconstruction methods at primal edges
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.CentralDifference2AtPrimalEdge
+        factory=flux_reconstruct.CentralDifference2AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF3AtPrimalEdge
+        factory=flux_reconstruct.WRF3AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF4AtPrimalEdge
+        factory=flux_reconstruct.WRF4AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.HybridWRF34AtPrimalEdge
+        factory=flux_reconstruct.HybridWRF34AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF5AtPrimalEdge
+        factory=flux_reconstruct.WRF5AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF6AtPrimalEdge
+        factory=flux_reconstruct.WRF6AtPrimalEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.HybridWRF56AtPrimalEdge
+        factory=flux_reconstruct.HybridWRF56AtPrimalEdge
     )
     # Register various flux reconstruction methods at dual edges
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.CentralDifference2AtDualEdge
+        factory=flux_reconstruct.CentralDifference2AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF3AtDualEdge
+        factory=flux_reconstruct.WRF3AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF4AtDualEdge
+        factory=flux_reconstruct.WRF4AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.HybridWRF34AtDualEdge
+        factory=flux_reconstruct.HybridWRF34AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF5AtDualEdge
+        factory=flux_reconstruct.WRF5AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.WRF6AtDualEdge
+        factory=flux_reconstruct.WRF6AtDualEdge
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=op.flux_reconstruct.HybridWRF56AtDualEdge
+        factory=flux_reconstruct.HybridWRF56AtDualEdge
     )

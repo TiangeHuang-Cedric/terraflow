@@ -14,6 +14,12 @@
 # ---
 
 # %%
+from terraflow.discretization.fvm.odm.trisk.flux_reconstruct import (
+    tr_stencil_member_list_4th_order_mbs
+)
+import cartopy.crs as ccrs
+import holoviews as hv
+import terraflow as tf
 import jax.numpy as jnp
 
 import terraflow.util.device as device
@@ -26,33 +32,27 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-import terraflow
 
-mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = terraflow.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
 
-para = terraflow.planet.PlanetParameterSet.from_si(
+para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.FiniteVolumeMethod()
-
+method = tf.operator.FiniteVolumeMethod()
 # %%
-import holoviews as hv
-import cartopy.crs as ccrs
 
-from terraflow.discretization.fvm.odm.trisk.single_lev.operator.flux_reconstruct import (
-    tr_stencil_member_list_4th_order_mbs
-)
 
-hv.extension("matplotlib")  # matplotlib backend so we can use cartopy projections
+# matplotlib backend so we can use cartopy projections
+hv.extension("matplotlib")
 cell = 800  # face index to inspect
 uxgrid = mesh.to_ugrid(use_dual=True).to_uxgrid()
 _, stencil_idxes = tr_stencil_member_list_4th_order_mbs(mesh.dual)
@@ -65,9 +65,9 @@ face_lat_center = uxgrid.face_lat.isel(n_face=cell).values
 # projections
 src_crs = ccrs.PlateCarree()           # data lon/lat
 map_crs = ccrs.Orthographic(
-    central_longitude=float(face_lon_center), 
+    central_longitude=float(face_lon_center),
     central_latitude=float(face_lat_center)
-) # target map projection
+)  # target map projection
 
 face_lon = uxgrid.face_lon.isel(n_face=member_faces).values
 face_lat = uxgrid.face_lat.isel(n_face=member_faces).values

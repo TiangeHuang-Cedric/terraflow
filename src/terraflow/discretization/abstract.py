@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Callable, Generic, LiteralString, Mapping, TypeVar, Type, overload, Tuple
 from typing import Optional, Union, List, Dict, Self, cast, Literal, Any, Sequence
-from cycler import V
 import equinox as eqx
 import unxt as ux
 import jax
@@ -9,6 +8,7 @@ import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
 
+import terraflow.operator as op
 from terraflow.util import typing, uxarray as tuxr
 from terraflow.mesh import AbstractMesh
 from terraflow.vert_coord import AbstractVertCoordinate
@@ -26,65 +26,11 @@ Array = typing.Array
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
-DM = TypeVar("DM", bound="AbstractDiscretizationMethod")
+DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
 VARSET = TypeVar("VARSET", bound="AbstractVariableSet")
-
-
-class AbstractDiscretizationMethod(ABC):
-    """Abstract base class for operators."""
-
-    @staticmethod
-    @abstractmethod
-    def alias_name() -> str:
-        """Return the alias name of the operator."""
-        raise NotImplementedError
-
-
-class FiniteVolumeMethod(AbstractDiscretizationMethod):
-    """Finite Volume Method operator implementation."""
-
-    @staticmethod
-    def alias_name() -> str:
-        return "fvm"
-
-
-class AbstractOperator(Generic[HM, VM, LO], ABC):
-    """Abstract base class for operators."""
-
-    def __init__(
-        self,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet
-    ):
-        self._coord = coord
-        self._para = para
-
-    @property
-    def coord(self) -> CoordinateSystem[HM, VM, LO]:
-        return self._coord
-
-    @property
-    def para(self) -> PlanetParameterSet:
-        return self._para
-
-    @property
-    def mesh(self) -> HM:
-        return self.coord.mesh
-
-    @property
-    def vert(self) -> VM:
-        return self.coord.vert
-
-    @property
-    def layout(self) -> LO:
-        return self.coord.layout
-
-    @abstractmethod
-    def __call__(self, *args, **kwargs):
-        raise NotImplementedError
 
 
 class DiscretizationInfo:
@@ -167,7 +113,7 @@ class DiscretizationInfo:
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        operator: AbstractDiscretizationMethod,
+        operator: op.AbstractDiscretizationMethod,
         equset_type: Type[ES],
         equ_type: Optional[Type[EQU]] = None
     ):
@@ -524,6 +470,38 @@ class AbstractVariableSet(eqx.Module, ABC):
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Convert variable set to a xarray.Dataset with UGRID format."""
         raise NotImplementedError
+
+    def extend_dims_on_leading_axis(self) -> Self:
+        """Reshape all variables to a new shape."""
+        new_vars: Dict[str, Any] = {}
+        for key, var in self.variables.items():
+            if isinstance(var, Field):
+                new_vars[key] = var.reshape((1,) + var.data.shape)
+            elif isinstance(var, jnp.ndarray):
+                new_vars[key] = jnp.reshape(var, (1,) + var.shape)
+            elif isinstance(var, ux.AbstractQuantity):
+                new_vars[key] = var.reshape((1,) + var.shape)
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reshape operation."
+                )
+        return self._wrap(new_vars)
+
+    def squeeze_leading_axis(self) -> Self:
+        """Squeeze the leading axis of all variables."""
+        new_vars: Dict[str, Any] = {}
+        for key, var in self.variables.items():
+            if isinstance(var, Field):
+                new_vars[key] = var.reshape(var.data.shape[1:])
+            elif isinstance(var, jnp.ndarray):
+                new_vars[key] = jnp.reshape(var, var.shape[1:])
+            elif isinstance(var, ux.AbstractQuantity):
+                new_vars[key] = var.reshape(var.shape[1:])
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reshape operation."
+                )
+        return self._wrap(new_vars)
 
 
 class AbstractRawVariableSet(AbstractVariableSet, Generic[FMT]):

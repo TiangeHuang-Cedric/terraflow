@@ -24,11 +24,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import jax
 import datetime
-from terraflow.util.datetime import DateTimeManager
-import terraflow
+
 import jax.numpy as jnp
 
 import terraflow.util.device as device
+from terraflow.util.datetime import DateTimeManager
+import terraflow as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
@@ -39,27 +40,24 @@ dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
 
-mesh = terraflow.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 
-vert = terraflow.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = terraflow.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = terraflow.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
-
-para = terraflow.planet.PlanetParameterSet.from_si(
+coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-method = terraflow.discretization.FiniteVolumeMethod()
-
+method = tf.operator.FiniteVolumeMethod()
 # %%
-testcase = terraflow.test_case.swe.MountainZonalFlowTestCase(para)
+testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-state_cls, static_cls = terraflow.dynamics.ShallowWaterVariables.from_model(
-    coord)
+state_cls, static_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
 state = state_cls.from_testcase(coord, para, case=testcase)
 
@@ -67,7 +65,7 @@ static = static_cls.from_testcase(coord, para, case=testcase)
 
 
 # %%
-equation = terraflow.dynamics.ShallowWaterEquation.from_model(
+equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
     method=method,
@@ -88,7 +86,7 @@ time_manager = DateTimeManager(
     save_interval="6 hours",
 )
 
-solver = terraflow.solver.ExRungeKutta3Solver(
+solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     dt=datetime.timedelta(seconds=60.0),
     time_manager=time_manager,
@@ -110,11 +108,16 @@ jax.block_until_ready(final)
 jax.block_until_ready(trajectory)
 
 # %%
-diag_tools = terraflow.discretization.DiagnosticTools.from_equation(
-    equation, jit=True)
+diag_tools = tf.discretization.DiagnosticTools.from_equation(
+    equation,
+    jit=True
+)
 
-trajectory_tools = terraflow.discretization.DiagnosticTools.from_equation(
-    equation, trajectory=True, jit=True)
+trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
+    equation,
+    trajectory=True,
+    jit=True
+)
 
 # %%
 # %matplotlib inline

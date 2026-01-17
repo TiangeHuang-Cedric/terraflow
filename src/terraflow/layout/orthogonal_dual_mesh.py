@@ -4,7 +4,7 @@ import jax.numpy as jnp
 from terraflow.util import typing
 from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.vert_coord import AbstractLorenzCoordinate
-from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.layout.abstract import AbstractCGridStaggeringLayout
 from terraflow.layout.abstract import Basis, MeshEntity, VertLoc
 from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem

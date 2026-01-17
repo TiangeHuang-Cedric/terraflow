@@ -1794,16 +1794,16 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
 
 def reconstruct_vector_at_primal_cell_from_dual_edge(
     mesh: OrthogonalDualMesh,
-    normal_u_at_edge: Float[Array, "n_edge"]
-) -> Mapping[str, Float[Array, "n_cell"]]:
+    normal_u_at_edge: Float[Array, "nlev n_edge"]
+) -> Mapping[str, Float[Array, "nlev n_cell"]]:
     """Reconstruct prime-cell vector components (u, v) from edge normal values.
 
     Arguments:
         mesh: OrthogonalDualMesh instance.
-        normal_u_at_edge: (n_edge,) array of normal velocity values at edges.
+        normal_u_at_edge: (nlev, n_edge) array of normal velocity values at edges.
 
     Returns:
-        Dict[str, jnp.ndarray]: Dictionary with keys 'u' and 'v' mapping to arrays each shape (n_cell,).
+        Dict[str, jnp.ndarray]: Dictionary with keys 'u' and 'v' mapping to arrays each shape (nlev, n_cell).
 
     Notes:
         - The implementation handles variable neighbour counts using masking.
@@ -1822,50 +1822,61 @@ def reconstruct_vector_at_primal_cell_from_dual_edge(
 
     eps = jnp.finfo(cell_centroid.dtype).eps
 
-    # Vectorized computation over all cells
-    # Gather edge data for all cells at once: (ncell, maxnnb, ...)
-    OPi = edge_midpoint[cell_edges]  # (ncell, maxnnb, 3)
-    nei = edge_nr[cell_edges]  # (ncell, maxnnb, 3)
-    wind = normal_u_at_edge[cell_edges]  # (ncell, maxnnb)
-    leng = edge_length[cell_edges]  # (ncell, maxnnb)
+    def reconstruct_single_level(
+        normal_u_at_edge: Float[Array, "n_edge"]
+    ) -> Mapping[str, Float[Array, "n_cell"]]:
 
-    # Create mask for valid neighbors: (ncell, maxnnb)
-    # Use shape inference to get maxnnb instead of accessing it as a field
-    maxnnb = cell_edges.shape[1]
-    pos = jnp.arange(maxnnb)[None, :]  # (1, maxnnb)
-    mask = pos < cell_nnb[:, None]  # (ncell, maxnnb)
+        # Vectorized computation over all cells
+        # Gather edge data for all cells at once: (ncell, maxnnb, ...)
+        OPi = edge_midpoint[cell_edges]  # (ncell, maxnnb, 3)
+        nei = edge_nr[cell_edges]  # (ncell, maxnnb, 3)
+        wind = normal_u_at_edge[cell_edges]  # (ncell, maxnnb)
+        leng = edge_length[cell_edges]  # (ncell, maxnnb)
 
-    # Project edge midpoints onto tangent plane at cell centroids
-    # OPc: (ncell, 3) -> (ncell, 1, 3) for broadcasting
-    OPc = cell_centroid[:, None, :]  # (ncell, 1, 3)
-    rei = jax.vmap(
-        lambda opc, opi: math.project_sphere2plane(opc[0], opi),
-        in_axes=(0, 0)
-    )(OPc, OPi)  # (ncell, maxnnb, 3)
+        # Create mask for valid neighbors: (ncell, maxnnb)
+        # Use shape inference to get maxnnb instead of accessing it as a field
+        maxnnb = cell_edges.shape[1]
+        pos = jnp.arange(maxnnb)[None, :]  # (1, maxnnb)
+        mask = pos < cell_nnb[:, None]  # (ncell, maxnnb)
 
-    # Compute norms and normalize
-    rei_norm = jnp.linalg.norm(rei, axis=-1)  # (ncell, maxnnb)
-    rei_norm = jnp.maximum(rei_norm, eps * 100)
-    rei_unit = rei / rei_norm[:, :, None]  # (ncell, maxnnb, 3)
+        # Project edge midpoints onto tangent plane at cell centroids
+        # OPc: (ncell, 3) -> (ncell, 1, 3) for broadcasting
+        OPc = cell_centroid[:, None, :]  # (ncell, 1, 3)
+        rei = jax.vmap(
+            lambda opc, opi: math.project_sphere2plane(opc[0], opi),
+            in_axes=(0, 0)
+        )(OPc, OPi)  # (ncell, maxnnb, 3)
 
-    # Dot product: nei . rei_unit
-    dot_val = jnp.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
+        # Compute norms and normalize
+        rei_norm = jnp.linalg.norm(rei, axis=-1)  # (ncell, maxnnb)
+        rei_norm = jnp.maximum(rei_norm, eps * 100)
+        rei_unit = rei / rei_norm[:, :, None]  # (ncell, maxnnb, 3)
 
-    # Contribution per neighbor: rei * wind * dot_val * leng
-    contrib = rei * (wind * dot_val * leng)[:, :, None]  # (ncell, maxnnb, 3)
+        # Dot product: nei . rei_unit
+        dot_val = jnp.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
 
-    # Apply mask to zero out invalid neighbors
-    contrib = contrib * mask[:, :, None]  # (ncell, maxnnb, 3)
+        # Contribution per neighbor: rei * wind * dot_val * leng
+        # (ncell, maxnnb, 3)
+        contrib = rei * (wind * dot_val * leng)[:, :, None]
 
-    # Sum contributions across neighbors
-    vector_cart = jnp.sum(contrib, axis=1)  # (ncell, 3)
+        # Apply mask to zero out invalid neighbors
+        contrib = contrib * mask[:, :, None]  # (ncell, maxnnb, 3)
 
-    # Divide by cell area
-    area = jnp.maximum(cell_area, eps * 100)  # (ncell,)
-    vector_cart = vector_cart / area[:, None]  # (ncell, 3)
+        # Sum contributions across neighbors
+        vector_cart = jnp.sum(contrib, axis=1)  # (ncell, 3)
 
-    # Convert to lat-lon coordinates
-    result = math.convert_vector_cart2ltln(
-        vector_cart, cell_centroid
-    )  # returns dict with 'u', 'v'
-    return result
+        # Divide by cell area
+        area = jnp.maximum(cell_area, eps * 100)  # (ncell,)
+        vector_cart = vector_cart / area[:, None]  # (ncell, 3)
+
+        # Convert to lat-lon coordinates
+        result = math.convert_vector_cart2ltln(
+            vector_cart, cell_centroid
+        )  # returns dict with 'u', 'v'
+        return result
+
+    return jax.vmap(
+        reconstruct_single_level,
+        in_axes=0,
+        out_axes=0
+    )(normal_u_at_edge)

@@ -12,7 +12,7 @@ from terraflow.util.datetime import DateTimeManager
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
     from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
-    import terraflow.dynamics.shallow_water.vars as swe_vars
+    import terraflow.discretization.fvm.odm.trisk.single_lev.vars as fvm_odm_trisk_1lev_vars
 
 
 class AbstractODE(ABC):
@@ -71,8 +71,8 @@ class HistoryMultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: swe_vars.unstructure.StateFields,
-    ) -> swe_vars.unstructure.StateFields:
+        x: fvm_odm_trisk_1lev_vars.StateFields,
+    ) -> fvm_odm_trisk_1lev_vars.StateFields:
         ...
 
     @overload
@@ -89,9 +89,10 @@ class HistoryMultiStepWithFieldsOutput:
         """Returns a version of this MultiStep that outputs fields."""
         time_step = 1
         x_array = x.to_arrays()
-        return self.outer_scan_fn(
+        final_array, _ = self.outer_scan_fn(
             self.step, (x_array, time_step), xs=None, length=self.outer_steps
         )[0]
+        return final_array.to_fields()
 
 
 class HistoryMultiStepWithArrayOutput:
@@ -109,8 +110,8 @@ class HistoryMultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: swe_vars.unstructure.StateFields,
-    ) -> swe_vars.unstructure.StateArrays:
+        x: fvm_odm_trisk_1lev_vars.StateFields,
+    ) -> fvm_odm_trisk_1lev_vars.StateArrays:
         ...
 
     @overload
@@ -127,9 +128,10 @@ class HistoryMultiStepWithArrayOutput:
         """Returns a version of this MultiStep that outputs arrays."""
         time_step = 1
         x_array = x.to_arrays()
-        return self.outer_scan_fn(
+        final_array, _ = self.outer_scan_fn(
             self.step, (x_array, time_step), xs=None, length=self.outer_steps
         )[0]
+        return final_array
 
 
 class MultiStepWithFieldsOutput:
@@ -147,8 +149,8 @@ class MultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: swe_vars.unstructure.StateFields,
-    ) -> Tuple[swe_vars.unstructure.StateFields, swe_vars.unstructure.StateFields]:
+        x: fvm_odm_trisk_1lev_vars.StateFields,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.StateFields, fvm_odm_trisk_1lev_vars.StateFields]:
         ...
 
     @overload
@@ -187,8 +189,8 @@ class MultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: swe_vars.unstructure.StateFields,
-    ) -> Tuple[swe_vars.unstructure.StateArrays, swe_vars.unstructure.StateArrays]:
+        x: fvm_odm_trisk_1lev_vars.StateFields,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.StateArrays, fvm_odm_trisk_1lev_vars.StateArrays]:
         ...
 
     @overload

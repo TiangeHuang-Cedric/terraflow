@@ -7,20 +7,20 @@ import inspect
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
+from terraflow.operator import AbstractDiscretizationMethod
 from terraflow.mesh import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import AbstractLayout, CoordinateSystem
 from terraflow.solver.abstract import AbstractExplicitODE
 import terraflow.discretization.abstract as disc
-from terraflow.discretization.abstract import AbstractDiscretizationMethod
-from terraflow.dynamics.shallow_water.vars.unstructure import StateArrays, StaticArrays, StaticFields
+from terraflow.discretization.fvm.odm.trisk.single_lev.vars import StateArrays, StaticArrays, StaticFields
 
 if TYPE_CHECKING:
+    from terraflow.operator import FiniteVolumeMethod
     from terraflow.mesh import OrthogonalDualMesh
     from terraflow.vert_coord import OneLayerVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-    from terraflow.discretization.abstract import FiniteVolumeMethod
-    import terraflow.discretization.fvm.odm.trisk.single_lev.term.builder as fvm_odm_trisk_1lev_builder
+    import terraflow.discretization.fvm.odm.trisk.single_lev.term as fvm_odm_trisk_1lev_builder
 
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -335,23 +335,29 @@ class ExVifShallowWaterEquationSet4UGRID(
         return ExNormalMomentumEqu4UGRID(disc, coord, para, method)
 
     def explicit_terms(self, state: StateArrays, pass_tag: str = "all_pass") -> StateArrays:
+        # state_input = state.extend_dims_on_leading_axis()
+        state_input = state
         if pass_tag == "all_pass":
             variables = {
-                "h_pc": self.dhdt(state),
-                "un_e": self.dundt(state, self.static)
+                "h_pc": self.dhdt(state_input),
+                "un_e": self.dundt(state_input, self.static)
             }
         elif pass_tag == "forward_pass":
             variables = {
-                "h_pc": self.dhdt(state),
-                "un_e": jnp.zeros_like(state.variables["un_e"])
+                "h_pc": self.dhdt(state_input),
+                "un_e": jnp.zeros_like(state_input.variables["un_e"])
             }
         elif pass_tag == "backward_pass":
             variables = {
-                "h_pc": jnp.zeros_like(state.variables["h_pc"]),
-                "un_e": self.dundt(state, self.static)
+                "h_pc": jnp.zeros_like(state_input.variables["h_pc"]),
+                "un_e": self.dundt(state_input, self.static)
             }
         else:
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
+        # return StateArrays(
+        #     variables=variables,
+        #     meta=state.meta
+        # ).squeeze_leading_axis()
         return StateArrays(
             variables=variables,
             meta=state.meta

@@ -7,7 +7,7 @@ import equinox as eqx
 
 from terraflow.util import typing, jax_tools, math
 from terraflow.planet import PlanetParameterSet
-from terraflow.discretization.abstract import AbstractOperator
+from terraflow.operator import FiniteVolumeMethodOperator
 from terraflow.mesh.orthogonal_dual_mesh.construct import (
     AbstractMeshEntity,
     PrimalMeshEntity,
@@ -15,6 +15,7 @@ from terraflow.mesh.orthogonal_dual_mesh.construct import (
     OrthogonalDualMesh
 )
 from terraflow.vert_coord.abstract import OneLayerVertCoordinate
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 
@@ -24,53 +25,57 @@ IntType = typing.IntType
 FloatType = typing.FloatType
 Array = typing.Array
 
-FVM_Op_ODM_OneLev_TriSK = AbstractOperator[
+VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+
+FVM_ODM_TriSK = FiniteVolumeMethodOperator[
     OrthogonalDualMesh,
-    OneLayerVertCoordinate,
+    VM,
     TriSKBasedCGridStaggeringLayout
 ]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
-    OneLayerVertCoordinate,
+    VM,
     TriSKBasedCGridStaggeringLayout
 ]
 
 
-class CentralDifference2AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
+class CentralDifference2AtPrimalEdge(FVM_ODM_TriSK):
 
     def __init__(self, coord: CoordSys, para: PlanetParameterSet):
         super().__init__(coord, para)
 
     def __call__(
         self,
-        x_at_primal_cell: Float[Array, "nCell"],
+        x_at_primal_cell: Float[Array, "nlev nCell"],
         *args,
-    ) -> Float[Array, "nEdge"]:
-        return central_difference_2nd_order(
-            x_at_primal_cell,
-            self.mesh.dual.edge.endpoints
-        )
+    ) -> Float[Array, "nlev nEdge"]:
+        return jax.vmap(
+            central_difference_2nd_order,
+            in_axes=(0, None),
+            out_axes=0
+        )(x_at_primal_cell, self.mesh.dual.edge.endpoints)
 
 
-class CentralDifference2AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
+class CentralDifference2AtDualEdge(FVM_ODM_TriSK):
 
     def __init__(self, coord: CoordSys, para: PlanetParameterSet):
         super().__init__(coord, para)
 
     def __call__(
         self,
-        x_at_dual_cell: Float[Array, "nCell"],
+        x_at_dual_cell: Float[Array, "nlev nCell"],
         *args,
         **kwargs,
-    ) -> Float[Array, "nEdge"]:
-        return central_difference_2nd_order(
-            x_at_dual_cell,
-            self.mesh.primal.edge.endpoints
-        )
+    ) -> Float[Array, "nlev nEdge"]:
+        return jax.vmap(
+            central_difference_2nd_order,
+            in_axes=(0, None),
+            out_axes=0
+        )(x_at_dual_cell, self.mesh.primal.edge.endpoints)
 
 
-class AbstractWRF34AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
+class AbstractWRF34AtPrimalEdge(FVM_ODM_TriSK):
 
     def __init__(
         self,
@@ -88,10 +93,14 @@ class AbstractWRF34AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        x_at_primal_cell: Float[Array, "nCell"],
-        normal_u_at_edge: Float[Array, "nEdge"]
+        x_at_primal_cell: Float[Array, "nlev nCell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"]
     ):
-        return wrf_3rd4th_order(
+        return jax.vmap(
+            wrf_3rd4th_order,
+            in_axes=(0, 0, None, None, None, None, None, None),
+            out_axes=0
+        )(
             x_at_primal_cell,
             normal_u_at_edge,
             self.mesh.dual.edge.endpoints,
@@ -126,7 +135,7 @@ class HybridWRF34AtPrimalEdge(AbstractWRF34AtPrimalEdge):
         super().__init__(coord, para, beta)
 
 
-class AbstractWRF56AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
+class AbstractWRF56AtPrimalEdge(FVM_ODM_TriSK):
 
     def __init__(
         self,
@@ -149,10 +158,14 @@ class AbstractWRF56AtPrimalEdge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        x_at_primal_cell: Float[Array, "nCell"],
-        normal_u_at_edge: Float[Array, "nEdge"]
+        x_at_primal_cell: Float[Array, "nlev nCell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"]
     ):
-        return wrf_5th6th_order(
+        return jax.vmap(
+            wrf_5th6th_order,
+            in_axes=(0, 0, None, None, None, None, None, None, None, None),
+            out_axes=0
+        )(
             x_at_primal_cell,
             normal_u_at_edge,
             self.mesh.dual.edge.endpoints,
@@ -189,7 +202,7 @@ class HybridWRF56AtPrimalEdge(AbstractWRF56AtPrimalEdge):
         super().__init__(coord, para, beta=beta)
 
 
-class AbstractWRF34AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
+class AbstractWRF34AtDualEdge(FVM_ODM_TriSK):
 
     def __init__(
         self,
@@ -208,10 +221,14 @@ class AbstractWRF34AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        x_at_dual_cell: Float[Array, "nCell"],
-        tangent_u_at_edge: Float[Array, "nEdge"]
+        x_at_dual_cell: Float[Array, "nlev nCell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"]
     ):
-        return wrf_3rd4th_order(
+        return jax.vmap(
+            wrf_3rd4th_order,
+            in_axes=(0, 0, None, None, None, None, None, None),
+            out_axes=0
+        )(
             x_at_dual_cell,
             tangent_u_at_edge,
             self.mesh.primal.edge.endpoints,
@@ -257,7 +274,7 @@ class HybridWRF34AtDualEdge(AbstractWRF34AtDualEdge):
         super().__init__(coord, para, beta=beta, use_mbs=use_mbs)
 
 
-class AbstractWRF56AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
+class AbstractWRF56AtDualEdge(FVM_ODM_TriSK):
 
     def __init__(
         self,
@@ -281,10 +298,14 @@ class AbstractWRF56AtDualEdge(FVM_Op_ODM_OneLev_TriSK):
 
     def __call__(
         self,
-        x_at_dual_cell: Float[Array, "nCell"],
-        tangent_u_at_edge: Float[Array, "nEdge"]
+        x_at_dual_cell: Float[Array, "nlev nCell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"]
     ):
-        return wrf_5th6th_order(
+        return jax.vmap(
+            wrf_5th6th_order,
+            in_axes=(0, 0, None, None, None, None, None, None, None, None),
+            out_axes=0
+        )(
             x_at_dual_cell,
             tangent_u_at_edge,
             self.mesh.primal.edge.endpoints,

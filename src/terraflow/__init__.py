@@ -1,4 +1,5 @@
 from . import util
+from . import operator
 from . import mesh
 from . import vert_coord
 from . import planet
