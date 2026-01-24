@@ -19,7 +19,6 @@
 
 # %%
 # %matplotlib inline
-from terraflow.dynamics import ShallowWaterVariables
 import cartopy.feature as cfeature
 import matplotlib.pyplot as plt
 import holoviews as hv
@@ -52,18 +51,18 @@ para = tf.planet.PlanetParameterSet.from_si(
 )
 
 # %%
-state_cls, static_cls = ShallowWaterVariables.from_model(coord)
+testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-state = state_cls.from_testcase(coord, para)
+block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
-static = static_cls.from_testcase(coord, para)
+block = block_cls.from_testcase(coord, para, case=testcase)
 
 
 # %% [markdown]
 # ## Plot using easygems
 
 # %%
-h_pc = xr.DataArray(np.array(state.h_pc.unwrap()).squeeze())
+h_pc = xr.DataArray(np.array(block.state.h_pc.unwrap()).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
@@ -82,7 +81,7 @@ display(img)
 # ### Convert data and mesh into UGRID Format and pack it into uxarray
 
 # %%
-ugrid_ds = state.to_ugrid(coord, use_dual=False)
+ugrid_ds = block.state.to_ugrid(coord, use_dual=False)
 
 ugrid_ds.uxds
 
@@ -311,7 +310,7 @@ display(fig)
 # ##### Plot UV Wind Vectors on Lat-Lon Grid
 
 # %%
-un_e = state.un_e.unwrap()
+un_e = block.state.un_e.unwrap()
 
 uv = coord.mesh.reconstruct_vector(un_e)
 

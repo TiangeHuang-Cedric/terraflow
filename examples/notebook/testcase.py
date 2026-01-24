@@ -57,11 +57,9 @@ method = tf.operator.FiniteVolumeMethod()
 # %%
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-state_cls, static_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
+block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
-state = state_cls.from_testcase(coord, para, case=testcase)
-
-static = static_cls.from_testcase(coord, para, case=testcase)
+block = block_cls.from_testcase(coord, para, case=testcase)
 
 
 # %%
@@ -69,15 +67,13 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
     method=method,
-    static=static,
     form="vector_invariant",
     ode_kind="explicit",
 )
 
 # %%
-equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(5, use_mbs=True)
+equation.aux.h_e.recon_scheme.central_difference()
+equation.aux.pv_e.interp.upwind(3)
 
 # %%
 time_manager = DateTimeManager(
@@ -88,13 +84,12 @@ time_manager = DateTimeManager(
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=60.0),
+    dt=datetime.timedelta(seconds=300.0),
     time_manager=time_manager,
     dev=dev,
 )
 
 # %%
-
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
     start_with_input=True,
@@ -102,10 +97,10 @@ integrate_fn = jax.jit(solver.trajectory(
 ))
 
 # %%
-final, trajectory = integrate_fn(state)
+final, trajectory = integrate_fn(block)
 
-jax.block_until_ready(final)
-jax.block_until_ready(trajectory)
+final = jax.block_until_ready(final)
+trajectory = jax.block_until_ready(trajectory)
 
 # %%
 diag_tools = tf.discretization.DiagnosticTools.from_equation(
@@ -120,9 +115,12 @@ trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
 )
 
 # %%
+diag_vars = diag_tools.compute(final.state, final.static, to_ugrid=True)
+
+# %%
 # %matplotlib inline
 
-_, da = diag_tools.thickness_at_primal_edge(state).to_structured_grid(
+_, da = diag_vars["h_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -170,16 +168,16 @@ plt.tight_layout()
 # %%
 # %matplotlib inline
 
-_, ds = diag_tools.uv_at_primal_cell(final).to_structured_grid(
+_, da = diag_vars["u_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
-    with_reshaped_ds=True
+    with_reshaped_da=True
 )
 
-lon_np = ds["face_lon"]
-lat_np = ds["face_lat"]
-data = ds["u_pc"].data
+lon_np = da["face_lon"]
+lat_np = da["face_lat"]
+data = da.data
 
 lon_np = np.asarray(lon_np)
 lat_np = np.asarray(lat_np)
@@ -217,7 +215,7 @@ contour = ax.contour(
 )
 # ax.coastlines()
 # ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title(f"Remapped {ds['u_pc'].attrs['name']} on Lat-Lon Grid")
+ax.set_title(f"Remapped {da.attrs['name']} on Lat-Lon Grid")
 cbar = plt.colorbar(
     img,
     ax=ax,
@@ -229,11 +227,17 @@ cbar = plt.colorbar(
 )
 cbar.ax.tick_params(labelsize=10)
 cbar.set_label(
-    f"{ds['u_pc'].attrs['name']} at primal cell ({ds['u_pc'].attrs['units']})")
+    f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 plt.tight_layout()
 
 # %%
+trajectory_vars = trajectory_tools.compute_along_trajectory(
+    trajectory,
+    static=final.static,
+    to_ugrid=True
+)
 
+# %%
 # Increase animation embed limit (e.g., to 50 MB)
 plt.rcParams["animation.embed_limit"] = 200
 
@@ -246,8 +250,7 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-trajectory_h_pc = trajectory_tools.thickness_at_primal_cell(trajectory)
-_, da = trajectory_h_pc.to_structured_grid(
+_, da = trajectory_vars["h_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -279,15 +282,20 @@ cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
 # Initial wind (quiver, updatable)
-trajectory_uv_pc = trajectory_tools.uv_at_primal_cell(trajectory)
-_, ds = trajectory_uv_pc.to_structured_grid(
+_, u_da = trajectory_vars["u_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
-    with_reshaped_ds=True,
+    with_reshaped_da=True,
 )
-u_0 = ds["u_pc"].isel(time=0).data
-v_0 = ds["v_pc"].isel(time=0).data
+_, v_da = trajectory_vars["v_pc"].to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="nearest_neighbor",
+    with_reshaped_da=True,
+)
+u_0 = u_da.isel(time=0).data
+v_0 = v_da.isel(time=0).data
 
 # Downsample the vector field to avoid shape mismatch on updates
 ny, nx = u_0.shape
@@ -311,8 +319,8 @@ qv = ax.quiver(
 
 def update(frame):
     img.set_data(da.isel(time=frame).data)
-    u = ds["u_pc"].isel(time=frame).data[::stride, ::stride]
-    v = ds["v_pc"].isel(time=frame).data[::stride, ::stride]
+    u = u_da.isel(time=frame).data[::stride, ::stride]
+    v = v_da.isel(time=frame).data[::stride, ::stride]
     qv.set_UVC(u, v)
     title.set_text(f"Trajectory Step: {frame}")
     return img, qv, title
@@ -321,77 +329,29 @@ def update(frame):
 # Cartopy axes generally do not support blitting; keep blit=False
 anim = animation.FuncAnimation(
     fig, update, frames=n_frames, interval=200, blit=False)
-anim.save("thickness_uv.gif", writer="pillow", dpi=120, fps=5)
+# anim.save("thickness_uv.gif", writer="pillow", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 
 # %%
-
-# Increase animation embed limit (e.g., to 50 MB)
-plt.rcParams["animation.embed_limit"] = 200
-
-# Get number of time steps
-n_frames = trajectory.to_arrays().h_pc.shape[0]
-
-fig = plt.figure(figsize=(10, 5))
-ax = plt.axes(projection=ccrs.PlateCarree())
-ax.set_global()
-ax.coastlines()
-ax.add_feature(cfeature.BORDERS, linestyle=":")
-
-trajectory_data = trajectory_tools.pv_at_dual_edge(trajectory)
-_, da = trajectory_data.to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="inverse_distance_weighted",
-    with_reshaped_da=True,
-)
-lon_np = np.asarray(da["face_lon"])
-lat_np = np.asarray(da["face_lat"])
-extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
-
-img = ax.imshow(
-    da.isel(time=0).data,
-    origin="lower",
-    extent=extent,
-    transform=ccrs.PlateCarree(),
-    cmap="plasma",
-    interpolation="nearest",
-    animated=True,
-)
-
-cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
-title = ax.set_title("Trajectory Step: 0")
-
-
-def update(frame):
-    img.set_data(da.isel(time=frame).data)
-    title.set_text(f"Trajectory Step: {frame}")
-    return img, title
-
-
-# Cartopy axes generally do not support blitting; keep blit=False
-anim = animation.FuncAnimation(
-    fig, update, frames=n_frames, interval=200, blit=False)
-# anim.save(f"{da.attrs['name']}.mp4", writer="ffmpeg", dpi=120, fps=5)
-plt.close(fig)
-HTML(anim.to_jshtml())
-
-# %%
-# %matplotlib inline
-
-_, ds = diag_tools.uv_at_primal_cell(final).to_structured_grid(
+# # %matplotlib inline
+_, u_da = diag_vars["u_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
-    with_reshaped_ds=True,
+    with_reshaped_da=True,
+)
+_, v_da = diag_vars["v_pc"].to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="nearest_neighbor",
+    with_reshaped_da=True,
 )
 
-lon = ds["face_lon"]
-lat = ds["face_lat"]
-u = ds["u_pc"]
-v = ds["v_pc"]
+lon = u_da["face_lon"]
+lat = u_da["face_lat"]
+u = u_da.data
+v = v_da.data
 speed = np.sqrt(u**2 + v**2)
 
 fig = plt.figure(figsize=(10, 5))
@@ -423,6 +383,7 @@ plt.show()
 
 # %%
 # Streamline plot over speed contours
+# # %matplotlib inline
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
 ax.set_global()
@@ -435,8 +396,12 @@ filled = ax.contourf(
     levels=20,
     alpha=0.7
 )
-plt.colorbar(filled, ax=ax, orientation="vertical",
-             pad=0.04, label="Wind Speed (m/s)")
+plt.colorbar(
+    filled, 
+    ax=ax, 
+    orientation="vertical",
+    pad=0.04, label="Wind Speed (m/s)"
+)
 ax.streamplot(
     lon, lat, u, v,
     transform=ccrs.PlateCarree(),
@@ -451,8 +416,7 @@ plt.tight_layout()
 plt.show()
 
 # %%
-
-diag_tools.dundt(final).to_uxarray().plot(
+diag_vars["dundt"].to_uxarray().plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

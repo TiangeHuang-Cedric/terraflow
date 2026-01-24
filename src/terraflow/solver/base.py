@@ -1,12 +1,18 @@
-from typing import List, Callable
+from __future__ import annotations
+from typing import List, Callable, TYPE_CHECKING
 import datetime
 import tree_math
 import jax.numpy as jnp
+import equinox as eqx
 
 from terraflow.util import typing, device
 from terraflow.util.datetime import DateTimeManager
+
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
+
+if TYPE_CHECKING:
+    from terraflow.discretization.abstract import AbstractBlock
 
 
 Array = typing.Array
@@ -38,25 +44,38 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
 
     def stepper(self, equation: AbstractExplicitODE) -> Callable:
         """Third-order Runge-Kutta time stepper."""
-        rhs = tree_math.unwrap(equation.explicit_terms)
+        rhs = equation.explicit_terms
         nrk = self.nrk
         dt_rk_seconds = self.dt_rk_seconds
+        update = tree_math.wrap(tree_math.unwrap(self.update))
 
-        def step_fn(states: tree_math.Vector) -> tree_math.Vector:
-            states0 = states
+        def step_fn(block: AbstractBlock) -> AbstractBlock:
+            block = block.reset()
+            states0 = block.state
+
             for irk in range(nrk):
-                tendency = rhs(states)
-                states = states0 + tendency * dt_rk_seconds[irk]
-            return states
+                block = rhs(block)
+                tend = block.tend.to_state(pass_tag="all")
+                state_new = update(
+                    old_state=states0,
+                    tend=tend,
+                    dt=dt_rk_seconds[irk]
+                )
+                block = eqx.tree_at(
+                    lambda b: b.state,
+                    block,
+                    replace=state_new
+                )
+            return block
 
-        return tree_math.wrap(step_fn)
+        return step_fn
 
 
 class ExForwardBackwardEulerSolver(AbstractSolver[AbstractExplicitODE]):
 
     """Forward-Backward Euler time integration solver.
 
-    This solver used two expicit schemes that are economical than the standard leapfrog shceme.
+    This solver uses two explicit schemes that are more economical than the standard leapfrog scheme.
     For brief, It is obtained by first integrating the gravity wave terms of either the dynamics of motion
     or of the continuity dynamics forward, and then those of the other dynamics backward in time.
     Thus, this scheme could be called the forward-backward scheme.
@@ -69,21 +88,39 @@ class ExForwardBackwardEulerSolver(AbstractSolver[AbstractExplicitODE]):
 
     def stepper(self, equation: AbstractExplicitODE) -> Callable:
         """Forward-Backward Euler time stepper."""
-        forward_rhs = tree_math.unwrap(
-            lambda x: equation.explicit_terms(x, pass_tag="forward_pass")
-        )
-        backward_rhs = tree_math.unwrap(
-            lambda x: equation.explicit_terms(x, pass_tag="backward_pass")
-        )
+        rhs = equation.explicit_terms
         dt_seconds = self.dt.total_seconds()
+        update = tree_math.wrap(tree_math.unwrap(self.update))
 
-        def step_fn(states: tree_math.Vector) -> tree_math.Vector:
+        def forward_backward_stepper(
+            block: AbstractBlock,
+            pass_tag: str
+        ) -> AbstractBlock:
+            block = rhs(block, pass_tag=pass_tag)
+            tend = block.tend.to_state(pass_tag=pass_tag)
+            new_state = update(
+                old_state=block.state,
+                tend=tend,
+                dt=dt_seconds
+            )
+            return eqx.tree_at(
+                lambda b: b.state,
+                block,
+                replace=new_state
+            )
+
+        def step_fn(block: AbstractBlock) -> AbstractBlock:
             # Forward Euler for explicit terms
-            tendency_forward = forward_rhs(states)
-            star_states = states + tendency_forward * dt_seconds
+            block = block.reset()
+            star_block = forward_backward_stepper(
+                block,
+                pass_tag="forward_pass"
+            )
             # Backward Euler for explicit terms
-            tendency_backward = backward_rhs(star_states)
-            new_states = star_states + tendency_backward * dt_seconds
-            return new_states
+            new_block = forward_backward_stepper(
+                star_block,
+                pass_tag="backward_pass"
+            )
+            return new_block
 
-        return tree_math.wrap(step_fn)
+        return step_fn

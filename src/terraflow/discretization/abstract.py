@@ -1,9 +1,10 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Generic, LiteralString, Mapping, TypeVar, Type, overload, Tuple
-from typing import Optional, Union, List, Dict, Self, cast, Literal, Any, Sequence
+from copy import deepcopy
+from typing import Callable, Generic, Mapping, TypeVar, Type, overload, Tuple
+from typing import Optional, Union, List, Dict, Self, cast, Literal, Any
+import dataclasses
 import equinox as eqx
 import unxt as ux
-import jax
 import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
@@ -27,10 +28,19 @@ HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
+ESAUX = TypeVar("ESAUX", bound="AbstractEquationSetAuxiliary")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
-VARSET = TypeVar("VARSET", bound="AbstractVariableSet")
+DT = TypeVar("DT", Array, ux.AbstractQuantity)
+STATE = TypeVar("STATE", bound="AbstractVariableSet")
+STATIC = TypeVar("STATIC", bound="AbstractVariableSet")
+TEND = TypeVar("TEND", bound="AbstractVariableSet")
+AUX = TypeVar("AUX", bound="AbstractVariableSet")
+BLOCK = TypeVar("BLOCK", bound="AbstractBlock")
+BF = TypeVar("BF", bound="AbstractBlock")
+BQ = TypeVar("BQ", bound="AbstractBlock")
+BA = TypeVar("BA", bound="AbstractBlock")
 
 
 class DiscretizationInfo:
@@ -98,7 +108,7 @@ class DiscretizationInfo:
         }
 
     def id(self) -> str:
-        """        
+        """
         Generate a unique identifier string for the discretization configuration.
 
         Note: If any of the fields are empty strings, they will be exincluded in the ID,
@@ -145,7 +155,7 @@ class DiscretizationInfo:
         )
 
 
-class AbstractEquationBase(Generic[HM, VM, LO, DM], ABC):
+class AbstractEquationBase(Generic[HM, VM, LO, DM, BLOCK], ABC):
     _disc: DiscretizationInfo
     _coord: CoordinateSystem[HM, VM, LO]
     _para: PlanetParameterSet
@@ -156,7 +166,7 @@ class AbstractEquationBase(Generic[HM, VM, LO, DM], ABC):
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        method: DM
+        method: DM,
     ):
         self._disc = disc
         self._coord = coord
@@ -212,21 +222,34 @@ class AbstractEquationBase(Generic[HM, VM, LO, DM], ABC):
         return "::".join(self.disc_info().values())
 
 
-class AbstractEquationTerm(AbstractEquationBase[HM, VM, LO, DM], ABC):
-
+class AbstractEquationTerm(
+    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
+    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
+    ABC
+):
     def __init__(
         self,
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        method: DM
+        method: DM,
+        aux: ESAUX
     ):
-        self._table = "equterm"
         super().__init__(disc, coord, para, method)
+        self._table = "equterm"
+        self._aux = aux
 
     @abstractmethod
-    def __call__(self, *args: Any, **kwargs: Any) -> Array:
-        pass
+    def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
+        raise NotImplementedError
+
+    @abstractmethod
+    def unwrap(self, block: BLOCK) -> Array:
+        raise NotImplementedError
+
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -243,23 +266,28 @@ class AbstractEquationTerm(AbstractEquationBase[HM, VM, LO, DM], ABC):
         }
 
 
-class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, DM], ABC):
-
+class AbstractEquationForm(
+    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
+    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
+    ABC
+):
     def __init__(
         self,
         disc: DiscretizationInfo,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
-        method: DM
+        method: DM,
+        aux: ESAUX
     ):
-        self._table = "equ"
         disc_copy = disc.copy()
         disc_copy.equ = self.alias_name()
         super().__init__(disc_copy, coord, para, method)
+        self._table = "equ"
+        self._aux = aux
 
     @abstractmethod
-    def __call__(self, *args: Any, **kwargs: Any) -> Array:
-        pass
+    def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
+        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
@@ -270,6 +298,10 @@ class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, DM], ABC):
     @abstractmethod
     def ode_kind_alias_name() -> str:
         raise NotImplementedError
+
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -306,17 +338,49 @@ class AbstractEquationForm(AbstractEquationBase[HM, VM, LO, DM], ABC):
         return navigate("equterm", id_col=id_col, id_val=id_val)
 
 
-class AbstractContinuityEquForm(AbstractEquationForm[HM, VM, LO, DM], ABC):
+class AbstractContinuityEquForm(AbstractEquationForm[HM, VM, LO, DM, ESAUX, BLOCK], ABC):
     pass
 
 
-class AbstractMomentumEquForm(AbstractEquationForm[HM, VM, LO, DM], ABC):
+class AbstractMomentumEquForm(AbstractEquationForm[HM, VM, LO, DM, ESAUX, BLOCK], ABC):
     pass
+
+
+class AbstractEquationSetAuxiliary(
+    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
+):
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordinateSystem[HM, VM, LO],
+        para: PlanetParameterSet,
+        method: DM,
+    ):
+        super().__init__(disc, coord, para, method)
+        self._table = "equaux"
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        raise NotImplementedError
+
+    def disc_info(self) -> Dict[str, str]:
+        return {
+            "planet": self._disc.planet,
+            "component": self._disc.component,
+            "equset": self._disc.equset,
+            "form": self._disc.form,
+            "equ": self._disc.equ,
+            "ode_kind": self._disc.ode_kind,
+            "method": self._disc.method,
+            "layout": self._disc.layout,
+            "horizontal_mesh": self._disc.horizontal_mesh,
+            "vertical_coordinate": self._disc.vertical_coordinate,
+        }
 
 
 class AbstractEquationSet(
-    AbstractEquationBase[HM, VM, LO, DM],
+    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
     AbstractODE,
+    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
     ABC
 ):
 
@@ -327,8 +391,15 @@ class AbstractEquationSet(
         para: PlanetParameterSet,
         method: DM
     ):
-        self._table = "equset"
         super().__init__(disc, coord, para, method)
+        self._table = "equset"
+        factory = self.navi2aux()
+        self._aux: ESAUX = factory(
+            disc=disc,
+            coord=coord,
+            para=para,
+            method=method
+        )
 
     @staticmethod
     @abstractmethod
@@ -348,19 +419,30 @@ class AbstractEquationSet(
         """Return the ODE kind alias name of the dynamics set. Default to empty string."""
         raise NotImplementedError
 
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
+
     def disc_info(self) -> Dict[str, str]:
         return {
             "planet": self._disc.planet,
             "component": self._disc.component,
             "equset": self._disc.equset,
             "form": self._disc.form,
-            "equ": self._disc.equ,
             "ode_kind": self._disc.ode_kind,
             "method": self._disc.method,
             "layout": self._disc.layout,
             "horizontal_mesh": self._disc.horizontal_mesh,
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
+
+    def navi2aux(self) -> Callable:
+        """Navigate to the auxiliary terms configuration in the equaux table."""
+        id_col = "unique_id"
+        disc = self.disc_id()
+        choice = "auxiliary_terms"
+        id_val = disc + "::" + choice
+        return navigate("equaux", id_col=id_col, id_val=id_val)[0]
 
     @classmethod
     def _from_model(
@@ -389,43 +471,45 @@ class AbstractEquationSet(
 
 
 class AbstractVariableSet(eqx.Module, ABC):
-    variables: Dict[str, Any] = eqx.field()
 
+    @abstractmethod
     def __iter__(self):
-        return iter(self.variables)
+        raise NotImplementedError
 
+    @abstractmethod
     def __len__(self) -> int:
-        return len(self.variables)
+        raise NotImplementedError
 
-    def _wrap(self, variables: Dict[str, Any]) -> Self:
-        return eqx.tree_at(
-            lambda vs: vs.variables,
-            self,
-            variables
-        )
+    @abstractmethod
+    def _wrap(self, *args, **kwargs) -> Self:
+        raise NotImplementedError
 
+    @classmethod
+    @abstractmethod
+    def from_arrays(cls, *args, **kwargs) -> Self:
+        raise NotImplementedError
+
+    @abstractmethod
     def keys(self) -> List[str]:
-        return list(self.variables.keys())
+        raise NotImplementedError
 
+    @abstractmethod
     def values(self) -> List[Any]:
-        return list(self.variables.values())
+        raise NotImplementedError
 
+    @abstractmethod
     def items(self) -> List[tuple[str, Any]]:
-        return list(self.variables.items())
+        raise NotImplementedError
 
+    @abstractmethod
     def isel(self, index: int, axis: int) -> Self:
         """Index select along a specific dimension for all variables."""
-        new_vars: Dict[str, Any] = {}
-        for key, var in self.variables.items():
-            if isinstance(var, Field):
-                new_vars[key] = var.isel(index=index, axis=axis)
-            elif isinstance(var, jnp.ndarray):
-                new_vars[key] = jnp.take(var, indices=index, axis=axis)
-            else:
-                raise TypeError(
-                    f"Variable '{key}' is of unsupported type '{type(var)}' for isel operation."
-                )
-        return self._wrap(new_vars)
+        raise NotImplementedError
+
+    @abstractmethod
+    def reset(self, val: float = 0.0) -> Self:
+        """Reset all variables to a specific value."""
+        raise NotImplementedError
 
     def to_netcdf(
         self,
@@ -471,41 +555,59 @@ class AbstractVariableSet(eqx.Module, ABC):
         """Convert variable set to a xarray.Dataset with UGRID format."""
         raise NotImplementedError
 
-    def extend_dims_on_leading_axis(self) -> Self:
-        """Reshape all variables to a new shape."""
-        new_vars: Dict[str, Any] = {}
-        for key, var in self.variables.items():
-            if isinstance(var, Field):
-                new_vars[key] = var.reshape((1,) + var.data.shape)
-            elif isinstance(var, jnp.ndarray):
-                new_vars[key] = jnp.reshape(var, (1,) + var.shape)
-            elif isinstance(var, ux.AbstractQuantity):
-                new_vars[key] = var.reshape((1,) + var.shape)
-            else:
-                raise TypeError(
-                    f"Variable '{key}' is of unsupported type '{type(var)}' for reshape operation."
-                )
-        return self._wrap(new_vars)
 
-    def squeeze_leading_axis(self) -> Self:
-        """Squeeze the leading axis of all variables."""
-        new_vars: Dict[str, Any] = {}
-        for key, var in self.variables.items():
-            if isinstance(var, Field):
-                new_vars[key] = var.reshape(var.data.shape[1:])
-            elif isinstance(var, jnp.ndarray):
-                new_vars[key] = jnp.reshape(var, var.shape[1:])
-            elif isinstance(var, ux.AbstractQuantity):
-                new_vars[key] = var.reshape(var.shape[1:])
-            else:
-                raise TypeError(
-                    f"Variable '{key}' is of unsupported type '{type(var)}' for reshape operation."
-                )
-        return self._wrap(new_vars)
-
-
-class AbstractRawVariableSet(AbstractVariableSet, Generic[FMT]):
+class AbstractRawVariableSet(AbstractVariableSet, Generic[FMT, DT]):
     meta: Dict[str, FMT] = eqx.field(static=True)
+
+    def __init__(self, variables: Dict[str, DT], meta: Dict[str, FMT]):
+        for k, v in variables.items():
+            if k not in meta:
+                raise KeyError(f"Metadata for variable '{k}' not found.")
+            object.__setattr__(self, k, v)
+        object.__setattr__(self, "meta", meta)
+
+    def __iter__(self):
+        return iter(self.values())
+
+    def __len__(self) -> int:
+        return len(self.meta)
+
+    def _wrap(self, variables: Dict[str, DT]) -> Self:
+        for k, v in variables.items():
+            if k not in self.meta:
+                raise KeyError(f"Metadata for variable '{k}' not found.")
+            self = eqx.tree_at(
+                lambda vs: object.__getattribute__(vs, k),
+                self,
+                v
+            )
+        return self
+
+    def keys(self) -> List[str]:
+        return list(self.meta.keys())
+
+    def values(self) -> List[DT]:
+        return [object.__getattribute__(self, key) for key in self.keys()]
+
+    def items(self) -> List[Tuple[str, DT]]:
+        return [(key, object.__getattribute__(self, key)) for key in self.keys()]
+
+    def isel(self, index: int, axis: int) -> Self:
+        """Index select along a specific dimension for all variables."""
+        new_vars: Dict[str, Any] = {}
+        for key in self.keys():
+            var = object.__getattribute__(self, key)
+            if isinstance(var, jnp.ndarray):
+                new_vars[key] = jnp.take(var, indices=index, axis=axis)
+            elif isinstance(var, ux.AbstractQuantity):
+                new_array = jnp.take(var.value, indices=index, axis=axis)
+                new_vars[key] = ux.Quantity(
+                    new_array, var.unit)  # type: ignore
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for isel operation."
+                )
+        return self._wrap(new_vars)
 
     @staticmethod
     def _convert_meta_unit(field_meta: FMT, usys: ux.AbstractUnitSystem) -> FMT:
@@ -536,12 +638,12 @@ class AbstractRawVariableSet(AbstractVariableSet, Generic[FMT]):
         )
 
     def copy(self) -> Self:
-        return type(self)(
-            variables=self.variables.copy(),
+        return self._wrap_with_meta(
+            variables=dict(self.items()),
             meta=self.meta.copy()
         )
 
-    def is_staggered_fields(self) -> bool:
+    def is_staggered(self) -> bool:
         """Check if all stored variables are staggered Fields."""
         return all(
             isinstance(v, StaggeredFieldMetaData)
@@ -550,12 +652,12 @@ class AbstractRawVariableSet(AbstractVariableSet, Generic[FMT]):
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
-        if not self.is_staggered_fields():
+        if not self.is_staggered():
             raise TypeError(
                 "Variables are not all staggered Fields, cannot convert to UGRID format."
             )
         var_ds: Dict[str, xr.DataArray] = {}
-        for key, var in self.variables.items():
+        for key, var in self.items():
             var_ds[key] = tuxr.format_terraflow2ugrid(
                 var, self.meta[key].to_dict(), use_dual=use_dual
             )
@@ -567,24 +669,90 @@ AV = TypeVar("AV", bound="AbstractArrayBasedVariableSet")
 QV = TypeVar("QV", bound="AbstractQuantityBasedVariableSet")
 
 
-class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
-    variables: Dict[str, FieldLike] = eqx.field()
+class AbstractFieldBasedVariableSet(AbstractVariableSet, Generic[QV, AV, FMT]):
 
-    def __init__(self, variables: Dict[str, FieldLike] = {}):
-        # Use object.__setattr__ to bypass equinox checks
-        # This avoids warnings while maintaining static field performance benefits
-        object.__setattr__(self, 'variables', variables)
+    def __init__(self, variables: Dict[str, FieldLike]):
+        for k, v in variables.items():
+            if not isinstance(v, Field):
+                raise TypeError(f"Variable '{k}' is not a Field.")
+            object.__setattr__(self, k, v)
 
-    def copy(self) -> Self:
-        return type(self)(
-            variables=self.variables.copy()
+    @classmethod
+    def _field_names(cls) -> tuple[str, ...]:
+        return tuple(
+            f.name
+            for f in dataclasses.fields(cls)
         )
 
-    def is_staggered_fields(self) -> bool:
+    def __iter__(self):
+        for name in self._field_names():
+            yield getattr(self, name)
+
+    def __len__(self) -> int:
+        return len(self._field_names())
+
+    def _wrap(self, **kwargs) -> Self:
+        names = self._field_names()
+        new_vals = tuple(kwargs.get(n, getattr(self, n)) for n in names)
+        for k, v in new_vals:
+            if not isinstance(v, Field):
+                raise TypeError(f"Variable '{k}' is not a Field.")
+            self = eqx.tree_at(
+                lambda vs: object.__getattribute__(vs, k),
+                self,
+                v
+            )
+        return self
+
+    def reset(self, val: float = 0.0) -> Self:
+        new_vars: Dict[str, Field] = {}
+        for key in self.keys():
+            var = object.__getattribute__(self, key)
+            if isinstance(var.data, jnp.ndarray):
+                new_vars[key] = Field.create(
+                    data=jnp.full_like(var.data, val),
+                    meta=var.meta,
+                    as_quantity=var.is_quantity()
+                )
+            elif isinstance(var.data, ux.AbstractQuantity):
+                new_array = jnp.full_like(var.data.value, val)
+                new_vars[key] = Field.create(
+                    data=ux.Quantity(
+                        new_array, var.data.unit  # type: ignore
+                    ),
+                    meta=var.meta,
+                    as_quantity=var.is_quantity()
+                )
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reset operation."
+                )
+        return self._wrap(**new_vars)
+
+    def keys(self) -> List[str]:
+        return list(self._field_names())
+
+    def values(self) -> List[FieldLike]:
+        return [getattr(self, name) for name in self._field_names()]
+
+    def items(self) -> List[tuple[str, FieldLike]]:
+        return [(name, getattr(self, name)) for name in self._field_names()]
+
+    def isel(self, index: int, axis: int) -> Self:
+        """Index select along a specific dimension for all variables."""
+        new_vars: Dict[str, FieldLike] = {}
+        for key, var in self.items():
+            new_vars[key] = var.isel(index=index, axis=axis)
+        return self._wrap(**new_vars)
+
+    def copy(self) -> Self:
+        return self._wrap()
+
+    def is_staggered(self) -> bool:
         """Check if all stored variables are staggered Fields."""
         return all(
             isinstance(v.meta, StaggeredFieldMetaData)
-            for v in self.variables.values()
+            for v in self.values()
         )
 
     @staticmethod
@@ -679,7 +847,7 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
             return self.default_fields(as_quantity=as_quantity)
         else:
             if self.is_fields():
-                return self.variables
+                return dict(self.items())
             else:
                 raise TypeError("Variables are not stored as Fields.")
 
@@ -689,28 +857,25 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
             return self.default_meta()
         else:
             meta: Dict[str, FMT] = {}
-            for key, var in self.variables.items():
+            for key, var in self.items():
                 if isinstance(var, Field):
                     meta[key] = var.meta
         return meta
 
     def varnames(self) -> List[str]:
-        return list(self.variables.keys())
+        return list(self.keys())
 
     def is_fields(self) -> bool:
         """Check if all stored variables are Fields."""
-        return all(isinstance(v, Field) for v in self.variables.values())
+        return all(isinstance(v, Field) for v in self.values())
 
     def is_arrays(self) -> bool:
         """Check if all stored variables are Arrays."""
-        return all(v.is_array() for v in self.variables.values())
+        return all(v.is_array() for v in self.values())
 
     def is_quantities(self) -> bool:
         """Check if all stored variables are AbstractQuantities."""
-        return all(v.is_quantity() for v in self.variables.values())
-
-    def get(self, name: str, default=None) -> Any:
-        return self.variables.get(name, default)
+        return all(v.is_quantity() for v in self.values())
 
     def unwrap(self) -> Mapping[str, Union[Array, ux.AbstractQuantity]]:
         vars: Dict[str, Union[Array, ux.AbstractQuantity]] = {}
@@ -731,13 +896,27 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
 
     @classmethod
     def wrap(cls, vars_dict: Dict[str, FieldLike]) -> Self:
-        if all(isinstance(v, Field) for v in vars_dict.values()):
-            vars_dict = cast(Dict[str, FieldLike], vars_dict)
-        else:
+        if not all(isinstance(v, Field) for v in vars_dict.values()):
             raise TypeError(
                 "Incompatible variable types for wrapping, must be Fields"
             )
         return cls(variables=vars_dict)
+
+    @classmethod
+    def from_arrays(
+        cls,
+        array_dict: Dict[str, Array],
+        meta: Dict[str, FMT]
+    ) -> Self:
+        new_variables: Dict[str, FieldLike] = {}
+        for key, var in array_dict.items():
+            if key not in meta:
+                raise KeyError(f"Metadata for variable '{key}' not found.")
+            new_variables[key] = ArrayField[FMT](
+                data=var,
+                meta=meta[key]
+            )
+        return cls(variables=new_variables)
 
     def to_default_unit(self) -> Self:
         """Convert all parameters to default unit system.
@@ -795,14 +974,14 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
                 "Please check if all variables are Fields."
             )
 
-    def to_quantities(self) -> QV:
+    def to_quantities(self, usys: ux.AbstractUnitSystem = ux.unitsystems.si) -> QV:
         """Convert all parameters to AbstractQuantities."""
         new_variables: Dict[str, ux.AbstractQuantity] = {}
         for key, var in self.items():
             if isinstance(var, Field):
                 new_variables[key] = cast(
                     ux.AbstractQuantity,
-                    var.to_quantity().unwrap()
+                    var.to_quantity(usys).unwrap()
                 )
             else:
                 raise TypeError(f"Variable '{key}' is not a Field.")
@@ -825,30 +1004,29 @@ class AbstractFieldBasedVariableSet(Generic[QV, AV, FMT], AbstractVariableSet):
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
-        if not self.is_staggered_fields():
+        if not self.is_staggered():
             raise TypeError(
                 "Variables are not all staggered Fields, cannot convert to UGRID format."
             )
         var_ds: Dict[str, xr.DataArray] = {}
-        for key, var in self.variables.items():
+        for key, var in self.items():
             var_ds[key] = tuxr.format_terraflow2ugrid(
                 var.data, var.meta.to_dict(), use_dual=use_dual
             )
         return xr.Dataset(data_vars=var_ds)
 
 
-class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, FMT]):
-    variables: Dict[str, ux.AbstractQuantity] = eqx.field()
-    meta: Dict[str, FMT] = eqx.field(static=True)
+class AbstractQuantityBasedVariableSet(
+    AbstractRawVariableSet[FMT, ux.AbstractQuantity],
+    Generic[FV, AV, FMT]
+):
 
     def __init__(
-        self, variables: Dict[str, ux.AbstractQuantity] = {},
-        meta: Dict[str, FMT] = {}
+        self,
+        variables: Dict[str, ux.AbstractQuantity],
+        meta: Dict[str, FMT],
     ):
-        # Use object.__setattr__ to bypass equinox checks
-        # This avoids warnings while maintaining static field performance benefits
-        object.__setattr__(self, 'variables', variables)
-        object.__setattr__(self, 'meta', meta)
+        super().__init__(variables=variables, meta=meta)
 
     @staticmethod
     @abstractmethod
@@ -868,6 +1046,21 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
         """Return the array-based variable set type produced by ``to_value``."""
         raise NotImplementedError
 
+    def reset(self, val: float = 0.0) -> Self:
+        new_vars: Dict[str, ux.AbstractQuantity] = {}
+        for key in self.keys():
+            var = object.__getattribute__(self, key)
+            if isinstance(var, ux.AbstractQuantity):
+                new_array = jnp.full_like(var.value, val)
+                new_vars[key] = ux.Quantity(
+                    new_array, var.unit  # type: ignore
+                )
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reset operation."
+                )
+        return self._wrap(new_vars)
+
     def default_quantities(self) -> Dict[str, ux.AbstractQuantity]:
         """Return default variable quantity dictionary."""
         return {
@@ -883,7 +1076,7 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
             return self.default_quantities()
         else:
             if self.is_quantities():
-                return self.variables
+                return {key: value for key, value in self.items()}
             else:
                 raise TypeError("Variables are not stored as Quantities.")
 
@@ -895,14 +1088,11 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
             return self.meta
 
     def varnames(self) -> List[str]:
-        return list(self.variables.keys())
+        return list(self.keys())
 
     def is_quantities(self) -> bool:
         """Check if all stored variables are AbstractQuantities."""
-        return all(isinstance(v, ux.AbstractQuantity) for v in self.variables.values())
-
-    def get(self, name: str, default=None) -> Any:
-        return self.variables.get(name, default)
+        return all(isinstance(v, ux.AbstractQuantity) for v in self.values())
 
     def unwrap(self) -> Dict[str, Array]:
         vars: Dict[str, Array] = {}
@@ -921,7 +1111,22 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
             raise TypeError(
                 "Incompatible variable types for wrapping, must be AbstractQuantities"
             )
-        return cls(variables=vars_dict)
+        return cls(variables=vars_dict, meta=cls.default_meta())
+
+    @classmethod
+    def from_arrays(
+        cls,
+        array_dict: Dict[str, Array],
+        meta: Dict[str, FMT]
+    ) -> Self:
+        new_variables: Dict[str, ux.AbstractQuantity] = {}
+        for key, var in array_dict.items():
+            if key not in meta:
+                raise KeyError(f"Metadata for variable '{key}' not found.")
+            new_variables[key] = ux.Quantity(
+                var, meta[key].units  # type: ignore
+            )
+        return cls(variables=new_variables, meta=meta)
 
     def to_default_unit(self) -> Self:
         """Convert all parameters to default unit system.
@@ -988,7 +1193,7 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
             else:
                 raise TypeError(f"Variable '{key}' is not a Field.")
         if self.is_quantities():
-            return type(self)(variables=new_variables)
+            return type(self)(variables=new_variables, meta=existing_meta)
         else:
             raise TypeError(
                 "Cannot convert to SI units on incompatible variable types."
@@ -1009,7 +1214,7 @@ class AbstractQuantityBasedVariableSet(AbstractRawVariableSet, Generic[FV, AV, F
         field_cls = self.field_varset_type()
         return field_cls(variables=new_variables)
 
-    def to_values(self, usys: ux.AbstractUnitSystem = ux.unitsystems.si) -> AV:
+    def to_arrays(self, usys: ux.AbstractUnitSystem = ux.unitsystems.si) -> AV:
         """Convert all parameters to their numeric values in the specified unit system."""
         new_variables: Dict[str, Array] = {}
         for key, var in self.items():
@@ -1031,21 +1236,17 @@ def array_convert_from_to_units(
     return converted.value
 
 
-class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]):
-    # Mark mesh and vert as static fields to improve performance
-    # They are immutable structural information fixed in compiled functions
-    variables: Dict[str, Array] = eqx.field()
-    meta: Dict[str, FMT] = eqx.field(static=True)
+class AbstractArrayBasedVariableSet(
+    AbstractRawVariableSet[FMT, Array],
+    Generic[FV, QV, FMT]
+):
 
     def __init__(
         self,
-        variables: Dict[str, Array] = {},
-        meta: Dict[str, FMT] = {}
+        variables: Dict[str, Array],
+        meta: Dict[str, FMT]
     ):
-        # Use object.__setattr__ to bypass equinox checks
-        # This avoids warnings while maintaining static field performance benefits
-        object.__setattr__(self, 'variables', variables)
-        object.__setattr__(self, 'meta', meta)
+        super().__init__(variables=variables, meta=meta)
 
     def default_array_dict(self) -> Dict[str, Array]:
         """Return default variable array dictionary."""
@@ -1072,13 +1273,25 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
         """Return the quantity-based variable set type produced by ``to_fields``."""
         raise NotImplementedError
 
+    def reset(self, val: float = 0.0) -> Self:
+        new_vars: Dict[str, Array] = {}
+        for key in self.keys():
+            var = object.__getattribute__(self, key)
+            if isinstance(var, jnp.ndarray):
+                new_vars[key] = jnp.full_like(var, val)
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reset operation."
+                )
+        return self._wrap(new_vars)
+
     def existing_values(self) -> Dict[str, Array]:
         """Return existing variables."""
         if getattr(self, "variables", None) is None:
             return self.default_array_dict()
         else:
             if self.is_arrays():
-                return self.variables
+                return {k: v for k, v in self.values()}
             else:
                 raise TypeError("Variables are not stored as Arrays.")
 
@@ -1090,21 +1303,18 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
             return self.meta
 
     def varnames(self) -> List[str]:
-        return list(self.variables.keys())
+        return list(self.keys())
 
     def is_arrays(self) -> bool:
         """Check if all stored variables are Arrays."""
-        return all(isinstance(v, Array) for v in self.variables.values())
-
-    def get(self, name: str, default=None) -> Any:
-        return self.variables.get(name, default)
+        return all(isinstance(v, Array) for v in self.values())
 
     def unwrap(self) -> Dict[str, Array]:
-        if not all(isinstance(v, Array) for v in self.variables.values()):
+        if not all(isinstance(v, Array) for v in self.values()):
             raise TypeError(
                 "Incompatible variable types after unwrapping, not all Arrays."
             )
-        return self.variables
+        return {k: v for k, v in self.items()}
 
     @classmethod
     def wrap(cls, vars_dict: Dict[str, Array]) -> Self:
@@ -1112,7 +1322,15 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
             raise TypeError(
                 "Incompatible variable types for wrapping, must be Arrays"
             )
-        return cls(variables=vars_dict)
+        return cls(variables=vars_dict, meta=cls.default_meta())
+
+    @classmethod
+    def from_arrays(
+        cls,
+        array_dict: Dict[str, Array],
+        meta: Dict[str, FMT]
+    ) -> Self:
+        return cls(variables=array_dict, meta=meta)
 
     def to_default_unit(self) -> Self:
         """Convert all parameters to default unit system.
@@ -1203,125 +1421,253 @@ class AbstractArrayBasedVariableSet(AbstractRawVariableSet, Generic[FV, QV, FMT]
 
 
 class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
-    variables: Dict[str, FieldLike] = eqx.field()
+    variables: Dict[str, Array]
+    meta: Dict[str, FMT]
 
-    def __init__(self, variables: Dict[str, FieldLike] = {}):
-        # Use object.__setattr__ to bypass equinox checks
-        # This avoids warnings while maintaining static field performance benefits
-        object.__setattr__(self, 'variables', variables)
+    def __init__(self, variables: Dict[str, Array], meta: Dict[str, FMT]):
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "meta", meta)
+
+    def __iter__(self):
+        return iter(self.variables.items())
+
+    def __len__(self) -> int:
+        return len(self.variables)
+
+    def __getattribute__(self, name: str) -> Any:
+        if name == "variables":
+            return object.__getattribute__(self, name)
+        variables = object.__getattribute__(self, "variables")
+        if name in variables:
+            return variables[name]
+        return object.__getattribute__(self, name)
+
+    def _wrap(self, variables: Dict[str, Array]) -> Self:
+        return type(self)(variables=variables, meta=self.meta)
+
+    def keys(self) -> List[str]:
+        return list(self.variables.keys())
+
+    def values(self) -> List[Array]:
+        return list(self.variables.values())
+
+    def items(self) -> List[tuple[str, Array]]:
+        return list(self.variables.items())
+
+    def isel(self, index: int, axis: int) -> Self:
+        """Index select along a specific dimension for all variables."""
+        new_vars: Dict[str, Array] = {}
+        for key, var in self.items():
+            new_vars[key] = jnp.take(var, indices=index, axis=axis)
+        return self._wrap(new_vars)
+
+    def reset(self, val: float = 0.0) -> Self:
+        new_vars: Dict[str, Array] = {}
+        for key, var in self.items():
+            if isinstance(var, Array):
+                new_vars[key] = jnp.full_like(var, val)
+            else:
+                raise TypeError(
+                    f"Variable '{key}' is of unsupported type '{type(var)}' for reset operation."
+                )
+        return self._wrap(new_vars)
 
     def copy(self) -> Self:
         return type(self)(
-            variables=self.variables.copy()
+            variables={k: v for k, v in self.items()},
+            meta=self.meta
         )
 
-    @overload
     def existing_values(
-        self,
-        as_quantity: Literal[True]
-    ) -> Dict[str, QuantityField[FMT]]:
-        ...
-
-    @overload
-    def existing_values(
-        self,
-        as_quantity: Literal[False]
-    ) -> Dict[str, ArrayField[FMT]]:
-        ...
-
-    def existing_values(
-        self,
-        as_quantity: bool = False
-    ) -> Mapping[str, FieldLike]:
+        self
+    ) -> Dict[str, Array]:
         """Return existing variables."""
         if getattr(self, "variables", None) is None:
             raise ValueError(
                 "No variables stored, cannot retrieve existing values."
             )
         else:
-            if self.is_fields():
+            if self.is_arrays():
                 return self.variables
             else:
-                raise TypeError("Variables are not stored as Fields.")
+                raise TypeError("Variables are not stored as Arrays.")
 
     def existing_meta(self) -> Dict[str, FMT]:
         """Return metadata of existing variables."""
         if getattr(self, "variables", None) is None:
             raise ValueError("No variables stored, cannot retrieve metadata.")
         else:
-            meta: Dict[str, FMT] = {}
-            for key, var in self.variables.items():
-                if isinstance(var, Field):
-                    meta[key] = var.meta
-        return meta
-
-    def varnames(self) -> List[str]:
-        return list(self.variables.keys())
-
-    def is_fields(self) -> bool:
-        """Check if all stored variables are Fields."""
-        return all(isinstance(v, Field) for v in self.variables.values())
+            return self.meta
 
     def is_arrays(self) -> bool:
         """Check if all stored variables are Arrays."""
-        return all(v.is_array() for v in self.variables.values())
+        return all(isinstance(v, Array) for v in self.values())
 
-    def is_quantities(self) -> bool:
-        """Check if all stored variables are AbstractQuantities."""
-        return all(v.is_quantity() for v in self.variables.values())
-
-    def get(self, name: str, default=None) -> Any:
-        return self.variables.get(name, default)
-
-    def unwrap(self) -> Mapping[str, Union[Array, ux.AbstractQuantity]]:
-        vars: Dict[str, Union[Array, ux.AbstractQuantity]] = {}
-        for key, var in self.items():
-            if isinstance(var, Field):
-                vars[key] = var.unwrap()
-            else:
-                vars[key] = var
-        if all(isinstance(v, Array) for v in vars.values()):
-            return cast(Dict[str, Array], vars)
-        elif all(isinstance(v, ux.AbstractQuantity) for v in vars.values()):
-            return cast(Dict[str, ux.AbstractQuantity], vars)
-        else:
-            raise TypeError(
-                "Incompatible variable types after unwrapping; "
-                "neither all Arrays nor all AbstractQuantities."
-            )
-
-    @classmethod
-    def wrap(cls, vars_dict: Dict[str, FieldLike]) -> Self:
-        if all(isinstance(v, Field) for v in vars_dict.values()):
-            vars_dict = cast(Dict[str, FieldLike], vars_dict)
-        else:
-            raise TypeError(
-                "Incompatible variable types for wrapping, must be Fields"
-            )
-        return cls(variables=vars_dict)
-
-    def is_staggered_fields(self) -> bool:
+    def is_staggered(self) -> bool:
         """Check if all stored variables are staggered Fields."""
         return all(
-            isinstance(v.meta, StaggeredFieldMetaData)
-            for v in self.variables.values()
+            isinstance(m, StaggeredFieldMetaData)
+            for m in self.meta
         )
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
-        if not self.is_staggered_fields():
+        if not self.is_staggered():
             raise TypeError(
                 "Variables are not all staggered Fields, cannot convert to UGRID format."
             )
         var_ds: Dict[str, xr.DataArray] = {}
-        for key, var in self.variables.items():
+        for key, var in self.items():
             var_ds[key] = tuxr.format_terraflow2ugrid(
-                var.data, var.meta.to_dict(), use_dual=use_dual
+                var, self.meta[key].to_dict(), use_dual=use_dual
             )
         return xr.Dataset(data_vars=var_ds)
 
+    @classmethod
+    def from_arrays(
+        cls,
+        array_dict: Dict[str, Array],
+        meta: Dict[str, FMT]
+    ) -> Self:
+        return cls(variables=array_dict, meta=meta)
 
-class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, VARSET, FMT], ABC):
+
+class AbstractBlock(ABC, eqx.Module, Generic[STATE, STATIC, TEND, AUX]):
+    state: STATE
+    static: STATIC
+    tend: TEND
+    aux: AUX
+
+    def __init__(self, state: STATE, static: STATIC, tend: TEND, aux: AUX):
+        self.state = state
+        self.static = static
+        self.tend = tend
+        self.aux = aux
+
+    def copy(self) -> Self:
+        return type(self)(
+            state=self.state,
+            static=self.static,
+            tend=self.tend,
+            aux=self.aux
+        )
+
+    @staticmethod
+    @abstractmethod
+    def state_cls(*args, **kwargs) -> Type[STATE]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def static_cls(*args, **kwargs) -> Type[STATIC]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def tend_cls(*args, **kwargs) -> Type[TEND]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def aux_cls(*args, **kwargs) -> Type[AUX]:
+        raise NotImplementedError
+
+    def reset(self, val: float = 0.0) -> Self:
+        return eqx.tree_at(
+            lambda b: (b.tend, b.aux),
+            self,
+            replace=(self.tend.reset(val), self.aux.reset(val))
+        )
+
+
+class AbstractBlockFields(AbstractBlock, Generic[STATE, STATIC, TEND, AUX, BQ, BA]):
+
+    @staticmethod
+    @abstractmethod
+    def quantity_block_type() -> Type[BQ]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def array_block_type() -> Type[BA]:
+        raise NotImplementedError
+
+    def to_quantities(self) -> BQ:
+        return self.quantity_block_type()(
+            state=self.state.to_quantities(),
+            static=self.static.to_quantities(),
+            tend=self.tend.to_quantities(),
+            aux=self.aux.to_quantities()
+        )
+
+    def to_arrays(self) -> BA:
+        return self.array_block_type()(
+            state=self.state.to_arrays(),
+            static=self.static.to_arrays(),
+            tend=self.tend.to_arrays(),
+            aux=self.aux.to_arrays()
+        )
+
+
+class AbstractBlockQuantities(AbstractBlock, Generic[STATE, STATIC, TEND, AUX, BF, BA]):
+
+    @staticmethod
+    @abstractmethod
+    def field_block_type() -> Type[BF]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def array_block_type() -> Type[BA]:
+        raise NotImplementedError
+
+    def to_fields(self) -> BF:
+        return self.field_block_type()(
+            state=self.state.to_fields(),
+            static=self.static.to_fields(),
+            tend=self.tend.to_fields(),
+            aux=self.aux.to_fields()
+        )
+
+    def to_arrays(self) -> BA:
+        return self.array_block_type()(
+            state=self.state.to_arrays(),
+            static=self.static.to_arrays(),
+            tend=self.tend.to_arrays(),
+            aux=self.aux.to_arrays()
+        )
+
+
+class AbstractBlockArrays(AbstractBlock, Generic[STATE, STATIC, TEND, AUX, BF, BQ]):
+
+    @staticmethod
+    @abstractmethod
+    def field_block_type() -> Type[BF]:
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def quantity_block_type() -> Type[BQ]:
+        raise NotImplementedError
+
+    def to_fields(self) -> BF:
+        return self.field_block_type()(
+            state=self.state.to_fields(),
+            static=self.static.to_fields(),
+            tend=self.tend.to_fields(),
+            aux=self.aux.to_fields()
+        )
+
+    def to_quantities(self) -> BQ:
+        return self.quantity_block_type()(
+            state=self.state.to_quantities(),
+            static=self.static.to_quantities(),
+            tend=self.tend.to_quantities(),
+            aux=self.aux.to_quantities()
+        )
+
+
+class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
 
     def __init__(self, equation: ES, jit: bool = False, trajectory: bool = False):
         self._equation = equation
@@ -1329,46 +1675,100 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, VARSET, FMT], ABC):
         self.trajectory = trajectory
 
     @abstractmethod
-    def compute(self, states: VARSET) -> DiagnosticVariableSet[FMT]:
+    def to_diag(self, state, tend, aux) -> DiagnosticVariableSet[FMT]:
+        """Convert input variable set to diagnostic variable set."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def compute(
+        self,
+        *args,
+        **kwargs
+    ) -> Mapping[str, FieldLike | tuxr.UGRIDDataArray]:
         """Compute diagnostic variables based on the input state."""
         raise NotImplementedError
 
-    def process_dims(
+    @abstractmethod
+    def compute_along_trajectory(
         self,
-        dims: Tuple[LiteralString, ...],
-    ) -> Tuple[LiteralString, ...]:
+        *args,
+        **kwargs
+    ) -> Mapping[str, FieldLike | tuxr.UGRIDDataArray]:
+        """Compute diagnostic variables along trajectories based on the input state."""
+        raise NotImplementedError
+
+    @overload
+    def process_field(
+        self,
+        field: Field,
+        to_ugrid: Literal[False] = False
+    ) -> Field:
+        ...
+
+    @overload
+    def process_field(
+        self,
+        field: Field,
+        to_ugrid: Literal[True]
+    ) -> tuxr.UGRIDDataArray:
+        ...
+
+    def process_field(
+        self,
+        field: Field,
+        to_ugrid: bool = False
+    ) -> Field | tuxr.UGRIDDataArray:
+        """
+        Process Field based on trajectory setting.
+
+        Args:
+            field: Original Field. The order of dimensions should be (time, vertical, horizontal...).
+
+        Returns:
+            Processed Field. if trajectory is True, prepend 'time' to dims. Otherwise, return Field as is.
+        """
+        if self.trajectory:
+            dims = ("time",) + getattr(field.meta, "dims", ())
+            new_meta = deepcopy(field.meta)
+            setattr(new_meta, "dims", dims)
+            res = Field.create(
+                data=field.data,
+                meta=new_meta,
+                as_quantity=field.is_quantity()
+            )
+            if to_ugrid:
+                ds = res.to_xarray_with_ugrid_format()
+                uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+                return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
+            else:
+                return res
+        else:
+            if to_ugrid:
+                ds = field.to_xarray_with_ugrid_format()
+                uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+                return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
+            else:
+                return field
+
+    def process_meta(
+        self,
+        meta: FMT,
+    ) -> FMT:
         """
         Process dimension tuple based on trajectory setting.
 
         Args:
-            dims: Original dimension tuple. The order of dimensions should be (time, vertical, horizontal...).
+            meta: Original metadata. The order of dimensions should be (time, vertical, horizontal...).
 
         Returns:
             Processed dimension tuple. if trajectory is True, prepend 'time' to dims. Otherwise, return dims as is.
         """
         if self.trajectory:
-            return ("time",) + dims
+            dims = ("time",) + getattr(meta, "dims", ())
+            setattr(meta, "dims", dims)
+            return meta
         else:
-            return dims
-
-    def process_fn(
-        self,
-        fn: Callable[..., Any],
-        in_axes: int | Sequence[Any] | None = None,
-        out_axes: Any = 0
-    ) -> Callable[..., Any]:
-        if self.trajectory:
-            return jax.vmap(fn, in_axes=in_axes, out_axes=out_axes)
-        if self.jit:
-            compiled = jax.jit(fn)
-
-            def _wrapped(*args: Any, **kwargs: Any) -> Any:
-                # Ensure outputs are on host (e.g., numpy) to avoid
-                # xarray/hash issues downstream.
-                return jax.device_get(compiled(*args, **kwargs))
-
-            return _wrapped
-        return fn
+            return meta
 
     @property
     def coord(self) -> CoordinateSystem[HM, VM, LO]:

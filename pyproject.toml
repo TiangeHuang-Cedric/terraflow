@@ -15,6 +15,7 @@ vert = "terraflow.manager.plugins.vert.registrations:register"
 op = "terraflow.manager.plugins.op.registrations:register"
 equset = "terraflow.manager.plugins.equset.registrations:register"
 equ = "terraflow.manager.plugins.equ.registrations:register"
+equaux = "terraflow.manager.plugins.equaux.registrations:register"
 term = "terraflow.manager.plugins.term.registrations:register"
 diag = "terraflow.manager.plugins.diag.registrations:register"
 

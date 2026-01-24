@@ -10,9 +10,13 @@ from terraflow.util import typing, device, history
 from terraflow.util.datetime import DateTimeManager
 
 if TYPE_CHECKING:
-    from terraflow.discretization.abstract import AbstractFieldBasedVariableSet
-    from terraflow.discretization.abstract import AbstractArrayBasedVariableSet
-    import terraflow.discretization.fvm.odm.trisk.single_lev.vars as fvm_odm_trisk_1lev_vars
+    from terraflow.discretization.abstract import (
+        AbstractBlockFields,
+        AbstractBlockArrays,
+        AbstractFieldBasedVariableSet,
+        AbstractArrayBasedVariableSet
+    )
+    import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as fvm_odm_trisk_1lev_vars
 
 
 class AbstractODE(ABC):
@@ -71,23 +75,23 @@ class HistoryMultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.StateFields,
-    ) -> fvm_odm_trisk_1lev_vars.StateFields:
+        x: fvm_odm_trisk_1lev_vars.BlockFields,
+    ) -> fvm_odm_trisk_1lev_vars.BlockFields:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> AbstractFieldBasedVariableSet:
+        x: AbstractBlockFields,
+    ) -> AbstractBlockFields:
         ...
 
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> AbstractFieldBasedVariableSet:
+        x: AbstractBlockFields,
+    ) -> AbstractBlockFields:
         """Returns a version of this MultiStep that outputs fields."""
-        time_step = 1
+        time_step = 0
         x_array = x.to_arrays()
         final_array, _ = self.outer_scan_fn(
             self.step, (x_array, time_step), xs=None, length=self.outer_steps
@@ -110,23 +114,23 @@ class HistoryMultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.StateFields,
-    ) -> fvm_odm_trisk_1lev_vars.StateArrays:
+        x: fvm_odm_trisk_1lev_vars.BlockFields,
+    ) -> fvm_odm_trisk_1lev_vars.BlockArrays:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> AbstractArrayBasedVariableSet:
+        x: AbstractBlockFields,
+    ) -> AbstractBlockArrays:
         ...
 
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> AbstractArrayBasedVariableSet:
+        x: AbstractBlockFields,
+    ) -> AbstractBlockArrays:
         """Returns a version of this MultiStep that outputs arrays."""
-        time_step = 1
+        time_step = 0
         x_array = x.to_arrays()
         final_array, _ = self.outer_scan_fn(
             self.step, (x_array, time_step), xs=None, length=self.outer_steps
@@ -149,21 +153,21 @@ class MultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.StateFields,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.StateFields, fvm_odm_trisk_1lev_vars.StateFields]:
+        x: fvm_odm_trisk_1lev_vars.BlockFields,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.BlockFields, fvm_odm_trisk_1lev_vars.StateFields]:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> Tuple[AbstractFieldBasedVariableSet, AbstractFieldBasedVariableSet]:
+        x: AbstractBlockFields,
+    ) -> Tuple[AbstractBlockFields, AbstractFieldBasedVariableSet]:
         ...
 
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> Tuple[AbstractFieldBasedVariableSet, AbstractFieldBasedVariableSet]:
+        x: AbstractBlockFields,
+    ) -> Tuple[AbstractBlockFields, AbstractFieldBasedVariableSet]:
         """Returns a version of this MultiStep that outputs fields."""
         x_array = x.to_arrays()
         final_array, trajectory_array = self.outer_scan_fn(
@@ -189,21 +193,21 @@ class MultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.StateFields,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.StateArrays, fvm_odm_trisk_1lev_vars.StateArrays]:
+        x: fvm_odm_trisk_1lev_vars.BlockFields,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.BlockArrays, fvm_odm_trisk_1lev_vars.StateArrays]:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> Tuple[AbstractArrayBasedVariableSet, AbstractArrayBasedVariableSet]:
+        x: AbstractBlockFields,
+    ) -> Tuple[AbstractBlockArrays, AbstractArrayBasedVariableSet]:
         ...
 
     def __call__(
         self,
-        x: AbstractFieldBasedVariableSet,
-    ) -> Tuple[AbstractArrayBasedVariableSet, AbstractArrayBasedVariableSet]:
+        x: AbstractBlockFields,
+    ) -> Tuple[AbstractBlockArrays, AbstractArrayBasedVariableSet]:
         """Returns a version of this MultiStep that outputs arrays."""
         x_array = x.to_arrays()
         return self.outer_scan_fn(
@@ -231,26 +235,30 @@ def io_callback(
         raise ValueError(f"Unsupported format: {format}")
 
     def step(carry_in, _):
-        state, save_idx = carry_in
+        old_block, save_idx = carry_in
         jax.experimental.io_callback(
             history_file.prepare_for_advance,
             None,
             save_idx
         )
-        state_out = step_fn(state)
+        new_block = step_fn(old_block)
         if history_file.diag_tool is not None:
-            diag = history_file.diag_tool.compute(state_out)
+            diag = history_file.diag_tool.to_diag(
+                state=old_block.state,
+                tend=new_block.tend,
+                aux=new_block.aux
+            )
         else:
             diag = None
         jax.experimental.io_callback(
             history_file.advance_forward_in_time,
             None,
             save_idx,
-            state_out,
+            old_block.state,
             diag
         )
         new_save_idx = save_idx + 1
-        return (state_out, new_save_idx), None
+        return (new_block, new_save_idx), None
 
     if output_fields:
         return HistoryMultiStepWithFieldsOutput(step, outer_steps, outer_scan_fn)
@@ -264,7 +272,7 @@ def trajectory_from_step(
     inner_steps: int,
     *,
     start_with_input: bool = False,
-    post_process_fn: Callable = lambda x: x,
+    post_process_fn: Callable = lambda x: x.state,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
     output_fields: bool = True,
@@ -292,10 +300,10 @@ def trajectory_from_step(
     if inner_steps != 1:
         step_fn = repeated(step_fn, inner_steps, inner_scan_fn)
 
-    def step(carry_in, _):
-        carry_out = step_fn(carry_in)
-        frame = carry_in if start_with_input else carry_out
-        return carry_out, post_process_fn(frame)
+    def step(old_block, _):
+        new_block = step_fn(old_block)
+        frame = old_block.state if start_with_input else new_block.state
+        return new_block, post_process_fn(frame)
 
     if output_fields:
         return MultiStepWithFieldsOutput(step, outer_steps, outer_scan_fn)
@@ -326,6 +334,12 @@ class AbstractSolver(Generic[ODE], ABC):
     @abstractmethod
     def stepper(self, equation: ODE) -> Callable:
         raise NotImplementedError
+
+    @staticmethod
+    def update(old_state: typing.PyTree, tend: typing.PyTree, dt: float) -> typing.PyTree:
+        # Apply the update elementwise on the pytrees to avoid relying on
+        # operator overloading for the container classes (e.g., StateArrays).
+        return jax.tree_util.tree_map(lambda s, t: s + t * dt, old_state, tend)
 
     @overload
     def trajectory(
@@ -374,7 +388,7 @@ class AbstractSolver(Generic[ODE], ABC):
         save_interval = self.time_manager.save_interval
         dt = self.dt
 
-        outer_steps = int((end_time - start_time) / save_interval)
+        outer_steps = int((end_time - start_time) / save_interval) + 1
         inner_steps = int((save_interval) / dt)
 
         stepper = self.stepper(equation)
@@ -434,7 +448,7 @@ class AbstractSolver(Generic[ODE], ABC):
         save_interval = self.time_manager.save_interval
         dt = self.dt
 
-        outer_steps = int((end_time - start_time) / save_interval)
+        outer_steps = int((end_time - start_time) / save_interval) + 1
         inner_steps = int((save_interval) / dt)
 
         stepper = self.stepper(equation)

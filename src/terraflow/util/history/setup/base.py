@@ -77,7 +77,6 @@ class TimeSetup(AbstractHistorySetup):
         ds = nc4.Dataset(self.file_path, 'a')
         ds.createDimension("time", None)
         time = ds.createVariable("time", "f8", ("time",))
-        time[0] = 0
         time.long_name = "Time"
         time.units = f"{self.save_interval_unit} since {self.start_time_str}"
         ds.close()

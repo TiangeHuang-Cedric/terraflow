@@ -35,11 +35,9 @@ method = tf.operator.FiniteVolumeMethod()
 
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-state_cls, static_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
+block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
-state = state_cls.from_testcase(coord, para, case=testcase)
-
-static = static_cls.from_testcase(coord, para, case=testcase)
+block = block_cls.from_testcase(coord, para, case=testcase)
 
 
 time_manager = DateTimeManager(
@@ -53,18 +51,16 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
     method=method,
-    static=static,
     form="vector_invariant",
     ode_kind="explicit",
 )
 
-equation.dhdt.div_mfx.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.flux_recon_at_primal_edge.central_difference()
-equation.dundt.coriolis.pv_at_dual_edge.interp.pure_upwind(3, use_mbs=True)
+equation.aux.h_e.recon_scheme.central_difference()
+equation.aux.pv_e.interp.pure_upwind(3)
 
 
 diag_tool = DiagnosticTools.from_equation(
-    equation=equation, jit=True
+    equation=equation, jit=True,
 )
 
 h0 = history.UnstructuredHistory(
@@ -72,7 +68,7 @@ h0 = history.UnstructuredHistory(
     time_manager=time_manager,
     file_path="terraflow.nc",
     diag_tool=diag_tool,
-).setup(state, static)
+).setup(block)
 
 
 solver = tf.solver.ExRungeKutta3Solver(
@@ -91,7 +87,7 @@ integrate_fn = jax.jit(solver.io_callback(
 
 logger.info("Start integrating...")
 t0 = time.perf_counter()
-final = integrate_fn(state)
+final = integrate_fn(block)
 jax.block_until_ready(final)
 t1 = time.perf_counter()
 logger.success(f"Integration took {t1 - t0} seconds.")

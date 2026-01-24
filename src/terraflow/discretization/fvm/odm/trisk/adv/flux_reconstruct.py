@@ -19,6 +19,7 @@ from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 
+
 Int = typing.Int
 Float = typing.Float
 IntType = typing.IntType
@@ -38,6 +39,182 @@ CoordSys = CoordinateSystem[
     VM,
     TriSKBasedCGridStaggeringLayout
 ]
+
+
+class FluxReconstructAtPrimalEdge(FVM_ODM_TriSK):
+
+    def __init__(
+        self,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+    ):
+        super().__init__(coord, para)
+        self._built = False
+
+    def __call__(
+        self,
+        x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        *args,
+        **kwargs
+    ) -> Float[Array, "nlev nEdge"]:
+        return self.scheme(x_at_primal_cell, normal_u_at_edge)
+
+    def central_difference(self) -> "CentralDifference2AtPrimalEdge":
+        self.scheme_name = "central_difference"
+        self.scheme = CentralDifference2AtPrimalEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf3(self) -> "WRF3AtPrimalEdge":
+        self.scheme_name = "wrf3"
+        self.scheme = WRF3AtPrimalEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf4(self) -> "WRF4AtPrimalEdge":
+        self.scheme_name = "wrf4"
+        self.scheme = WRF4AtPrimalEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def hybrid_wrf34(self, beta: FloatType = 0.25) -> "HybridWRF34AtPrimalEdge":
+        self.scheme_name = "hybrid_wrf34"
+        self.scheme = HybridWRF34AtPrimalEdge(
+            self.coord, self.para, beta
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf5(self) -> "WRF5AtPrimalEdge":
+        self.scheme_name = "wrf5"
+        self.scheme = WRF5AtPrimalEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf6(self) -> "WRF6AtPrimalEdge":
+        self.scheme_name = "wrf6"
+        self.scheme = WRF6AtPrimalEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def hybrid_wrf56(self, beta: FloatType = 0.25) -> "HybridWRF56AtPrimalEdge":
+        self.scheme_name = "hybrid_wrf56"
+        self.scheme = HybridWRF56AtPrimalEdge(
+            self.coord, self.para, beta
+        )
+        self._built = True
+        return self.scheme
+
+    def has_built(self) -> bool:
+        return self._built
+
+    def build_default(self) -> "FluxReconstructAtPrimalEdge":
+        if not self.has_built():
+            self.central_difference()
+        return self
+
+
+class FluxReconstructAtDualEdge(FVM_ODM_TriSK):
+
+    def __init__(
+        self,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+    ):
+        super().__init__(coord, para)
+        self._built = False
+
+    def __call__(
+        self,
+        x_at_dual_cell: Float[Array, "nlev nDual_cell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        *args,
+        **kwargs
+    ) -> Float[Array, "nlev nEdge"]:
+        return self.scheme(x_at_dual_cell, tangent_u_at_edge)
+
+    def central_difference(self) -> "CentralDifference2AtDualEdge":
+        self.scheme_name = "central_difference"
+        self.scheme = CentralDifference2AtDualEdge(
+            self.coord, self.para
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf3(self, use_mbs: bool = True) -> "WRF3AtDualEdge":
+        self.scheme_name = "wrf3"
+        self.scheme = WRF3AtDualEdge(
+            self.coord, self.para, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf4(self, use_mbs: bool = True) -> "WRF4AtDualEdge":
+        self.scheme_name = "wrf4"
+        self.scheme = WRF4AtDualEdge(
+            self.coord, self.para, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def hybrid_wrf34(
+        self,
+        beta: FloatType = 0.25,
+        use_mbs: bool = True
+    ) -> "HybridWRF34AtDualEdge":
+        self.scheme_name = "hybrid_wrf34"
+        self.scheme = HybridWRF34AtDualEdge(
+            self.coord, self.para, beta, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf5(self, use_mbs: bool = True) -> "WRF5AtDualEdge":
+        self.scheme_name = "wrf5"
+        self.scheme = WRF5AtDualEdge(
+            self.coord, self.para, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def wrf6(self, use_mbs: bool = True) -> "WRF6AtDualEdge":
+        self.scheme_name = "wrf6"
+        self.scheme = WRF6AtDualEdge(
+            self.coord, self.para, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def hybrid_wrf56(
+        self,
+        beta: FloatType = 0.25,
+        use_mbs: bool = True
+    ) -> "HybridWRF56AtDualEdge":
+        self.scheme_name = "hybrid_wrf56"
+        self.scheme = HybridWRF56AtDualEdge(
+            self.coord, self.para, beta, use_mbs=use_mbs
+        )
+        self._built = True
+        return self.scheme
+
+    def has_built(self) -> bool:
+        return self._built
+
+    def build_default(self) -> "FluxReconstructAtDualEdge":
+        if not self.has_built():
+            self.central_difference()
+        return self
 
 
 class CentralDifference2AtPrimalEdge(FVM_ODM_TriSK):

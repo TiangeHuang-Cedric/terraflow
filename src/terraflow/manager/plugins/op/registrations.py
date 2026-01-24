@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from typing_extensions import TypeAlias
 
+from terraflow.discretization.fvm.odm.trisk.adv import flux_reconstruct
+
 
 if TYPE_CHECKING:
     from terraflow.manager.registry import Catalog
@@ -47,7 +49,7 @@ def register(model: Catalog) -> None:
     )
 
     # Register coriolis operators
-    from terraflow.discretization.fvm.odm.trisk import coriolis, flux_reconstruct
+    from terraflow.discretization.fvm.odm.trisk import coriolis
     model.op.register(
         belong_key, group="coriolis",
         factory=coriolis.CoriolisForceAtDualEdge

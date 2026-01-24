@@ -18,6 +18,7 @@ from terraflow.manager.plugins.vert.ext import VertCoordDataFrame, VertCoordData
 from terraflow.manager.plugins.equset.ext import EquationSetDataFrame, EquationSetDataFrameExt
 from terraflow.manager.plugins.equ.ext import EquationDataFrame, EquationDataFrameExt
 from terraflow.manager.plugins.term.ext import EquationTermDataFrame, EquationTermDataFrameExt
+from terraflow.manager.plugins.equaux.ext import EquationAuxiliaryDataFrame, EquationAuxiliaryDataFrameExt
 from terraflow.manager.plugins.diag.ext import DiagnosticMethodsDataFrame, DiagnosticMethodsDataFrameExt
 from terraflow.manager.plugins.op.ext import OperatorDataFrame, OperatorDataFrameExt
 
@@ -31,6 +32,7 @@ DataFrame = Union[
     EquationSetDataFrame,
     EquationDataFrame,
     EquationTermDataFrame,
+    EquationAuxiliaryDataFrame,
     DiagnosticMethodsDataFrame,
     OperatorDataFrame
 ]
@@ -43,6 +45,7 @@ DataFrameExt = Union[
     EquationSetDataFrameExt,
     EquationDataFrameExt,
     EquationTermDataFrameExt,
+    EquationAuxiliaryDataFrameExt,
     DiagnosticMethodsDataFrameExt,
     OperatorDataFrameExt
 ]
@@ -57,6 +60,7 @@ def tables_set() -> Dict[str, Type[DataFrame]]:
         "equset": EquationSetDataFrame,
         "equ": EquationDataFrame,
         "equterm": EquationTermDataFrame,
+        "equaux": EquationAuxiliaryDataFrame,
         "diag": DiagnosticMethodsDataFrame,
         "op": OperatorDataFrame,
     }
@@ -71,6 +75,7 @@ def tables_ext_set() -> Dict[str, Type[DataFrameExt]]:
         "equset": EquationSetDataFrameExt,
         "equ": EquationDataFrameExt,
         "equterm": EquationTermDataFrameExt,
+        "equaux": EquationAuxiliaryDataFrameExt,
         "diag": DiagnosticMethodsDataFrameExt,
         "op": OperatorDataFrameExt,
     }
@@ -122,6 +127,7 @@ class Catalog:
         self.equset = TableRegistrar(self, "equset")
         self.equ = TableRegistrar(self, "equ")
         self.equterm = TableRegistrar(self, "equterm")
+        self.equaux = TableRegistrar(self, "equaux")
         self.diag = TableRegistrar(self, "diag")
         self.op = TableRegistrar(self, "op")
 
@@ -668,6 +674,7 @@ def prepare_metadata(
         "equset": EquationSetBind,
         "equ": EquationBind,
         "equterm": EquationTermBind,
+        "equaux": EquationAuxiliaryBind,
         "diag": DiagBind,
         "op": OperatorBind,
     }
@@ -974,6 +981,11 @@ class EquationBind(AbstractBind):
 
 class EquationTermBind(AbstractBind):
     """Bind decorator for discretization terms."""
+    pass
+
+
+class EquationAuxiliaryBind(AbstractBind):
+    """Bind decorator for auxiliary equation components."""
     pass
 
 

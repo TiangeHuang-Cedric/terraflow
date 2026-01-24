@@ -2,6 +2,7 @@ from typing import TypeVar
 from jax import numpy as jnp
 from jax import lax, debug
 import jax
+import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
@@ -11,6 +12,7 @@ from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.abstract import CoordinateSystem
+from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import BlockArrays
 
 Int = typing.Int
 Float = typing.Float
@@ -47,59 +49,68 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
 
     def __call__(
         self,
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-        thickness_at_primal_edge: Float[Array, "nlev nPrimal_edge"],
-        pv_at_dual_edge: Float[Array, "nlev nEdge"],
-    ) -> Float[Array, "nlev nEdge"]:
+        block: BlockArrays
+    ) -> BlockArrays:
+        """Compute nonlinear Coriolis term at dual edges."""
         edd_length = self.mesh.dual.edge.length  # (nedg,)
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
+        un_e = block.state.un_e
+        h_e = block.aux.h_e
+        pv_e = block.aux.pv_e
 
         def _wrap(
-            normal_u_at_edge: Float[Array, "nEdge"],
-            thickness_at_primal_edge: Float[Array, "nPrimal_edge"],
-            pv_at_dual_edge: Float[Array, "nEdge"],
+            un_e: Float[Array, "nEdge"],
+            h_e: Float[Array, "nEdge"],
+            pv_e: Float[Array, "nEdge"],
         ) -> Float[Array, "nEdge"]:
-            pv_iee = pv_at_dual_edge
+            pv_iee = pv_e
             pv_iep = jnp.take(
-                pv_at_dual_edge,
+                pv_e,
                 ep_idx,
                 axis=0
             )  # (nedge, max_numb*2)
             pv_eep = (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
-            mfx_at_primal_edge = normal_u_at_edge * thickness_at_primal_edge
+            mfx_at_primal_edge = un_e * h_e
 
             mfx_tile = mfx_at_primal_edge[ep_idx]  # (nedg, maxnnb*2)
             mfx_tile = jnp.where(ep_idx < 0, 0.0, mfx_tile)
             mfx_tile = mfx_tile * pv_eep
             return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
 
-        return jax.vmap(_wrap, in_axes=(0, 0, 0), out_axes=0)(
-            normal_u_at_edge,
-            thickness_at_primal_edge,
-            pv_at_dual_edge
+        res = - jax.vmap(_wrap, in_axes=(0, 0, 0), out_axes=0)(
+            un_e, h_e, pv_e
+        )
+        return eqx.tree_at(
+            lambda b: b.tend.dundt_coriolis,
+            block,
+            replace=res
         )
 
     def recon_tangent_velocity(
         self,
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-    ) -> Float[Array, "nlev nEdge"]:
+        block: BlockArrays
+    ) -> BlockArrays:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
         edd_length = self.mesh.dual.edge.length  # (nedg,)
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
+        un_e = block.state.un_e
 
         def _wrap(
-            normal_u_at_edge: Float[Array, "nEdge"],
+            un_e: Float[Array, "nEdge"],
         ) -> Float[Array, "nEdge"]:
-            wind_tile = normal_u_at_edge[ep_idx]  # (nedg, maxnnb*2)
+            wind_tile = un_e[ep_idx]  # (nedg, maxnnb*2)
             wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
             return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
 
-        return jax.vmap(_wrap, in_axes=0, out_axes=0)(
-            normal_u_at_edge,
+        res = jax.vmap(_wrap, in_axes=0, out_axes=0)(un_e)
+        return eqx.tree_at(
+            lambda b: b.aux.ut_e,
+            block,
+            replace=res
         )
 
 

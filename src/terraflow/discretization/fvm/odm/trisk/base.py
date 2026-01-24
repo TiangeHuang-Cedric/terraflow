@@ -1,20 +1,22 @@
-from typing import TypeVar, Self, Protocol
-from abc import ABC
+from typing import TypeVar, Self
 import jax.numpy as jnp
+import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as op
-from terraflow.discretization.fvm.odm.trisk import flux_reconstruct as fr
-from terraflow.vert_coord import OneLayerVertCoordinate
+from terraflow.discretization.fvm.odm.trisk.adv import flux_reconstruct as fr
+from terraflow.vert_coord import OneLayerVertCoordinate, HybridVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.discretization.abstract import DiscretizationInfo
-from terraflow.discretization.abstract import AbstractEquationTerm
+from terraflow.discretization.abstract import (
+    AbstractEquationSetAuxiliary,
+    DiscretizationInfo
+)
+from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import BlockArrays as swm_Block
 from terraflow.planet import PlanetParameterSet
 
-T = TypeVar("T")
 
 IntType = typing.IntType
 FloatType = typing.FloatType
@@ -23,197 +25,23 @@ Float = typing.Float
 Array = typing.Array
 
 
-class ShallowWaterEquationTerm(
-    AbstractEquationTerm[
-        OrthogonalDualMesh,
-        OneLayerVertCoordinate,
-        TriSKBasedCGridStaggeringLayout,
-        FiniteVolumeMethod
-    ],
-    ABC
-):
-    pass
+VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+BLOCK = TypeVar("BLOCK", bound=swm_Block)
+Block = swm_Block
 
-
-Term = ShallowWaterEquationTerm
+Term = AbstractEquationSetAuxiliary[
+    OrthogonalDualMesh,
+    OneLayerVertCoordinate | HybridVertCoordinate,
+    TriSKBasedCGridStaggeringLayout,
+    FiniteVolumeMethod,
+    BLOCK
+]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
-    OneLayerVertCoordinate,
+    VM,
     TriSKBasedCGridStaggeringLayout,
 ]
-
-
-class FluxReconstructAtPrimalEdge(Term):
-
-    def __init__(
-        self,
-        disc: DiscretizationInfo,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        method: FiniteVolumeMethod
-    ):
-        super().__init__(disc, coord, para, method)
-
-    def __call__(
-        self,
-        x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-        *args,
-        **kwargs
-    ) -> Float[Array, "nlev nEdge"]:
-        return self.scheme(x_at_primal_cell, normal_u_at_edge)
-
-    def central_difference(self) -> fr.CentralDifference2AtPrimalEdge:
-        self.scheme_name = "central_difference"
-        self.scheme = fr.CentralDifference2AtPrimalEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf3(self) -> fr.WRF3AtPrimalEdge:
-        self.scheme_name = "wrf3"
-        self.scheme = fr.WRF3AtPrimalEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf4(self) -> fr.WRF4AtPrimalEdge:
-        self.scheme_name = "wrf4"
-        self.scheme = fr.WRF4AtPrimalEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def hybrid_wrf34(self, beta: FloatType = 0.25) -> fr.HybridWRF34AtPrimalEdge:
-        self.scheme_name = "hybrid_wrf34"
-        self.scheme = fr.HybridWRF34AtPrimalEdge(
-            self.coord, self.para, beta
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf5(self) -> fr.WRF5AtPrimalEdge:
-        self.scheme_name = "wrf5"
-        self.scheme = fr.WRF5AtPrimalEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf6(self) -> fr.WRF6AtPrimalEdge:
-        self.scheme_name = "wrf6"
-        self.scheme = fr.WRF6AtPrimalEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def hybrid_wrf56(self, beta: FloatType = 0.25) -> fr.HybridWRF56AtPrimalEdge:
-        self.scheme_name = "hybrid_wrf56"
-        self.scheme = fr.HybridWRF56AtPrimalEdge(
-            self.coord, self.para, beta
-        )
-        self._built = True
-        return self.scheme
-
-    def build_default(self) -> "FluxReconstructAtPrimalEdge":
-        if not self.has_built():
-            self.central_difference()
-        return self
-
-
-class FluxReconstructAtDualEdge(Term):
-
-    def __init__(
-        self,
-        disc: DiscretizationInfo,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        method: FiniteVolumeMethod
-    ):
-        super().__init__(disc, coord, para, method)
-
-    def __call__(
-        self,
-        x_at_dual_cell: Float[Array, "nlev nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"],
-        *args,
-        **kwargs
-    ) -> Float[Array, "nEdge"]:
-        return self.scheme(x_at_dual_cell, tangent_u_at_edge)
-
-    def central_difference(self) -> fr.CentralDifference2AtDualEdge:
-        self.scheme_name = "central_difference"
-        self.scheme = fr.CentralDifference2AtDualEdge(
-            self.coord, self.para
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf3(self, use_mbs: bool = True) -> fr.WRF3AtDualEdge:
-        self.scheme_name = "wrf3"
-        self.scheme = fr.WRF3AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf4(self, use_mbs: bool = True) -> fr.WRF4AtDualEdge:
-        self.scheme_name = "wrf4"
-        self.scheme = fr.WRF4AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def hybrid_wrf34(
-        self,
-        beta: FloatType = 0.25,
-        use_mbs: bool = True
-    ) -> fr.HybridWRF34AtDualEdge:
-        self.scheme_name = "hybrid_wrf34"
-        self.scheme = fr.HybridWRF34AtDualEdge(
-            self.coord, self.para, beta, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf5(self, use_mbs: bool = True) -> fr.WRF5AtDualEdge:
-        self.scheme_name = "wrf5"
-        self.scheme = fr.WRF5AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def wrf6(self, use_mbs: bool = True) -> fr.WRF6AtDualEdge:
-        self.scheme_name = "wrf6"
-        self.scheme = fr.WRF6AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def hybrid_wrf56(
-        self,
-        beta: FloatType = 0.25,
-        use_mbs: bool = True
-    ) -> fr.HybridWRF56AtDualEdge:
-        self.scheme_name = "hybrid_wrf56"
-        self.scheme = fr.HybridWRF56AtDualEdge(
-            self.coord, self.para, beta, use_mbs=use_mbs
-        )
-        self._built = True
-        return self.scheme
-
-    def build_default(self) -> "FluxReconstructAtDualEdge":
-        if not self.has_built():
-            self.central_difference()
-        return self
 
 
 class RelativeVorticityAtDualCell(Term):
@@ -230,11 +58,17 @@ class RelativeVorticityAtDualCell(Term):
             coord, para
         )
 
-    def __call__(
-        self,
-        normal_velocity_at_edge: Float[Array, "nlev nEdge"]
-    ) -> Float[Array, "nlev nDual_cell"]:
-        return self.curl_at_dual_cell(normal_velocity_at_edge)
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        res = self.curl_at_dual_cell(un_e)
+        return eqx.tree_at(
+            lambda b: b.aux.rel_vor_dc,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.rel_vor_dc
 
     def build_default(self) -> Self:
         self._built = True
@@ -242,7 +76,36 @@ class RelativeVorticityAtDualCell(Term):
 
 
 class AbsoluteVorticityAtDualCell(Term):
-    relative_vorticity: RelativeVorticityAtDualCell
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+    ):
+        super().__init__(disc, coord, para, method)
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        rel_vor = block.aux.rel_vor_dc
+        omega = self.para.omega.unwrap()
+        coriolis = 2 * omega * jnp.sin(self.mesh._dua.centroid.lat)
+        res = coriolis[None, :] + rel_vor
+        return eqx.tree_at(
+            lambda b: b.aux.abs_vor_dc,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.abs_vor_dc
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
+
+
+class ThicknessAtPrimalEdge(Term):
 
     def __init__(
         self,
@@ -252,21 +115,56 @@ class AbsoluteVorticityAtDualCell(Term):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.relative_vorticity = RelativeVorticityAtDualCell(
-            disc, coord, para, method
+        self.recon_scheme = fr.FluxReconstructAtPrimalEdge(coord, para)
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        h_pc = block.state.h_pc
+        res = self.recon_scheme(
+            x_at_primal_cell=h_pc,
+            normal_u_at_edge=un_e,
+        )
+        return eqx.tree_at(
+            lambda b: b.aux.h_e,
+            block,
+            replace=res
         )
 
-    def __call__(
-        self,
-        normal_velocity_at_edge: Float[Array, "nlev nEdge"]
-    ) -> Float[Array, "nlev nDual_cell"]:
-        rel_vor = self.relative_vorticity(normal_velocity_at_edge)
-        omega = self.para.omega.unwrap()
-        coriolis = 2 * omega * jnp.sin(self.mesh._dua.centroid.lat)
-        return coriolis[None, :] + rel_vor
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.h_e
 
     def build_default(self) -> Self:
         self._built = True
+        return self
+
+
+class MassFluxAtPrimalEdge(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod
+    ):
+        super().__init__(disc, coord, para, method)
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        h_e = block.aux.h_e
+        res = un_e * h_e
+        return eqx.tree_at(
+            lambda b: b.aux.mfx_e,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.mfx_e
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self._built = True
         return self
 
 
@@ -284,12 +182,17 @@ class ThicknessAtDualCell(Term):
             coord, para
         )
 
-    def __call__(
-        self, thickness_at_primal_cell: Float[Array, "nlev nPrimal_cell"]
-    ) -> Float[Array, "nlev nDual_cell"]:
-        return self.interp_weighted_add_plg2dua(
-            thickness_at_primal_cell
+    def __call__(self, block: BLOCK) -> BLOCK:
+        h_pc = block.state.h_pc
+        res = self.interp_weighted_add_plg2dua(h_pc)
+        return eqx.tree_at(
+            lambda b: b.aux.h_dc,
+            block,
+            replace=res
         )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.h_dc
 
     def build_default(self) -> Self:
         self._built = True
@@ -311,17 +214,23 @@ class InterpPotentialVorticityMidpoint(Term):
         )
         self.order = 2
 
-    def __call__(
-        self,
-        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-    ) -> Float[Array, "nlev nEdge"]:
-        return self.recon_scheme(
-            x_at_dual_cell=pv_at_dual_cell,
-            tangent_u_at_edge=tangent_u_at_edge,
-            normal_u_at_edge=normal_u_at_edge,
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        pv_dc = block.aux.pv_dc
+        ut_e = block.aux.ut_e
+        res = self.recon_scheme(
+            x_at_dual_cell=pv_dc,
+            tangent_u_at_edge=ut_e,
+            normal_u_at_edge=un_e,
         )
+        return eqx.tree_at(
+            lambda b: b.aux.pv_e,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_e
 
     def build_default(self) -> Self:
         self._built = True
@@ -353,24 +262,76 @@ class InterpPotentialVorticityUpwind(Term):
             )
         self.order = order
 
-    def __call__(
-        self,
-        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-    ) -> Float[Array, "nlev nEdge"]:
-        b = jnp.abs(normal_u_at_edge) / jnp.sqrt(
-            normal_u_at_edge ** 2 + tangent_u_at_edge ** 2 + 1.0
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        pv_dc = block.aux.pv_dc
+        ut_e = block.aux.ut_e
+        b = jnp.abs(un_e) / jnp.sqrt(
+            un_e ** 2 + ut_e ** 2 + 1.0
         )
         flux1 = self.central_difference_scheme(
-            x_at_dual_cell=pv_at_dual_cell,
-            tangent_u_at_edge=tangent_u_at_edge
+            x_at_dual_cell=pv_dc,
+            tangent_u_at_edge=ut_e
         )
         flux2 = self.recon_scheme(
-            x_at_dual_cell=pv_at_dual_cell,
-            tangent_u_at_edge=tangent_u_at_edge
+            x_at_dual_cell=pv_dc,
+            tangent_u_at_edge=ut_e
         )
-        return (1 - b) * flux1 + b * flux2
+        res = (1 - b) * flux1 + b * flux2
+        return eqx.tree_at(
+            lambda b: b.aux.pv_e,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_e
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
+
+
+class InterpPotentialVorticityPureUpwind(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+        order: int = 3,
+        use_mbs: bool = True
+    ):
+        super().__init__(disc, coord, para, method)
+        self.recon_scheme = fr.FluxReconstructAtDualEdge(coord, para)
+        if order == 3:
+            self.recon_scheme.wrf3(use_mbs=use_mbs)
+        elif order == 5:
+            self.recon_scheme.wrf5(use_mbs=use_mbs)
+        else:
+            raise ValueError(
+                f"Unsupported order {order} for pure upwind interpolation."
+            )
+        self.order = order
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        pv_dc = block.aux.pv_dc
+        ut_e = block.aux.ut_e
+        res = self.recon_scheme(
+            x_at_dual_cell=pv_dc,
+            normal_u_at_edge=un_e,
+            tangent_u_at_edge=ut_e,
+        )
+        return eqx.tree_at(
+            lambda b: b.aux.pv_e,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_e
 
     def build_default(self) -> Self:
         self._built = True
@@ -388,31 +349,25 @@ class InterpPotentialVorticityAtDualEdge(Term):
     ):
         super().__init__(disc, coord, para, method)
 
-    def __call__(
-        self,
-        pv_at_dual_cell: Float[Array, "nlev nDual_cell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"],
-    ) -> Float[Array, "nlev nEdge"]:
-        return self.adv_scheme(
-            pv_at_dual_cell,
-            tangent_u_at_edge,
-            normal_u_at_edge,
-        )
+    def __call__(self, block: BLOCK) -> BLOCK:
+        return self.adv_scheme(block)
 
     def midpoint(self) -> Self:
         self.adv_scheme = InterpPotentialVorticityMidpoint(
-            self._disc, self.coord, self.para, self.method
+            disc=self._disc,
+            coord=self.coord,
+            para=self.para,
+            method=self.method
         )
         self._built = True
         return self
 
     def upwind(self, order: int, use_mbs: bool = True) -> Self:
         self.adv_scheme = InterpPotentialVorticityUpwind(
-            self._disc,
-            self.coord,
-            self.para,
-            self.method,
+            disc=self._disc,
+            coord=self.coord,
+            para=self.para,
+            method=self.method,
             order=order,
             use_mbs=use_mbs
         )
@@ -420,19 +375,19 @@ class InterpPotentialVorticityAtDualEdge(Term):
         return self
 
     def pure_upwind(self, order: int, use_mbs: bool = True) -> Self:
-        self.adv_scheme = FluxReconstructAtDualEdge(
-            self._disc, self.coord, self.para, self.method
+        self.adv_scheme = InterpPotentialVorticityPureUpwind(
+            disc=self._disc,
+            coord=self.coord,
+            para=self.para,
+            method=self.method,
+            order=order,
+            use_mbs=use_mbs
         )
-        if order == 3:
-            self.adv_scheme.wrf3(use_mbs=use_mbs)
-        elif order == 5:
-            self.adv_scheme.wrf5(use_mbs=use_mbs)
-        else:
-            raise ValueError(
-                f"Unsupported order {order} for pure upwind interpolation."
-            )
         self._built = True
         return self
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_e
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -440,20 +395,7 @@ class InterpPotentialVorticityAtDualEdge(Term):
         return self
 
 
-class PotentialVorticityAtDualEdge(Term):
-
-    class _PVAtDualCell(Protocol):
-        def __call__(
-            self,
-            abs_vor_at_dual_cell: Array,
-            thickness_at_dual_cell: Array
-        ) -> Array:
-            ...
-
-    abs_vor_at_dual_cell: AbsoluteVorticityAtDualCell
-    thickness_at_dual_cell: ThicknessAtDualCell
-    pv_at_dual_cell: _PVAtDualCell
-    interp: InterpPotentialVorticityAtDualEdge
+class PotentialVorticityAtDualCell(Term):
 
     def __init__(
         self,
@@ -462,48 +404,49 @@ class PotentialVorticityAtDualEdge(Term):
         para: PlanetParameterSet,
         method: FiniteVolumeMethod
     ):
-        self.abs_vor_at_dual_cell = AbsoluteVorticityAtDualCell(
-            disc, coord, para, method
-        )
-        self._flux_recon_central_difference = fr.CentralDifference2AtDualEdge(
-            coord, para
-        )
-        self.interp = InterpPotentialVorticityAtDualEdge(
-            disc, coord, para, method
-        )
-        self.thickness_at_dual_cell = ThicknessAtDualCell(
-            disc, coord, para, method
-        )
-
-        def _pv_at_dual_cell(
-            abs_vor_at_dual_cell: Float[Array, "nlev nDual_cell"],
-            thickness_at_dual_cell: Float[Array, "nlev nDual_cell"]
-        ) -> Float[Array, "nlev nDual_cell"]:
-            return abs_vor_at_dual_cell / thickness_at_dual_cell
-
-        self.pv_at_dual_cell = _pv_at_dual_cell
         super().__init__(disc, coord, para, method)
 
-    def __call__(
+    def __call__(self, block: BLOCK) -> BLOCK:
+        abs_vor_dc = block.aux.abs_vor_dc
+        h_dc = block.aux.h_dc
+        res = abs_vor_dc / h_dc
+        return eqx.tree_at(
+            lambda b: b.aux.pv_dc,
+            block,
+            replace=res
+        )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_dc
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
+
+
+class PotentialVorticityAtDualEdge(Term):
+    interp: InterpPotentialVorticityAtDualEdge
+
+    def __init__(
         self,
-        normal_u_at_edge: Float[Array, "nEdge"],
-        tangent_u_at_edge: Float[Array, "nEdge"],
-        thickness_at_primal_cell: Float[Array, "nPrimal_cell"]
-    ) -> Float[Array, "nEdge"]:
-        abs_vor_at_dual_cell = self.abs_vor_at_dual_cell(
-            normal_u_at_edge
+        disc: DiscretizationInfo,
+        coord: CoordSys,
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+    ):
+        self.interp = InterpPotentialVorticityAtDualEdge(
+            disc=disc,
+            coord=coord,
+            para=para,
+            method=method
         )
-        thickness_at_dual_cell = self.thickness_at_dual_cell(
-            thickness_at_primal_cell,
-        )
-        pv_at_dual_cell = self.pv_at_dual_cell(
-            abs_vor_at_dual_cell, thickness_at_dual_cell
-        )
-        return self.interp(
-            pv_at_dual_cell=pv_at_dual_cell,
-            tangent_u_at_edge=tangent_u_at_edge,
-            normal_u_at_edge=normal_u_at_edge,
-        )
+        super().__init__(disc, coord, para, method)
+
+    def __call__(self, block: BLOCK) -> BLOCK:
+        return self.interp(block)
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.pv_e
 
     def build_default(self) -> "PotentialVorticityAtDualEdge":
         if not self.has_built():
@@ -526,13 +469,17 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
             coord, para
         )
 
-    def __call__(
-        self,
-        normal_u_at_edge: Float[Array, "nlev nEdge"]
-    ) -> Float[Array, "nlev nPrimal_cell"]:
-        return self.interp_weighted_add_edp2plg(
-            normal_u_at_edge ** 2,
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        res = self.interp_weighted_add_edp2plg(un_e ** 2)
+        return eqx.tree_at(
+            lambda b: b.aux.ke_pc,
+            block,
+            replace=res
         )
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.ke_pc
 
     def build_default(self) -> Self:
         self._built = True
@@ -560,19 +507,21 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
         )
         self.gamma: FloatType = 0.9
 
-    def __call__(
-        self,
-        normal_u_at_edge: Float[Array, "nlev nEdge"]
-    ) -> Float[Array, "nlev nPrimal_cell"]:
-        ke_edge = normal_u_at_edge ** 2
-        ke_dc = self.interp_weighted_add_edd2dua(
-            ke_edge,
+    def __call__(self, block: BLOCK) -> BLOCK:
+        un_e = block.state.un_e
+        ke_edge = un_e ** 2
+        ke_dc = self.interp_weighted_add_edd2dua(ke_edge)
+        ke_pc = self.ringler_2010(block).aux.ke_pc
+        ke_dc_pc = self.interp_weighted_add_dua2plg(ke_dc)
+        res = 1 * self.gamma * ke_pc + (1 - self.gamma) * ke_dc_pc
+        return eqx.tree_at(
+            lambda b: b.aux.ke_pc,
+            block,
+            replace=res
         )
-        ke_pc = self.ringler_2010(normal_u_at_edge)
-        ke_dc_pc = self.interp_weighted_add_dua2plg(
-            ke_dc,
-        )
-        return 1 * self.gamma * ke_pc + (1 - self.gamma) * ke_dc_pc
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.ke_pc
 
     def build_default(self) -> Self:
         self._built = True
@@ -590,11 +539,11 @@ class KineticEnergyAtPrimalCell(Term):
     ):
         super().__init__(disc, coord, para, method)
 
-    def __call__(
-        self,
-        normal_u_at_edge: Float[Array, "nlev nEdge"]
-    ) -> Float[Array, "nlev nPrimal_cell"]:
-        return self.scheme(normal_u_at_edge)
+    def __call__(self, block: BLOCK) -> BLOCK:
+        return self.scheme(block)
+
+    def unwrap(self, block: Block) -> Array:
+        return block.aux.ke_pc
 
     def gassmann_2013(
         self,
@@ -602,7 +551,10 @@ class KineticEnergyAtPrimalCell(Term):
     ) -> Gassmann2013KineticEnergyAtPrimalCell:
         self.scheme_name = "gassmann_2013"
         self.scheme = Gassmann2013KineticEnergyAtPrimalCell(
-            self._disc, self.coord, self.para, self.method
+            disc=self._disc,
+            coord=self.coord,
+            para=self.para,
+            method=self.method
         )
         self.scheme.gamma = gamma
         self._built = True
@@ -611,7 +563,10 @@ class KineticEnergyAtPrimalCell(Term):
     def ringler_2010(self) -> Ringler2010KineticEnergyAtPrimalCell:
         self.scheme_name = "ringler_2010"
         self.scheme = Ringler2010KineticEnergyAtPrimalCell(
-            self._disc, self.coord, self.para, self.method
+            disc=self._disc,
+            coord=self.coord,
+            para=self.para,
+            method=self.method
         )
         self._built = True
         return self.scheme
