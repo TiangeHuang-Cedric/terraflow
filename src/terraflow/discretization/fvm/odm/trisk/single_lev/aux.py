@@ -68,14 +68,33 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
         self.ke_pc.build_default()
         return self
 
-    def __call__(self, block: BlockArrays) -> BlockArrays:
-        block = self.ut_e.recon_tangent_velocity(block)
-        block = self.rel_vor_dc(block)
-        block = self.abs_vor_dc(block)
-        block = self.z_e(block)
-        block = self.mfx_e(block)
-        block = self.z_dc(block)
-        block = self.pv_dc(block)
-        block = self.pv_e(block)
-        block = self.ke_pc(block)
+    def __call__(
+        self,
+        block: BlockArrays,
+        pass_tag: str = "all_pass"
+    ) -> BlockArrays:
+
+        def forward_call(block: BlockArrays) -> BlockArrays:
+            block = self.z_e(block)
+            return block
+
+        def backward_call(block: BlockArrays) -> BlockArrays:
+            block = self.ut_e.recon_tangent_velocity(block)
+            block = self.rel_vor_dc(block)
+            block = self.abs_vor_dc(block)
+            block = self.mfx_e(block)
+            block = self.z_dc(block)
+            block = self.pv_dc(block)
+            block = self.pv_e(block)
+            block = self.ke_pc(block)
+            return block
+
+        if pass_tag == "all_pass":
+            block = forward_call(block)
+            block = backward_call(block)
+        elif pass_tag == "forward_pass":
+            block = forward_call(block)
+        elif pass_tag == "backward_pass":
+            block = backward_call(block)
+
         return block

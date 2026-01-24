@@ -19,6 +19,9 @@ if TYPE_CHECKING:
     import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as fvm_odm_trisk_1lev_vars
 
 
+Array = typing.Array
+
+
 class AbstractODE(ABC):
 
     @abstractmethod
@@ -334,12 +337,6 @@ class AbstractSolver(Generic[ODE], ABC):
     @abstractmethod
     def stepper(self, equation: ODE) -> Callable:
         raise NotImplementedError
-
-    @staticmethod
-    def update(old_state: typing.PyTree, tend: typing.PyTree, dt: float) -> typing.PyTree:
-        # Apply the update elementwise on the pytrees to avoid relying on
-        # operator overloading for the container classes (e.g., StateArrays).
-        return jax.tree_util.tree_map(lambda s, t: s + t * dt, old_state, tend)
 
     @overload
     def trajectory(

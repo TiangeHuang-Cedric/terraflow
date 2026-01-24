@@ -325,14 +325,14 @@ class ExVifShallowWaterEquationSet4UGRID(
             coord=coord,
             para=para,
             method=method,
-            aux=self._aux
+            aux=self.aux
         )
         self.dundt = self.init_momentum_equation(
             disc=disc,
             coord=coord,
             para=para,
             method=method,
-            aux=self._aux
+            aux=self.aux
         )
 
     @staticmethod
@@ -393,7 +393,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         )
 
     def explicit_terms(self, block: BLOCK, pass_tag: str = "all_pass") -> BLOCK:
-        block = self.aux(block)
+        block = self.aux(block, pass_tag=pass_tag)
         if pass_tag == "all_pass":
             block = self.dzdt(block)
             block = self.dundt(block)

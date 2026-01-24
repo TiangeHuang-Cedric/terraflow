@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import List, Callable, TYPE_CHECKING
 import datetime
-import tree_math
+import jax
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -19,6 +19,72 @@ Array = typing.Array
 Float = typing.FloatType
 Int = typing.IntType
 
+all_pass = "all_pass"
+forward_pass = "forward_pass"
+backward_pass = "backward_pass"
+
+
+def update_block_forward_backward(
+    block: typing.PyTree,
+    old_state: typing.PyTree,
+    tend: typing.PyTree,
+    dt: float | Array,
+    pass_tag: str
+) -> typing.PyTree:
+    tend2state = tend.to_state(pass_tag=pass_tag)
+    new_state = jax.tree_util.tree_map(
+        lambda s, t: s + t * dt,
+        old_state,
+        tend2state
+    )
+    return eqx.tree_at(
+        lambda b: b.state,
+        block,
+        replace=new_state
+    )
+
+
+def step_all(
+    space_operators: Callable,
+    block: AbstractBlock,
+    old_state: typing.PyTree,
+    dt: float | Array
+) -> AbstractBlock:
+    block = space_operators(block, pass_tag=all_pass)
+    new_block = update_block_forward_backward(
+        block=block,
+        old_state=old_state,
+        tend=block.tend,
+        dt=dt,
+        pass_tag=all_pass
+    )
+    return new_block
+
+
+def step_forward_backward(
+    space_operators: Callable,
+    block: AbstractBlock,
+    old_state: typing.PyTree,
+    dt: float | Array
+) -> AbstractBlock:
+    block = space_operators(block, pass_tag=forward_pass)
+    star_block = update_block_forward_backward(
+        block=block,
+        old_state=old_state,
+        tend=block.tend,
+        dt=dt,
+        pass_tag=forward_pass
+    )
+    star_block = space_operators(star_block, pass_tag=backward_pass)
+    new_block = update_block_forward_backward(
+        block=star_block,
+        old_state=star_block.state,
+        tend=star_block.tend,
+        dt=dt,
+        pass_tag=backward_pass
+    )
+    return new_block
+
 
 class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
     nrk: Int = 3  # Number of stages for RK3
@@ -32,7 +98,8 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         equation: AbstractExplicitODE,
         dt: datetime.timedelta,
         time_manager: DateTimeManager,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        forward_backward: bool = True
     ):
         super().__init__(equation, dt, time_manager, dev)
         self.nrk = 3
@@ -41,37 +108,41 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
             [dt_rk.total_seconds() for dt_rk in self.dt_rk],
             dtype=dev.float_type
         )
+        self.forward_backward = forward_backward
 
     def stepper(self, equation: AbstractExplicitODE) -> Callable:
         """Third-order Runge-Kutta time stepper."""
         rhs = equation.explicit_terms
         nrk = self.nrk
-        dt_rk_seconds = self.dt_rk_seconds
-        update = tree_math.wrap(tree_math.unwrap(self.update))
 
-        def step_fn(block: AbstractBlock) -> AbstractBlock:
+        def step_fn_all(block: AbstractBlock) -> AbstractBlock:
             block = block.reset()
-            states0 = block.state
-
+            old_state = block.state
             for irk in range(nrk):
-                block = rhs(block)
-                tend = block.tend.to_state(pass_tag="all")
-                state_new = update(
-                    old_state=states0,
-                    tend=tend,
-                    dt=dt_rk_seconds[irk]
-                )
-                block = eqx.tree_at(
-                    lambda b: b.state,
-                    block,
-                    replace=state_new
+                block = step_all(
+                    space_operators=rhs,
+                    block=block,
+                    old_state=old_state,
+                    dt=self.dt_rk_seconds[irk]
                 )
             return block
 
-        return step_fn
+        def step_fn_fb(block: AbstractBlock) -> AbstractBlock:
+            block = block.reset()
+            old_state = block.state
+            for irk in range(nrk):
+                block = step_forward_backward(
+                    space_operators=rhs,
+                    block=block,
+                    old_state=old_state,
+                    dt=self.dt_rk_seconds[irk]
+                )
+            return block
+
+        return step_fn_fb if self.forward_backward else step_fn_all
 
 
-class ExForwardBackwardEulerSolver(AbstractSolver[AbstractExplicitODE]):
+class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
 
     """Forward-Backward Euler time integration solver.
 
@@ -86,41 +157,38 @@ class ExForwardBackwardEulerSolver(AbstractSolver[AbstractExplicitODE]):
           Global Atmospheric Research Programe (GARP) WMO‐ICSU Joint Organizing Committe.
     """
 
+    def __init__(
+        self,
+        equation: AbstractExplicitODE,
+        dt: datetime.timedelta,
+        time_manager: DateTimeManager,
+        dev: device.AbstractDevice,
+        forward_backward: bool = True
+    ):
+        super().__init__(equation, dt, time_manager, dev)
+        self.dt_seconds = dt.total_seconds()
+        self.forward_backward = forward_backward
+
     def stepper(self, equation: AbstractExplicitODE) -> Callable:
         """Forward-Backward Euler time stepper."""
         rhs = equation.explicit_terms
-        dt_seconds = self.dt.total_seconds()
-        update = tree_math.wrap(tree_math.unwrap(self.update))
 
-        def forward_backward_stepper(
-            block: AbstractBlock,
-            pass_tag: str
-        ) -> AbstractBlock:
-            block = rhs(block, pass_tag=pass_tag)
-            tend = block.tend.to_state(pass_tag=pass_tag)
-            new_state = update(
-                old_state=block.state,
-                tend=tend,
-                dt=dt_seconds
-            )
-            return eqx.tree_at(
-                lambda b: b.state,
-                block,
-                replace=new_state
-            )
-
-        def step_fn(block: AbstractBlock) -> AbstractBlock:
-            # Forward Euler for explicit terms
+        def step_fn_all(block: AbstractBlock) -> AbstractBlock:
             block = block.reset()
-            star_block = forward_backward_stepper(
-                block,
-                pass_tag="forward_pass"
+            return step_all(
+                space_operators=rhs,
+                block=block,
+                old_state=block.state,
+                dt=self.dt_seconds
             )
-            # Backward Euler for explicit terms
-            new_block = forward_backward_stepper(
-                star_block,
-                pass_tag="backward_pass"
-            )
-            return new_block
 
-        return step_fn
+        def step_fn_fb(block: AbstractBlock) -> AbstractBlock:
+            block = block.reset()
+            return step_forward_backward(
+                space_operators=rhs,
+                block=block,
+                old_state=block.state,
+                dt=self.dt_seconds
+            )
+
+        return step_fn_fb if self.forward_backward else step_fn_all

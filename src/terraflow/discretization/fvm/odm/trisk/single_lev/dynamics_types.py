@@ -581,12 +581,12 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         """Create a tendency variable set with all-zero arrays."""
         raise NotImplementedError
 
-    def _tend2state(self, pass_tag: str = "all") -> dict[str, DT]:
+    def _tend2state(self, pass_tag: str = "all_pass") -> dict[str, DT]:
         """Get a mapping from tendency variable names to state variable names.
 
         Args:
             pass_tag: A string indicating which tendencies to include.
-                - "all": include all tendencies
+                - "all_pass": include all tendencies
                 - "forward_pass": include only tendencies related to forward euler step.
                    other tendencies are set to zero.
                 - "backward_pass": include only tendencies related to backward euler step.
@@ -594,7 +594,7 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         Returns:
             A dictionary mapping tendency variable names to state variable names.
         """
-        if pass_tag == "all":
+        if pass_tag == "all_pass":
             return {
                 "z_pc": self.dzdt,
                 "un_e": self.dundt
