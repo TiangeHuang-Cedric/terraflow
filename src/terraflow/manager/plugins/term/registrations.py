@@ -43,7 +43,7 @@ def register(model: Catalog) -> None:
 
     model.equterm.register(
         belong_key,
-        group="div_of_thickness",
+        group="div_of_mfx",
         alias="builder",
         factory=term.DivergenceOfMassFluxAtPrimalCell
     )

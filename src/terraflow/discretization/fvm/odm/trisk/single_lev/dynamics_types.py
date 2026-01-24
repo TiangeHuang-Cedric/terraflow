@@ -201,11 +201,11 @@ class BlockQuantities(
 def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
     """Get the default meta for shallow water state variables."""
     return {
-        "h_pc": StaggeredFieldMetaData(
-            name="h_pc",
+        "z_pc": StaggeredFieldMetaData(
+            name="z_pc",
             dims=("nPrimal_Cell",),
-            long_name="thickness at primal cell",
-            description="Fluid thickness at primal cell centers",
+            long_name="Geopotential height at primal cell",
+            description="Geopotential height at primal cell centers",
             units="m",
             hori_location=MeshEntity.Cell,
             vert_location="",
@@ -230,14 +230,14 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
     }
 
 
-def init_h_in_case(
+def init_z_in_case(
     coord: Coordsys,
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_state_meta()
-    lon = meta["h_pc"].get_position(coord).horizontal_coord["lon"]
-    lat = meta["h_pc"].get_position(coord).horizontal_coord["lat"]
-    return test.init_thickness(
+    lon = meta["z_pc"].get_position(coord).horizontal_coord["lon"]
+    lat = meta["z_pc"].get_position(coord).horizontal_coord["lat"]
+    return test.init_geopotential_height(
         lon, lat
     ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
@@ -257,7 +257,7 @@ def init_un_in_case(
 
 
 class BaseState(AbstractVariableSet, Generic[DT]):
-    h_pc: DT
+    z_pc: DT
     un_e: DT
 
     @staticmethod
@@ -276,7 +276,7 @@ class BaseState(AbstractVariableSet, Generic[DT]):
             case = MountainZonalFlowTestCase(para)
         return cls.from_arrays(
             array_dict={
-                "h_pc": init_h_in_case(coord, case),
+                "z_pc": init_z_in_case(coord, case),
                 "un_e": init_un_in_case(coord, case)
             },
             meta=cls.default_meta()
@@ -342,8 +342,8 @@ class StateFields(
 
 def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
-        "topo": StaggeredFieldMetaData(
-            name="hs_pc",
+        "zs_pc": StaggeredFieldMetaData(
+            name="zs_pc",
             dims=("nPrimal_Cell",),
             long_name="topography at primal cell",
             description="Topography height at primal cell centers",
@@ -363,14 +363,14 @@ def init_topo_in_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_static_meta()
-    coord_info = meta["topo"].get_position(coord)
+    coord_info = meta["zs_pc"].get_position(coord)
     lon = coord_info.horizontal_coord["lon"]
     lat = coord_info.horizontal_coord["lat"]
     return test.init_topography(lon, lat)
 
 
 class BaseStatic(AbstractVariableSet, Generic[DT]):
-    topo: DT
+    zs_pc: DT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -388,7 +388,7 @@ class BaseStatic(AbstractVariableSet, Generic[DT]):
             case = MountainZonalFlowTestCase(para)
         return cls.from_arrays(
             array_dict={
-                "topo": init_topo_in_case(coord, case)
+                "zs_pc": init_topo_in_case(coord, case)
             },
             meta=cls.default_meta()
         )
@@ -453,11 +453,11 @@ class StaticFields(
 
 def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
-        "dhdt": StaggeredFieldMetaData(
-            name="dhdt",
+        "dzdt": StaggeredFieldMetaData(
+            name="dzdt",
             dims=("nPrimal_Cell",),
-            long_name="Tendency of thickness",
-            description="Tendency of thickness calculated from state variables",
+            long_name="Tendency of geopotential height",
+            description="Tendency of geopotential height calculated from state variables",
             units="m/s",
             hori_location="cell",
             vert_location="",
@@ -466,11 +466,11 @@ def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
             staggered_kind="C",
             mesh_name="primal"
         ),
-        "dhdt_mfx": StaggeredFieldMetaData(
-            name="dhdt_mfx",
+        "dzdt_mfx": StaggeredFieldMetaData(
+            name="dzdt_mfx",
             dims=("nPrimal_Cell",),
-            long_name="Tendency of thickness due to mass flux divergence term",
-            description="Tendency of thickness due to mass flux divergence term calculated from state variables",
+            long_name="Tendency of geopotential height due to mass flux divergence term",
+            description="Tendency of geopotential height due to mass flux divergence term calculated from state variables",
             units="1/s",
             hori_location="cell",
             vert_location="",
@@ -535,8 +535,8 @@ def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
 
 
 class BaseTendency(AbstractVariableSet, Generic[DT]):
-    dhdt: DT
-    dhdt_mfx: DT
+    dzdt: DT
+    dzdt_mfx: DT
     dundt: DT
     dundt_coriolis: DT
     dundt_grad_ke: DT
@@ -556,10 +556,10 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         n_edge = coord.mesh.n_edge
         float_type = coord.mesh.dev.float_type
         array_dict = {}
-        array_dict["dhdt"] = jnp.zeros(
+        array_dict["dzdt"] = jnp.zeros(
             (1, n_polg,), dtype=float_type
         )
-        array_dict["dhdt_mfx"] = jnp.zeros(
+        array_dict["dzdt_mfx"] = jnp.zeros(
             (1, n_polg,), dtype=float_type
         )
         array_dict["dundt"] = jnp.zeros(
@@ -596,17 +596,17 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         """
         if pass_tag == "all":
             return {
-                "h_pc": self.dhdt,
+                "z_pc": self.dzdt,
                 "un_e": self.dundt
             }
         elif pass_tag == "forward_pass":
             return {
-                "h_pc": self.dhdt,
+                "z_pc": self.dzdt,
                 "un_e": self.zeros_like(self.dundt)
             }
         elif pass_tag == "backward_pass":
             return {
-                "h_pc": self.zeros_like(self.dhdt),
+                "z_pc": self.zeros_like(self.dzdt),
                 "un_e": self.dundt
             }
         else:
@@ -719,11 +719,11 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
             coordinates="lon_de lat_de",
             mesh_name="dual"
         ),
-        "h_e": StaggeredFieldMetaData(
-            name="h_e",
+        "z_e": StaggeredFieldMetaData(
+            name="z_e",
             dims=("nDual_Edge",),
-            long_name="Thickness at dual edge midpoint",
-            description="Thickness at dual edge midpoint",
+            long_name="Geopotential height at dual edge midpoint",
+            description="Geopotential height at dual edge midpoint",
             units="m",
             hori_location="edge",
             vert_location="",
@@ -732,11 +732,11 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
             coordinates="lon_de lat_de",
             mesh_name="primal"
         ),
-        "h_dc": StaggeredFieldMetaData(
-            name="h_dc",
+        "z_dc": StaggeredFieldMetaData(
+            name="z_dc",
             dims=("nDual_Cell",),
-            long_name="Thickness at dual cell center",
-            description="Thickness at dual cell center",
+            long_name="Geopotential height at dual cell center",
+            description="Geopotential height at dual cell center",
             units="m",
             hori_location="cell",
             vert_location="",
@@ -790,7 +790,7 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
             long_name="Potential vorticity at dual cell center",
             description=(
                 "Potential vorticity at dual cell center calculated from "
-                "absolute vorticity and thickness at dual cell center"
+                "absolute vorticity and geopotential height at dual cell center"
             ),
             units="1/(m s)",
             hori_location="cell",
@@ -831,9 +831,9 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
 
 class BaseAuxiliary(AbstractVariableSet, Generic[DT]):
     ut_e: DT
-    h_e: DT
+    z_e: DT
     mfx_e: DT
-    h_dc: DT
+    z_dc: DT
     rel_vor_dc: DT
     abs_vor_dc: DT
     pv_dc: DT
@@ -856,9 +856,9 @@ class BaseAuxiliary(AbstractVariableSet, Generic[DT]):
         float_type = coord.mesh.dev.float_type
         array_dict = {}
         array_dict["ut_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
-        array_dict["h_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
+        array_dict["z_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
         array_dict["mfx_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
-        array_dict["h_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
+        array_dict["z_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
         array_dict["rel_vor_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
         array_dict["abs_vor_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
         array_dict["pv_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)

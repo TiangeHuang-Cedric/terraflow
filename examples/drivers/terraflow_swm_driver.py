@@ -55,7 +55,7 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
     ode_kind="explicit",
 )
 
-equation.aux.h_e.recon_scheme.central_difference()
+equation.aux.z_e.recon_scheme.central_difference()
 equation.aux.pv_e.interp.pure_upwind(3)
 
 

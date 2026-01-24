@@ -32,19 +32,19 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
         self.ut_e = coriolis.CoriolisForceAtDualEdge(
             coord, para
         )
-        self.h_e = base.ThicknessAtPrimalEdge(
+        self.rel_vor_dc = base.RelativeVorticityAtDualCell(
+            disc, coord, para, method
+        )
+        self.abs_vor_dc = base.AbsoluteVorticityAtDualCell(
+            disc, coord, para, method
+        )
+        self.z_e = base.GeopotentialHeightAtPrimalEdge(
             disc, coord, para, method
         )
         self.mfx_e = base.MassFluxAtPrimalEdge(
             disc, coord, para, method
         )
-        self.h_dc = base.ThicknessAtDualCell(
-            disc, coord, para, method
-        )
-        self.rel_vor_dc = base.RelativeVorticityAtDualCell(
-            disc, coord, para, method
-        )
-        self.abs_vor_dc = base.AbsoluteVorticityAtDualCell(
+        self.z_dc = base.GeopotentialHeightAtDualCell(
             disc, coord, para, method
         )
         self.pv_dc = base.PotentialVorticityAtDualCell(
@@ -60,9 +60,9 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
     def build_default(self) -> "AuxiliaryTerms":
         self.rel_vor_dc.build_default()
         self.abs_vor_dc.build_default()
-        self.h_e.build_default()
+        self.z_e.build_default()
         self.mfx_e.build_default()
-        self.h_dc.build_default()
+        self.z_dc.build_default()
         self.pv_dc.build_default()
         self.pv_e.build_default()
         self.ke_pc.build_default()
@@ -70,11 +70,11 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
 
     def __call__(self, block: BlockArrays) -> BlockArrays:
         block = self.ut_e.recon_tangent_velocity(block)
-        block = self.h_e(block)
-        block = self.mfx_e(block)
-        block = self.h_dc(block)
         block = self.rel_vor_dc(block)
         block = self.abs_vor_dc(block)
+        block = self.z_e(block)
+        block = self.mfx_e(block)
+        block = self.z_dc(block)
         block = self.pv_dc(block)
         block = self.pv_e(block)
         block = self.ke_pc(block)

@@ -52,19 +52,19 @@ class DiagnosticsTools(
     u_pc_option: bool
     v_pc_option: bool
     ut_e_option: bool
-    h_e_option: bool
-    h_dc_option: bool
+    z_e_option: bool
+    z_dc_option: bool
     mfx_e_option: bool
     rel_vor_dc_option: bool
     abs_vor_dc_option: bool
     pv_dc_option: bool
     pv_e_option: bool
     ke_pc_option: bool
-    dhdt_mfx_option: bool
+    dzdt_mfx_option: bool
     dundt_coriolis_option: bool
     dundt_grad_ke_option: bool
     dundt_pgf_option: bool
-    dhdt_option: bool
+    dzdt_option: bool
     dundt_option: bool
 
     def __init__(
@@ -73,19 +73,19 @@ class DiagnosticsTools(
         u_pc: bool = True,
         v_pc: bool = True,
         ut_e: bool = False,
-        h_e: bool = False,
-        h_dc: bool = False,
+        z_e: bool = False,
+        z_dc: bool = False,
         mfx_e: bool = False,
         rel_vor_dc: bool = False,
         abs_vor_dc: bool = False,
         pv_dc: bool = False,
         pv_e: bool = False,
         ke_pc: bool = False,
-        dhdt_mfx: bool = False,
+        dzdt_mfx: bool = False,
         dundt_coriolis: bool = False,
         dundt_grad_ke: bool = False,
         dundt_pgf: bool = False,
-        dhdt: bool = False,
+        dzdt: bool = False,
         dundt: bool = False,
         jit: bool = True,
         trajectory: bool = False
@@ -96,19 +96,19 @@ class DiagnosticsTools(
         self.u_pc_option = u_pc
         self.v_pc_option = v_pc
         self.ut_e_option = ut_e
-        self.h_e_option = h_e
-        self.h_dc_option = h_dc
+        self.z_e_option = z_e
+        self.z_dc_option = z_dc
         self.mfx_e_option = mfx_e
         self.rel_vor_dc_option = rel_vor_dc
         self.abs_vor_dc_option = abs_vor_dc
         self.pv_dc_option = pv_dc
         self.pv_e_option = pv_e
         self.ke_pc_option = ke_pc
-        self.dhdt_mfx_option = dhdt_mfx
+        self.dzdt_mfx_option = dzdt_mfx
         self.dundt_coriolis_option = dundt_coriolis
         self.dundt_grad_ke_option = dundt_grad_ke
         self.dundt_pgf_option = dundt_pgf
-        self.dhdt_option = dhdt
+        self.dzdt_option = dzdt
         self.dundt_option = dundt
 
     def uv_at_primal_cell(
@@ -182,12 +182,12 @@ class DiagnosticsTools(
         if self.ut_e_option:
             diag_vars["ut_e"] = aux.ut_e
             meta["ut_e"] = aux.meta["ut_e"]
-        if self.h_e_option:
-            diag_vars["h_e"] = aux.h_e
-            meta["h_e"] = aux.meta["h_e"]
-        if self.h_dc_option:
-            diag_vars["h_dc"] = aux.h_dc
-            meta["h_dc"] = aux.meta["h_dc"]
+        if self.z_e_option:
+            diag_vars["z_e"] = aux.z_e
+            meta["z_e"] = aux.meta["z_e"]
+        if self.z_dc_option:
+            diag_vars["z_dc"] = aux.z_dc
+            meta["z_dc"] = aux.meta["z_dc"]
         if self.mfx_e_option:
             diag_vars["mfx_e"] = aux.mfx_e
             meta["mfx_e"] = aux.meta["mfx_e"]
@@ -206,9 +206,9 @@ class DiagnosticsTools(
         if self.ke_pc_option:
             diag_vars["ke_pc"] = aux.ke_pc
             meta["ke_pc"] = aux.meta["ke_pc"]
-        if self.dhdt_mfx_option:
-            diag_vars["dhdt_mfx"] = tend.dhdt_mfx
-            meta["dhdt_mfx"] = tend.meta["dhdt_mfx"]
+        if self.dzdt_mfx_option:
+            diag_vars["dzdt_mfx"] = tend.dzdt_mfx
+            meta["dzdt_mfx"] = tend.meta["dzdt_mfx"]
         if self.dundt_coriolis_option:
             diag_vars["dundt_coriolis"] = tend.dundt_coriolis
             meta["dundt_coriolis"] = tend.meta["dundt_coriolis"]
@@ -218,9 +218,9 @@ class DiagnosticsTools(
         if self.dundt_pgf_option:
             diag_vars["dundt_pgf"] = tend.dundt_pgf
             meta["dundt_pgf"] = tend.meta["dundt_pgf"]
-        if self.dhdt_option:
-            diag_vars["dhdt"] = tend.dhdt
-            meta["dhdt"] = tend.meta["dhdt"]
+        if self.dzdt_option:
+            diag_vars["dzdt"] = tend.dzdt
+            meta["dzdt"] = tend.meta["dzdt"]
         if self.dundt_option:
             diag_vars["dundt"] = tend.dundt
             meta["dundt"] = tend.meta["dundt"]
@@ -284,14 +284,14 @@ class DiagnosticsTools(
             str,
             Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
         ] = {}
-        diag_vars["h_pc"] = self.process_field(
-            state.h_pc, to_ugrid=to_ugrid
+        diag_vars["z_pc"] = self.process_field(
+            state.z_pc, to_ugrid=to_ugrid
         )
         diag_vars["un_e"] = self.process_field(
             state.un_e, to_ugrid=to_ugrid
         )
-        diag_vars["topo"] = self.process_field(
-            static.topo, to_ugrid=to_ugrid
+        diag_vars["zs_pc"] = self.process_field(
+            static.zs_pc, to_ugrid=to_ugrid
         )
         u_pc, v_pc = self.uv_at_primal_cell(state)
         diag_vars["u_pc"] = self.process_field(
@@ -303,11 +303,11 @@ class DiagnosticsTools(
         diag_vars["ut_e"] = self.process_field(
             aux.ut_e, to_ugrid=to_ugrid
         )
-        diag_vars["h_e"] = self.process_field(
-            aux.h_e, to_ugrid=to_ugrid
+        diag_vars["z_e"] = self.process_field(
+            aux.z_e, to_ugrid=to_ugrid
         )
-        diag_vars["h_dc"] = self.process_field(
-            aux.h_dc, to_ugrid=to_ugrid
+        diag_vars["z_dc"] = self.process_field(
+            aux.z_dc, to_ugrid=to_ugrid
         )
         diag_vars["mfx_e"] = self.process_field(
             aux.mfx_e, to_ugrid=to_ugrid
@@ -326,8 +326,8 @@ class DiagnosticsTools(
         diag_vars["ke_pc"] = self.process_field(
             aux.ke_pc, to_ugrid=to_ugrid
         )
-        diag_vars["dhdt_mfx"] = self.process_field(
-            tend.dhdt_mfx, to_ugrid=to_ugrid
+        diag_vars["dzdt_mfx"] = self.process_field(
+            tend.dzdt_mfx, to_ugrid=to_ugrid
         )
         diag_vars["dundt_coriolis"] = self.process_field(
             tend.dundt_coriolis, to_ugrid=to_ugrid
@@ -338,8 +338,8 @@ class DiagnosticsTools(
         diag_vars["dundt_pgf"] = self.process_field(
             tend.dundt_pgf, to_ugrid=to_ugrid
         )
-        diag_vars["dhdt"] = self.process_field(
-            tend.dhdt, to_ugrid=to_ugrid
+        diag_vars["dzdt"] = self.process_field(
+            tend.dzdt, to_ugrid=to_ugrid
         )
         diag_vars["dundt"] = self.process_field(
             tend.dundt, to_ugrid=to_ugrid

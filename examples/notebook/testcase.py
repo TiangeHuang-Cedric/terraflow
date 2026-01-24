@@ -72,7 +72,7 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.aux.h_e.recon_scheme.central_difference()
+equation.aux.z_e.recon_scheme.central_difference()
 equation.aux.pv_e.interp.upwind(3)
 
 # %%
@@ -120,7 +120,7 @@ diag_vars = diag_tools.compute(final.state, final.static, to_ugrid=True)
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["h_pc"].to_structured_grid(
+_, da = diag_vars["z_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -242,7 +242,7 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
 plt.rcParams["animation.embed_limit"] = 200
 
 # Get number of time steps
-n_frames = trajectory.to_arrays().h_pc.shape[0]
+n_frames = trajectory.to_arrays().z_pc.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.PlateCarree())
@@ -250,7 +250,7 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-_, da = trajectory_vars["h_pc"].to_structured_grid(
+_, da = trajectory_vars["z_pc"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -329,7 +329,7 @@ def update(frame):
 # Cartopy axes generally do not support blitting; keep blit=False
 anim = animation.FuncAnimation(
     fig, update, frames=n_frames, interval=200, blit=False)
-# anim.save("thickness_uv.gif", writer="pillow", dpi=120, fps=5)
+# anim.save("z_uv.gif", writer="pillow", dpi=120, fps=5)
 plt.close(fig)
 HTML(anim.to_jshtml())
 
@@ -397,8 +397,8 @@ filled = ax.contourf(
     alpha=0.7
 )
 plt.colorbar(
-    filled, 
-    ax=ax, 
+    filled,
+    ax=ax,
     orientation="vertical",
     pad=0.04, label="Wind Speed (m/s)"
 )

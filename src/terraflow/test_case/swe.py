@@ -53,12 +53,12 @@ class ShallowWaterEquationTestCase(eqx.Module):
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
-    def init_thickness(
+    def init_geopotential_height(
         self,
         lon: Array,
         lat: Array,
     ) -> Array:
-        """Initialize thickness field (height - topography).
+        """Initialize geopotential height field (height - topography).
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """

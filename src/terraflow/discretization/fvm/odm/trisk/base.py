@@ -105,7 +105,7 @@ class AbsoluteVorticityAtDualCell(Term):
         return self
 
 
-class ThicknessAtPrimalEdge(Term):
+class GeopotentialHeightAtPrimalEdge(Term):
 
     def __init__(
         self,
@@ -119,19 +119,19 @@ class ThicknessAtPrimalEdge(Term):
 
     def __call__(self, block: BLOCK) -> BLOCK:
         un_e = block.state.un_e
-        h_pc = block.state.h_pc
+        z_pc = block.state.z_pc
         res = self.recon_scheme(
-            x_at_primal_cell=h_pc,
+            x_at_primal_cell=z_pc,
             normal_u_at_edge=un_e,
         )
         return eqx.tree_at(
-            lambda b: b.aux.h_e,
+            lambda b: b.aux.z_e,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Array:
-        return block.aux.h_e
+        return block.aux.z_e
 
     def build_default(self) -> Self:
         self._built = True
@@ -151,8 +151,8 @@ class MassFluxAtPrimalEdge(Term):
 
     def __call__(self, block: BLOCK) -> BLOCK:
         un_e = block.state.un_e
-        h_e = block.aux.h_e
-        res = un_e * h_e
+        z_e = block.aux.z_e
+        res = un_e * z_e
         return eqx.tree_at(
             lambda b: b.aux.mfx_e,
             block,
@@ -168,7 +168,7 @@ class MassFluxAtPrimalEdge(Term):
         return self
 
 
-class ThicknessAtDualCell(Term):
+class GeopotentialHeightAtDualCell(Term):
 
     def __init__(
         self,
@@ -183,16 +183,16 @@ class ThicknessAtDualCell(Term):
         )
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        h_pc = block.state.h_pc
-        res = self.interp_weighted_add_plg2dua(h_pc)
+        z_pc = block.state.z_pc
+        res = self.interp_weighted_add_plg2dua(z_pc)
         return eqx.tree_at(
-            lambda b: b.aux.h_dc,
+            lambda b: b.aux.z_dc,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Array:
-        return block.aux.h_dc
+        return block.aux.z_dc
 
     def build_default(self) -> Self:
         self._built = True
@@ -408,8 +408,8 @@ class PotentialVorticityAtDualCell(Term):
 
     def __call__(self, block: BLOCK) -> BLOCK:
         abs_vor_dc = block.aux.abs_vor_dc
-        h_dc = block.aux.h_dc
-        res = abs_vor_dc / h_dc
+        z_dc = block.aux.z_dc
+        res = abs_vor_dc / z_dc
         return eqx.tree_at(
             lambda b: b.aux.pv_dc,
             block,

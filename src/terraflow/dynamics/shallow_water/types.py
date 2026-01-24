@@ -142,14 +142,14 @@ class ExContinuityEqu(
         aux: ESAUX
     ):
         super().__init__(disc, coord, para, method, aux)
-        self.div_mfx = self.init_div_thickness()
+        self.div_mfx = self.init_div_mfx()
 
     def __call__(self, block: BLOCK) -> BLOCK:
         block = self.div_mfx(block)
         return eqx.tree_at(
-            lambda b: b.tend.dhdt,
+            lambda b: b.tend.dzdt,
             block,
-            block.tend.dhdt_mfx
+            block.tend.dzdt_mfx
         )
 
     @staticmethod
@@ -166,9 +166,9 @@ class ExContinuityEqu(
             self._built = True
         return self
 
-    def init_div_thickness(self) -> DMF:
+    def init_div_mfx(self) -> DMF:
         factory = self.navi2term(
-            group="div_of_thickness",
+            group="div_of_mfx",
             choice="builder"
         )
         origin = getattr(factory, '__origin__', factory)
@@ -183,7 +183,7 @@ class ExContinuityEqu(
             return instance  # type: ignore[return-value]
         else:
             raise TypeError(
-                f"The factory {factory} is not a subclass of DivergenceOfThicknessTermProtocol."
+                f"The factory {factory} is not a subclass of DivergenceOfMassFluxProtocol."
             )
 
 
@@ -307,7 +307,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         UHM, VM, LO, DM, BLOCK
     ],
 ):
-    dhdt: ExContinuityEqu[DMF, UHM, VM, LO, DM, ESAUX, BLOCK]
+    dzdt: ExContinuityEqu[DMF, UHM, VM, LO, DM, ESAUX, BLOCK]
     dundt: ExNormalMomentumEqu4UGRID[
         NCT, GKE, PGF, UHM, VM, LO, DM, ESAUX, BLOCK
     ]
@@ -320,7 +320,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         method: DM,
     ):
         super().__init__(disc, coord, para, method)
-        self.dhdt = self.init_continuity_equation(
+        self.dzdt = self.init_continuity_equation(
             disc=disc,
             coord=coord,
             para=para,
@@ -353,7 +353,7 @@ class ExVifShallowWaterEquationSet4UGRID(
     def build_default(self) -> Self:
         if not self.has_built():
             self.aux.build_default()
-            self.dhdt.build_default()
+            self.dzdt.build_default()
             self.dundt.build_default()
             self._built = True
         return self
@@ -395,10 +395,10 @@ class ExVifShallowWaterEquationSet4UGRID(
     def explicit_terms(self, block: BLOCK, pass_tag: str = "all_pass") -> BLOCK:
         block = self.aux(block)
         if pass_tag == "all_pass":
-            block = self.dhdt(block)
+            block = self.dzdt(block)
             block = self.dundt(block)
         elif pass_tag == "forward_pass":
-            block = self.dhdt(block)
+            block = self.dzdt(block)
         elif pass_tag == "backward_pass":
             block = self.dundt(block)
         else:
