@@ -51,7 +51,10 @@ def repeated(
     steps: int,
     scan_fn: Callable = jax.lax.scan
 ) -> Callable:
-    """Returns a version of fn() that is repeatedly applied `steps` times."""
+    """
+    Returns a version of fn() that is repeatedly applied `steps` times.
+    The returned function only returns the final output.
+    """
     if steps == 1:
         return fn
 
@@ -59,6 +62,31 @@ def repeated(
         def g(x, _): return (fn(x), None)
         x_final, _ = scan_fn(g, x_initial, xs=None, length=steps)
         return x_final
+    return f_repeated
+
+
+def repeated_with_inout(
+    fn: Callable,
+    steps: int,
+    scan_fn: Callable = jax.lax.scan
+) -> Callable:
+    """
+    Returns a version of fn() that is repeatedly applied `steps` times.
+    The returned function returns both the final output and the input
+    from the previous step.
+    """
+    if steps == 1:
+        return fn
+
+    def f_repeated(carry_in: tuple[typing.PyTree, typing.PyTree]) -> tuple[typing.PyTree, typing.PyTree]:
+        def g(carry, _):
+            old_block, new_block = carry
+            new_block = fn(old_block)
+            return (new_block, old_block), None
+        (new_block, old_block), _ = scan_fn(
+            g, carry_in, xs=None, length=steps
+        )
+        return new_block, old_block
     return f_repeated
 
 
@@ -97,13 +125,16 @@ class HistoryMultiStepWithFieldsOutput:
         block: AbstractBlockFields,
     ) -> AbstractBlockFields:
         """Returns a version of this MultiStep that outputs fields."""
-        block_array = block.to_arrays()
+        old_block = block.to_arrays()
         self.history_file.output_prepare(0)
-        block_array = self.step(block_array)
-        self.history_file.output(block_array, 0)
-        block_array = block_array.reset()
+        new_block = self.step(old_block)
+        self.history_file.output(
+            old_block=old_block,
+            new_block=new_block,
+            save_idx=0
+        )
         final_array, _ = self.outer_scan_fn(
-            self.repeated_step, (block_array, 1), xs=None, length=self.outer_steps
+            self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
         )[0]
         return final_array.to_fields()
 
@@ -143,13 +174,16 @@ class HistoryMultiStepWithArrayOutput:
         block: AbstractBlockFields,
     ) -> AbstractBlockArrays:
         """Returns a version of this MultiStep that outputs arrays."""
-        block_array = block.to_arrays()
+        old_block = block.to_arrays()
         self.history_file.output_prepare(0)
-        block_array = self.step(block_array)
-        self.history_file.output(block_array, 0)
-        block_array = block_array.reset()
+        new_block = self.step(old_block)
+        self.history_file.output(
+            old_block=old_block,
+            new_block=new_block,
+            save_idx=0
+        )
         final_array, _ = self.outer_scan_fn(
-            self.repeated_step, (block_array, 1), xs=None, length=self.outer_steps
+            self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
         )[0]
         return final_array
 
@@ -242,7 +276,7 @@ def io_callback(
     history_file: history.AbstractHistory
 ) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
     if inner_steps != 1:
-        repeated_step_fn = repeated(
+        repeated_step_fn = repeated_with_inout(
             fn=step_fn,
             steps=inner_steps,
             scan_fn=inner_scan_fn
@@ -251,10 +285,14 @@ def io_callback(
         raise ValueError(f"Unsupported format: {format}")
 
     def step(carry_in, _):
-        old_block, save_idx = carry_in
+        block, save_idx = carry_in
         history_file.output_prepare(save_idx)
-        new_block = repeated_step_fn(old_block)
-        history_file.output(new_block, save_idx)
+        new_block, old_block = repeated_step_fn((block, block))
+        history_file.output(
+            old_block=old_block,
+            new_block=new_block,
+            save_idx=save_idx
+        )
         return (new_block, save_idx + 1), None
 
     if output_fields:

@@ -98,12 +98,28 @@ class AbstractHistory(ABC):
             ordered=True
         )
 
-    def output(self, block: AbstractBlock, save_idx: int) -> None:
+    def output(
+        self,
+        old_block: AbstractBlock,
+        new_block: AbstractBlock,
+        save_idx: int
+    ) -> None:
+        """
+        Write the fields and diagnostics to the history file.
+
+        Args:
+            old_block (AbstractBlock): The block before the time step (include old state).
+            new_block (AbstractBlock): The block after the time step (include new state, old tend and old aux).
+            save_idx (int): The index of the current save interval.
+
+        Returns:
+            None
+        """
         if self.diag_tool is not None:
             diag = self.diag_tool.to_diag(
-                state=block.state,
-                tend=block.tend,
-                aux=block.aux
+                state=old_block.state,
+                tend=new_block.tend,
+                aux=new_block.aux
             )
         else:
             diag = None
@@ -111,7 +127,7 @@ class AbstractHistory(ABC):
             self.advance_forward_in_time,
             None,
             save_idx,
-            block.state,
+            old_block.state,
             diag,
             ordered=True
         )
