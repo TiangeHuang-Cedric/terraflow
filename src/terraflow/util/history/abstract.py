@@ -4,6 +4,7 @@ import sys
 from loguru import logger
 import netCDF4 as nc4
 import numpy as np
+import jax.experimental
 
 from terraflow.util import uxarray as tuxr
 import terraflow.util.history.setup as st
@@ -88,6 +89,32 @@ class AbstractHistory(ABC):
 
     def open_dataset(self) -> nc4.Dataset:
         return nc4.Dataset(self.file_path, mode="r")
+
+    def output_prepare(self, save_idx: int) -> None:
+        jax.experimental.io_callback(
+            self.prepare_for_advance,
+            None,
+            save_idx,
+            ordered=True
+        )
+
+    def output(self, block: AbstractBlock, save_idx: int) -> None:
+        if self.diag_tool is not None:
+            diag = self.diag_tool.to_diag(
+                state=block.state,
+                tend=block.tend,
+                aux=block.aux
+            )
+        else:
+            diag = None
+        jax.experimental.io_callback(
+            self.advance_forward_in_time,
+            None,
+            save_idx,
+            block.state,
+            diag,
+            ordered=True
+        )
 
     def prepare_for_advance(self, save_interval_idx: int) -> None:
         logger.info(f"==> {self.time_manager.curr_time(save_interval_idx)}")
@@ -239,7 +266,6 @@ class UGRIDHistory(AbstractHistory):
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
             self.add_vars(block.state)
-            self.add_vars(block.static)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,
@@ -354,7 +380,6 @@ class UnstructuredHistory(AbstractHistory):
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
             self.add_vars(block.state)
-            self.add_vars(block.static)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,
@@ -495,7 +520,6 @@ class Unstructured2StructuredHistory(AbstractHistory):
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
             self.add_vars(block.state)
-            self.add_vars(block.static)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,

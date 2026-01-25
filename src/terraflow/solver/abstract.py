@@ -4,7 +4,6 @@ from typing import Callable, TypeVar, Generic, Tuple
 from typing import Literal, overload, Self, TYPE_CHECKING
 import datetime
 import jax
-import jax.experimental
 
 from terraflow.util import typing, device, history
 from terraflow.util.datetime import DateTimeManager
@@ -68,36 +67,43 @@ class HistoryMultiStepWithFieldsOutput:
     def __init__(
         self,
         step: Callable,
+        repeated_step: Callable,
+        history_file: history.AbstractHistory,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
         self.step = step
+        self.repeated_step = repeated_step
+        self.history_file = history_file
         self.outer_steps = outer_steps
         self.outer_scan_fn = outer_scan_fn
 
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.BlockFields,
+        block: fvm_odm_trisk_1lev_vars.BlockFields,
     ) -> fvm_odm_trisk_1lev_vars.BlockFields:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractBlockFields,
+        block: AbstractBlockFields,
     ) -> AbstractBlockFields:
         ...
 
     def __call__(
         self,
-        x: AbstractBlockFields,
+        block: AbstractBlockFields,
     ) -> AbstractBlockFields:
         """Returns a version of this MultiStep that outputs fields."""
-        time_step = 0
-        x_array = x.to_arrays()
+        block_array = block.to_arrays()
+        self.history_file.output_prepare(0)
+        block_array = self.step(block_array)
+        self.history_file.output(block_array, 0)
+        block_array = block_array.reset()
         final_array, _ = self.outer_scan_fn(
-            self.step, (x_array, time_step), xs=None, length=self.outer_steps
+            self.repeated_step, (block_array, 1), xs=None, length=self.outer_steps
         )[0]
         return final_array.to_fields()
 
@@ -107,36 +113,43 @@ class HistoryMultiStepWithArrayOutput:
     def __init__(
         self,
         step: Callable,
+        repeated_step: Callable,
+        history_file: history.AbstractHistory,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
         self.step = step
+        self.repeated_step = repeated_step
+        self.history_file = history_file
         self.outer_steps = outer_steps
         self.outer_scan_fn = outer_scan_fn
 
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.BlockFields,
+        block: fvm_odm_trisk_1lev_vars.BlockFields,
     ) -> fvm_odm_trisk_1lev_vars.BlockArrays:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractBlockFields,
+        block: AbstractBlockFields,
     ) -> AbstractBlockArrays:
         ...
 
     def __call__(
         self,
-        x: AbstractBlockFields,
+        block: AbstractBlockFields,
     ) -> AbstractBlockArrays:
         """Returns a version of this MultiStep that outputs arrays."""
-        time_step = 0
-        x_array = x.to_arrays()
+        block_array = block.to_arrays()
+        self.history_file.output_prepare(0)
+        block_array = self.step(block_array)
+        self.history_file.output(block_array, 0)
+        block_array = block_array.reset()
         final_array, _ = self.outer_scan_fn(
-            self.step, (x_array, time_step), xs=None, length=self.outer_steps
+            self.repeated_step, (block_array, 1), xs=None, length=self.outer_steps
         )[0]
         return final_array
 
@@ -229,7 +242,7 @@ def io_callback(
     history_file: history.AbstractHistory
 ) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
     if inner_steps != 1:
-        step_fn = repeated(
+        repeated_step_fn = repeated(
             fn=step_fn,
             steps=inner_steps,
             scan_fn=inner_scan_fn
@@ -239,34 +252,27 @@ def io_callback(
 
     def step(carry_in, _):
         old_block, save_idx = carry_in
-        jax.experimental.io_callback(
-            history_file.prepare_for_advance,
-            None,
-            save_idx
-        )
-        new_block = step_fn(old_block)
-        if history_file.diag_tool is not None:
-            diag = history_file.diag_tool.to_diag(
-                state=old_block.state,
-                tend=new_block.tend,
-                aux=new_block.aux
-            )
-        else:
-            diag = None
-        jax.experimental.io_callback(
-            history_file.advance_forward_in_time,
-            None,
-            save_idx,
-            old_block.state,
-            diag
-        )
-        new_save_idx = save_idx + 1
-        return (new_block, new_save_idx), None
+        history_file.output_prepare(save_idx)
+        new_block = repeated_step_fn(old_block)
+        history_file.output(new_block, save_idx)
+        return (new_block, save_idx + 1), None
 
     if output_fields:
-        return HistoryMultiStepWithFieldsOutput(step, outer_steps, outer_scan_fn)
+        return HistoryMultiStepWithFieldsOutput(
+            step=step_fn,
+            repeated_step=step,
+            history_file=history_file,
+            outer_steps=outer_steps,
+            outer_scan_fn=outer_scan_fn
+        )
     else:
-        return HistoryMultiStepWithArrayOutput(step, outer_steps, outer_scan_fn)
+        return HistoryMultiStepWithArrayOutput(
+            step=step_fn,
+            repeated_step=step,
+            history_file=history_file,
+            outer_steps=outer_steps,
+            outer_scan_fn=outer_scan_fn
+        )
 
 
 def trajectory_from_step(
@@ -445,7 +451,7 @@ class AbstractSolver(Generic[ODE], ABC):
         save_interval = self.time_manager.save_interval
         dt = self.dt
 
-        outer_steps = int((end_time - start_time) / save_interval) + 1
+        outer_steps = int((end_time - start_time) / save_interval)
         inner_steps = int((save_interval) / dt)
 
         stepper = self.stepper(equation)
