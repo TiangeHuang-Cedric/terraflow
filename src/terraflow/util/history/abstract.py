@@ -15,10 +15,7 @@ from terraflow import layout
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.discretization.abstract import (
     DiagnosticVariableSet,
-    AbstractArrayBasedVariableSet,
-    AbstractFieldBasedVariableSet,
-    AbstractQuantityBasedVariableSet,
-    AbstractVariableSet,
+    AbstractFields,
     AbstractBlock,
     AbstractDiagnosticTools
 )
@@ -143,8 +140,8 @@ class AbstractHistory(ABC):
     def advance_forward_in_time(
         self,
         save_interval_idx: int,
-        fields: AbstractVariableSet,
-        diag: Optional[AbstractVariableSet] = None
+        fields: AbstractFields,
+        diag: Optional[DiagnosticVariableSet] = None
     ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         time_var = ds.variables["time"]
@@ -152,24 +149,15 @@ class AbstractHistory(ABC):
         interval = save_interval_idx * self.time_manager.save_interval_value
         time_var[current_length] = interval
         ds.close()
-        self.write_vars(fields)
+        self.write_fields(fields)
         if diag is not None:
-            self.write_vars(diag)
+            self.write_fields(diag)
         self.log_done_write()
         return None
 
-    def write_vars(self, fields: AbstractVariableSet) -> None:
-        if isinstance(fields, AbstractFieldBasedVariableSet):
-            self._write_fields(fields)
-        elif isinstance(fields, AbstractArrayBasedVariableSet | DiagnosticVariableSet):
-            self._write_arrays(fields)
-        elif isinstance(fields, AbstractQuantityBasedVariableSet):
-            self._write_quantities(fields)
-        return None
-
-    def _write_fields(
+    def write_fields(
         self,
-        fields: AbstractFieldBasedVariableSet
+        fields: AbstractFields | DiagnosticVariableSet
     ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
@@ -180,57 +168,11 @@ class AbstractHistory(ABC):
         ds.close()
         return None
 
-    def _write_arrays(
-        self,
-        fields: AbstractArrayBasedVariableSet | DiagnosticVariableSet
-    ) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        idx = len(ds.variables["time"]) - 1
-        for field_name in fields.keys():
-            data = getattr(fields, field_name)
-            data = np.asarray(data)
-            ds.variables[field_name][idx, ...] = data
-        ds.close()
-        return None
-
-    def _write_quantities(
-        self,
-        fields: AbstractQuantityBasedVariableSet
-    ) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        idx = len(ds.variables["time"]) - 1
-        for field_name in fields.keys():
-            data = getattr(fields, field_name).value
-            data = np.asarray(data)
-            ds.variables[field_name][idx, ...] = data
-        ds.close()
-        return None
-
-    def add_vars(
-        self,
-        fields: AbstractVariableSet
-    ) -> None:
-        if isinstance(fields, AbstractFieldBasedVariableSet):
-            self._add_fields(fields)
-        elif isinstance(fields, AbstractArrayBasedVariableSet | DiagnosticVariableSet):
-            self._add_arrays(fields)
-        elif isinstance(fields, AbstractQuantityBasedVariableSet):
-            self._add_quantities(fields)
-        return None
-
     @abstractmethod
-    def _add_fields(self, fields: AbstractFieldBasedVariableSet) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def _add_arrays(
+    def add_fields(
         self,
-        fields: AbstractArrayBasedVariableSet | DiagnosticVariableSet
+        fields: AbstractFields | DiagnosticVariableSet
     ) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
-    def _add_quantities(self, fields: AbstractQuantityBasedVariableSet) -> None:
         raise NotImplementedError
 
 
@@ -281,60 +223,22 @@ class UGRIDHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_vars(block.state)
+            self.add_fields(block.state)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,
                     tend=block.tend,
                     aux=block.aux
                 )
-                self.add_vars(diag)
+                self.add_fields(diag)
             self._built = True
         return self
 
-    def _add_fields(self, fields: AbstractFieldBasedVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         for field_name, field in fields.items():
             dsxr = tuxr.format_terraflow2ugrid(
                 field.data, field.meta.to_dict(), use_dual=self.use_dual
-            )
-            var_dims = tuple(("time",) + tuple(str(dim) for dim in dsxr.dims))
-            var_dtype = "f8"
-            v = ds.createVariable(field_name, var_dtype, var_dims)
-            v.mesh = dsxr.attrs.get("mesh", "")
-            v.location = dsxr.attrs.get("location", "")
-            v.coordinates = dsxr.attrs.get("coordinates", "")
-            v.units = dsxr.attrs.get("units", "")
-            v.long_name = dsxr.attrs.get("long_name", "")
-            v.description = dsxr.attrs.get("description", "")
-        ds.close()
-        return None
-
-    def _add_arrays(self, fields: AbstractArrayBasedVariableSet | DiagnosticVariableSet) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        for field_name, field in fields.items():
-            meta = fields.meta[field_name]
-            dsxr = tuxr.format_terraflow2ugrid(
-                field, meta.to_dict(), use_dual=self.use_dual
-            )
-            var_dims = tuple(("time",) + tuple(str(dim) for dim in dsxr.dims))
-            var_dtype = "f8"
-            v = ds.createVariable(field_name, var_dtype, var_dims)
-            v.mesh = dsxr.attrs.get("mesh", "")
-            v.location = dsxr.attrs.get("location", "")
-            v.coordinates = dsxr.attrs.get("coordinates", "")
-            v.units = dsxr.attrs.get("units", "")
-            v.long_name = dsxr.attrs.get("long_name", "")
-            v.description = dsxr.attrs.get("description", "")
-        ds.close()
-        return None
-
-    def _add_quantities(self, fields: AbstractQuantityBasedVariableSet) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        for field_name, field in fields.items():
-            meta = fields.meta[field_name]
-            dsxr = tuxr.format_terraflow2ugrid(
-                field.value, meta.to_dict(), use_dual=self.use_dual
             )
             var_dims = tuple(("time",) + tuple(str(dim) for dim in dsxr.dims))
             var_dtype = "f8"
@@ -395,18 +299,18 @@ class UnstructuredHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_vars(block.state)
+            self.add_fields(block.state)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,
                     tend=block.tend,
                     aux=block.aux
                 )
-                self.add_vars(diag)
+                self.add_fields(diag)
             self._built = True
         return self
 
-    def _add_fields(self, fields: AbstractVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         for field_name, field in fields.items():
             var_dims = tuple(("time",) + field.meta.dims)
@@ -418,38 +322,6 @@ class UnstructuredHistory(AbstractHistory):
             v.units = field.meta.units
             v.long_name = field.meta.long_name
             v.description = field.meta.description
-        ds.close()
-        return None
-
-    def _add_arrays(self, fields: AbstractArrayBasedVariableSet | DiagnosticVariableSet) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        for field_name in fields.keys():
-            meta = fields.meta[field_name]
-            var_dims = tuple(("time",) + meta.dims)
-            var_dtype = "f8"
-            v = ds.createVariable(field_name, var_dtype, var_dims)
-            v.hori_location = meta.hori_location
-            v.vert_location = meta.vert_location
-            v.coordinates = meta.coordinates
-            v.units = meta.units
-            v.long_name = meta.long_name
-            v.description = meta.description
-        ds.close()
-        return None
-
-    def _add_quantities(self, fields: AbstractQuantityBasedVariableSet) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        for field_name in fields.keys():
-            meta = fields.meta[field_name]
-            var_dims = tuple(("time",) + meta.dims)
-            var_dtype = "f8"
-            v = ds.createVariable(field_name, var_dtype, var_dims)
-            v.hori_location = meta.hori_location
-            v.vert_location = meta.vert_location
-            v.coordinates = meta.coordinates
-            v.units = meta.units
-            v.long_name = meta.long_name
-            v.description = meta.description
         ds.close()
         return None
 
@@ -535,18 +407,18 @@ class Unstructured2StructuredHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_vars(block.state)
+            self.add_fields(block.state)
             if self.diag_tool is not None:
                 diag = self.diag_tool.to_diag(
                     state=block.state,
                     tend=block.tend,
                     aux=block.aux
                 )
-                self.add_vars(diag)
+                self.add_fields(diag)
             self._built = True
         return self
 
-    def write_vars(self, fields: AbstractVariableSet) -> None:
+    def write_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         _, fields_remapped = fields.to_ugrid(self.coord).to_structured_grid(
@@ -566,7 +438,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         ds.close()
         return None
 
-    def add_vars(self, fields: AbstractVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         remapped_ds = fields.to_ugrid(self.coord).to_structured_grid(
             remap_method=self.remap_method,

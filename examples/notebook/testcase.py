@@ -242,7 +242,7 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
 plt.rcParams["animation.embed_limit"] = 200
 
 # Get number of time steps
-n_frames = trajectory.to_arrays().z_pc.shape[0]
+n_frames = trajectory_vars["z_pc"].data.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.PlateCarree())

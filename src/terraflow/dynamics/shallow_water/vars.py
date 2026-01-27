@@ -24,7 +24,7 @@ class ShallowWaterVariablesBuilder:
     def from_model(
         cls,
         coord: CoordinateSystem[OrthogonalDualMesh, VM, LO],
-    ) -> Type[vars.BlockFields]:
+    ) -> Type[vars.Block]:
         ...
 
     @overload
@@ -41,7 +41,7 @@ class ShallowWaterVariablesBuilder:
         coord: CoordinateSystem[HM, VM, LO],
     ) -> Type[AbstractBlock]:
         if isinstance(coord.mesh, OrthogonalDualMesh):
-            return vars.BlockFields
+            return vars.Block
         else:
             raise NotImplementedError(
                 "ShallowWaterVariablesBuilder only supports unstructured mesh currently."

@@ -10,10 +10,8 @@ from terraflow.util.datetime import DateTimeManager
 
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import (
-        AbstractBlockFields,
-        AbstractBlockArrays,
-        AbstractFieldBasedVariableSet,
-        AbstractArrayBasedVariableSet
+        AbstractBlock,
+        AbstractFields,
     )
     import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as fvm_odm_trisk_1lev_vars
 
@@ -109,23 +107,23 @@ class HistoryMultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_1lev_vars.BlockFields,
-    ) -> fvm_odm_trisk_1lev_vars.BlockFields:
+        block: fvm_odm_trisk_1lev_vars.Block,
+    ) -> fvm_odm_trisk_1lev_vars.Block:
         ...
 
     @overload
     def __call__(
         self,
-        block: AbstractBlockFields,
-    ) -> AbstractBlockFields:
+        block: AbstractBlock,
+    ) -> AbstractBlock:
         ...
 
     def __call__(
         self,
-        block: AbstractBlockFields,
-    ) -> AbstractBlockFields:
+        block: AbstractBlock,
+    ) -> AbstractBlock:
         """Returns a version of this MultiStep that outputs fields."""
-        old_block = block.to_arrays()
+        old_block = block
         self.history_file.output_prepare(0)
         new_block = self.step(old_block)
         self.history_file.output(
@@ -133,10 +131,10 @@ class HistoryMultiStepWithFieldsOutput:
             new_block=new_block,
             save_idx=0
         )
-        final_array, _ = self.outer_scan_fn(
+        final, _ = self.outer_scan_fn(
             self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
         )[0]
-        return final_array.to_fields()
+        return final
 
 
 class HistoryMultiStepWithArrayOutput:
@@ -158,23 +156,23 @@ class HistoryMultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_1lev_vars.BlockFields,
-    ) -> fvm_odm_trisk_1lev_vars.BlockArrays:
+        block: fvm_odm_trisk_1lev_vars.Block,
+    ) -> fvm_odm_trisk_1lev_vars.Block:
         ...
 
     @overload
     def __call__(
         self,
-        block: AbstractBlockFields,
-    ) -> AbstractBlockArrays:
+        block: AbstractBlock,
+    ) -> AbstractBlock:
         ...
 
     def __call__(
         self,
-        block: AbstractBlockFields,
-    ) -> AbstractBlockArrays:
+        block: AbstractBlock,
+    ) -> AbstractBlock:
         """Returns a version of this MultiStep that outputs arrays."""
-        old_block = block.to_arrays()
+        old_block = block
         self.history_file.output_prepare(0)
         new_block = self.step(old_block)
         self.history_file.output(
@@ -182,10 +180,10 @@ class HistoryMultiStepWithArrayOutput:
             new_block=new_block,
             save_idx=0
         )
-        final_array, _ = self.outer_scan_fn(
+        final, _ = self.outer_scan_fn(
             self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
         )[0]
-        return final_array
+        return final
 
 
 class MultiStepWithFieldsOutput:
@@ -203,28 +201,25 @@ class MultiStepWithFieldsOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.BlockFields,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.BlockFields, fvm_odm_trisk_1lev_vars.StateFields]:
+        x: fvm_odm_trisk_1lev_vars.Block,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.Block, fvm_odm_trisk_1lev_vars.State]:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractBlockFields,
-    ) -> Tuple[AbstractBlockFields, AbstractFieldBasedVariableSet]:
+        x: AbstractBlock,
+    ) -> Tuple[AbstractBlock, AbstractFields]:
         ...
 
     def __call__(
         self,
-        x: AbstractBlockFields,
-    ) -> Tuple[AbstractBlockFields, AbstractFieldBasedVariableSet]:
+        x: AbstractBlock,
+    ) -> Tuple[AbstractBlock, AbstractFields]:
         """Returns a version of this MultiStep that outputs fields."""
-        x_array = x.to_arrays()
-        final_array, trajectory_array = self.outer_scan_fn(
-            self.step, x_array, xs=None, length=self.outer_steps
+        final, trajectory = self.outer_scan_fn(
+            self.step, x, xs=None, length=self.outer_steps
         )
-        final = final_array.to_fields()
-        trajectory = trajectory_array.to_fields()
         return final, trajectory
 
 
@@ -243,25 +238,24 @@ class MultiStepWithArrayOutput:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.BlockFields,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.BlockArrays, fvm_odm_trisk_1lev_vars.StateArrays]:
+        x: fvm_odm_trisk_1lev_vars.Block,
+    ) -> Tuple[fvm_odm_trisk_1lev_vars.Block, fvm_odm_trisk_1lev_vars.State]:
         ...
 
     @overload
     def __call__(
         self,
-        x: AbstractBlockFields,
-    ) -> Tuple[AbstractBlockArrays, AbstractArrayBasedVariableSet]:
+        x: AbstractBlock,
+    ) -> Tuple[AbstractBlock, AbstractFields]:
         ...
 
     def __call__(
         self,
-        x: AbstractBlockFields,
-    ) -> Tuple[AbstractBlockArrays, AbstractArrayBasedVariableSet]:
+        x: AbstractBlock,
+    ) -> Tuple[AbstractBlock, AbstractFields]:
         """Returns a version of this MultiStep that outputs arrays."""
-        x_array = x.to_arrays()
         return self.outer_scan_fn(
-            self.step, x_array, xs=None, length=self.outer_steps
+            self.step, x, xs=None, length=self.outer_steps
         )
 
 

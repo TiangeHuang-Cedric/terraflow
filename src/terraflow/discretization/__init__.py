@@ -4,17 +4,20 @@ from typing import overload, TYPE_CHECKING, cast
 
 from terraflow.manager.registry import navigate
 
-from .abstract import AbstractDiagnosticTools
-from .abstract import AbstractArrayBasedVariableSet
-from .abstract import AbstractQuantityBasedVariableSet
-from .abstract import AbstractFieldBasedVariableSet
-from .abstract import AbstractVariableSet
-from .abstract import AbstractMomentumEquForm
-from .abstract import AbstractContinuityEquForm
-from .abstract import AbstractEquationTerm
-from .abstract import AbstractEquationForm
-from .abstract import AbstractEquationSet
-from .abstract import DiscretizationInfo
+from .abstract import (
+    AbstractDiagnosticTools,
+    AbstractBlock,
+    AbstractFields,
+    AbstractVariableSet,
+    AbstractMomentumEquForm,
+    AbstractContinuityEquForm,
+    AbstractThermodynamicEquForm,
+    AbstractEquationTerm,
+    AbstractEquationForm,
+    AbstractEquationSet,
+    AbstractEquationSetAuxiliary,
+    DiscretizationInfo
+)
 
 from . import fvm
 
@@ -79,15 +82,16 @@ class DiagnosticTools(Generic[DIAG]):
 
 __all__ = [
     "DiscretizationInfo",
+    "AbstractEquationSetAuxiliary",
     "AbstractEquationSet",
     "AbstractEquationForm",
     "AbstractEquationTerm",
     "AbstractContinuityEquForm",
+    "AbstractThermodynamicEquForm",
     "AbstractMomentumEquForm",
     "AbstractVariableSet",
-    "AbstractFieldBasedVariableSet",
-    "AbstractQuantityBasedVariableSet",
-    "AbstractArrayBasedVariableSet",
+    "AbstractBlock",
+    "AbstractFields",
     "AbstractDiagnosticTools",
     "DiagnosticTools",
 ]

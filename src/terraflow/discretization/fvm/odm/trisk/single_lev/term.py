@@ -6,12 +6,12 @@ from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as op
 from terraflow.vert_coord import OneLayerVertCoordinate, HybridVertCoordinate
-from terraflow.layout import CoordinateSystem
+from terraflow.layout import CoordinateSystem, Field
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import DiscretizationInfo
 from terraflow.discretization.abstract import AbstractEquationTerm
 from terraflow.discretization.fvm.odm.trisk import coriolis, base
-from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import BlockArrays
+from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block
 from terraflow.discretization.fvm.odm.trisk.single_lev.aux import AuxiliaryTerms
 
 from terraflow.dynamics.shallow_water.types import (
@@ -35,7 +35,7 @@ Term = AbstractEquationTerm[
     TriSKBasedCGridStaggeringLayout,
     FiniteVolumeMethod,
     AuxiliaryTerms,
-    BlockArrays
+    Block
 ]
 
 
@@ -54,17 +54,17 @@ class DivergenceOfMassFluxAtPrimalCell(DivergenceOfMassFluxProtocol, Term):
             coord, para
         )
 
-    def __call__(self, block: BlockArrays) -> BlockArrays:
-        un_e = block.state.un_e
-        z_e = block.aux.z_e
+    def __call__(self, block: Block) -> Block:
+        un_e = block.state.un_e.unwrap()
+        z_e = block.aux.z_e.unwrap()
         res = - self.div_at_primal_cell(z_e * un_e)
         return eqx.tree_at(
-            lambda b: b.tend.dzdt_mfx,
+            lambda b: b.tend.dzdt_mfx.data,
             block,
             replace=res
         )
 
-    def unwrap(self, block: BlockArrays) -> Array:
+    def unwrap(self, block: Block) -> Field:
         return block.tend.dzdt_mfx
 
     def build_default(self) -> "DivergenceOfMassFluxAtPrimalCell":
@@ -89,10 +89,10 @@ class NonlinearCoriolisTermAtDualEdge(NonlinearCoriolisTermProtocol, Term):
             coord, para
         )
 
-    def __call__(self, block: BlockArrays) -> BlockArrays:
+    def __call__(self, block: Block) -> Block:
         return self.scheme(block)
 
-    def unwrap(self, block: BlockArrays) -> Array:
+    def unwrap(self, block: Block) -> Field:
         return block.tend.dundt_coriolis
 
     def build_default(self) -> "NonlinearCoriolisTermAtDualEdge":
@@ -117,19 +117,19 @@ class PressureGradientForceAtDualEdge(PressureGradientForceTermProtocol, Term):
             coord, para
         )
 
-    def __call__(self, block: BlockArrays) -> BlockArrays:
-        z_pc = block.state.z_pc
-        zs_pc = block.static.zs_pc
+    def __call__(self, block: Block) -> Block:
+        z_pc = block.state.z_pc.unwrap()
+        zs_pc = block.static.zs_pc.unwrap()
         gravity = self.para.gravity.unwrap()
         gz = gravity * (z_pc + zs_pc)
         res = - self.grad_at_dual_edge(gz)
         return eqx.tree_at(
-            lambda b: b.tend.dundt_pgf,
+            lambda b: b.tend.dundt_pgf.data,
             block,
             replace=res
         )
 
-    def unwrap(self, block: BlockArrays) -> Array:
+    def unwrap(self, block: Block) -> Field:
         return block.tend.dundt_pgf
 
     def build_default(self) -> "PressureGradientForceAtDualEdge":
@@ -157,16 +157,16 @@ class GradientOfKineticEnergyAtDualEdge(GradientOfKineticEnergyProtocol, Term):
             coord, para
         )
 
-    def __call__(self, block: BlockArrays) -> BlockArrays:
-        ke_pc = self.ke_at_primal_cell(block).aux.ke_pc
+    def __call__(self, block: Block) -> Block:
+        ke_pc = self.ke_at_primal_cell(block).aux.ke_pc.unwrap()
         res = - self.grad_at_dual_edge(ke_pc)
         return eqx.tree_at(
-            lambda b: b.tend.dundt_grad_ke,
+            lambda b: b.tend.dundt_grad_ke.data,
             block,
             replace=res
         )
 
-    def unwrap(self, block: BlockArrays) -> Array:
+    def unwrap(self, block: Block) -> Field:
         return block.tend.dundt_grad_ke
 
     def build_default(self) -> "GradientOfKineticEnergyAtDualEdge":

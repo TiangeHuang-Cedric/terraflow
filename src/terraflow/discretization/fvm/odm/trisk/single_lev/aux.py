@@ -8,7 +8,7 @@ from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayou
 from terraflow.discretization.abstract import DiscretizationInfo
 from terraflow.discretization.abstract import AbstractEquationSetAuxiliary
 from terraflow.discretization.fvm.odm.trisk import coriolis, base
-from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import BlockArrays
+from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block
 
 Float = typing.Float
 Array = typing.Array
@@ -70,15 +70,15 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
 
     def __call__(
         self,
-        block: BlockArrays,
+        block: Block,
         pass_tag: str = "all_pass"
-    ) -> BlockArrays:
+    ) -> Block:
 
-        def forward_call(block: BlockArrays) -> BlockArrays:
+        def forward_call(block: Block) -> Block:
             block = self.z_e(block)
             return block
 
-        def backward_call(block: BlockArrays) -> BlockArrays:
+        def backward_call(block: Block) -> Block:
             block = self.ut_e.recon_tangent_velocity(block)
             block = self.rel_vor_dc(block)
             block = self.abs_vor_dc(block)

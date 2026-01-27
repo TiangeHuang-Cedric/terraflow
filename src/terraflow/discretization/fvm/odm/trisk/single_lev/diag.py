@@ -35,7 +35,7 @@ Equation = ExVifShallowWaterEquationSet4UGRID[
     OneLayerVertCoordinate,
     TriSKBasedCGridStaggeringLayout,
     FiniteVolumeMethod,
-    vars.BlockArrays
+    vars.Block
 ]
 
 
@@ -113,13 +113,11 @@ class DiagnosticsTools(
 
     def uv_at_primal_cell(
         self,
-        state: vars.StateFields | vars.StateArrays,
+        state: vars.State | vars.State,
     ) -> tuple[Field, Field]:
         import terraflow.mesh.orthogonal_dual_mesh.construct as odm
-        if not isinstance(state, vars.StateArrays):
-            state = state.to_arrays()
         uv = odm.reconstruct_vector_at_primal_cell_from_dual_edge(
-            self.equation.mesh, state.un_e
+            self.equation.mesh, state.un_e.unwrap()
         )
         u = Field.create(
             data=uv["u"],
@@ -159,78 +157,55 @@ class DiagnosticsTools(
 
     def to_diag(
         self,
-        state: vars.StateFields | vars.StateArrays,
-        tend: vars.TendencyFields | vars.TendencyArrays,
-        aux: vars.AuxiliaryFields | vars.AuxiliaryArrays,
+        state: vars.State,
+        tend: vars.Tendency,
+        aux: vars.Auxiliary,
     ) -> DiagnosticVariableSet:
-        if isinstance(state, vars.StateFields):
-            state = state.to_arrays()
-        if isinstance(tend, vars.TendencyFields):
-            tend = tend.to_arrays()
-        if isinstance(aux, vars.AuxiliaryFields):
-            aux = aux.to_arrays()
-        diag_vars: dict[str, Array] = {}
+        diag_vars: dict[str, Field] = {}
         meta: dict[str, StaggeredFieldMetaData] = {}
         if self.u_pc_option or self.v_pc_option:
             u_pc, v_pc = self.uv_at_primal_cell(state)
             if self.u_pc_option:
-                diag_vars["u_pc"] = u_pc.data
-                meta["u_pc"] = u_pc.meta
+                diag_vars["u_pc"] = u_pc
             if self.v_pc_option:
-                diag_vars["v_pc"] = v_pc.data
-                meta["v_pc"] = v_pc.meta
+                diag_vars["v_pc"] = v_pc
         if self.ut_e_option:
             diag_vars["ut_e"] = aux.ut_e
-            meta["ut_e"] = aux.meta["ut_e"]
         if self.z_e_option:
             diag_vars["z_e"] = aux.z_e
-            meta["z_e"] = aux.meta["z_e"]
         if self.z_dc_option:
             diag_vars["z_dc"] = aux.z_dc
-            meta["z_dc"] = aux.meta["z_dc"]
         if self.mfx_e_option:
             diag_vars["mfx_e"] = aux.mfx_e
-            meta["mfx_e"] = aux.meta["mfx_e"]
         if self.rel_vor_dc_option:
             diag_vars["rel_vor_dc"] = aux.rel_vor_dc
-            meta["rel_vor_dc"] = aux.meta["rel_vor_dc"]
         if self.abs_vor_dc_option:
             diag_vars["abs_vor_dc"] = aux.abs_vor_dc
-            meta["abs_vor_dc"] = aux.meta["abs_vor_dc"]
         if self.pv_dc_option:
             diag_vars["pv_dc"] = aux.pv_dc
-            meta["pv_dc"] = aux.meta["pv_dc"]
         if self.pv_e_option:
             diag_vars["pv_e"] = aux.pv_e
-            meta["pv_e"] = aux.meta["pv_e"]
         if self.ke_pc_option:
             diag_vars["ke_pc"] = aux.ke_pc
-            meta["ke_pc"] = aux.meta["ke_pc"]
         if self.dzdt_mfx_option:
             diag_vars["dzdt_mfx"] = tend.dzdt_mfx
-            meta["dzdt_mfx"] = tend.meta["dzdt_mfx"]
         if self.dundt_coriolis_option:
             diag_vars["dundt_coriolis"] = tend.dundt_coriolis
-            meta["dundt_coriolis"] = tend.meta["dundt_coriolis"]
         if self.dundt_grad_ke_option:
             diag_vars["dundt_grad_ke"] = tend.dundt_grad_ke
-            meta["dundt_grad_ke"] = tend.meta["dundt_grad_ke"]
         if self.dundt_pgf_option:
             diag_vars["dundt_pgf"] = tend.dundt_pgf
-            meta["dundt_pgf"] = tend.meta["dundt_pgf"]
         if self.dzdt_option:
             diag_vars["dzdt"] = tend.dzdt
-            meta["dzdt"] = tend.meta["dzdt"]
         if self.dundt_option:
             diag_vars["dundt"] = tend.dundt
-            meta["dundt"] = tend.meta["dundt"]
-        return DiagnosticVariableSet(variables=diag_vars, meta=meta)
+        return DiagnosticVariableSet(variables=diag_vars)
 
     @overload
     def compute(
         self,
-        state: vars.StateFields | vars.StateArrays,
-        static: vars.StaticFields | vars.StaticArrays,
+        state: vars.State,
+        static: vars.Static,
         to_ugrid: Literal[True],
     ) -> Dict[str, tuxr.UGRIDDataArray]:
         ...
@@ -238,34 +213,26 @@ class DiagnosticsTools(
     @overload
     def compute(
         self,
-        state: vars.StateFields | vars.StateArrays,
-        static: vars.StaticFields | vars.StaticArrays,
+        state: vars.State,
+        static: vars.Static,
         to_ugrid: Literal[False] = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
         ...
 
     def compute(
         self,
-        state: vars.StateFields | vars.StateArrays,
-        static: vars.StaticFields | vars.StaticArrays,
+        state: vars.State,
+        static: vars.Static,
         to_ugrid: bool = False,
     ) -> Mapping[
         str,
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
-        if isinstance(state, vars.StateArrays):
-            state_arrays = state
-        else:
-            state_arrays = state.to_arrays()
-        if isinstance(static, vars.StaticArrays):
-            static_arrays = static
-        else:
-            static_arrays = static.to_arrays()
-        block = vars.BlockArrays(
-            state=state_arrays,
-            static=static_arrays,
-            tend=vars.TendencyArrays.from_coord(self.equation.coord),
-            aux=vars.AuxiliaryArrays.from_coord(self.equation.coord)
+        block = vars.Block(
+            state=state,
+            static=static,
+            tend=vars.Tendency.from_coord(self.equation.coord),
+            aux=vars.Auxiliary.from_coord(self.equation.coord)
         )
         if self.jit:
             aux_jit = jax.jit(self.equation.aux)
@@ -275,7 +242,6 @@ class DiagnosticsTools(
         else:
             block = self.equation.aux(block)
             block = self.equation.explicit_terms(block)
-        block = block.to_fields()
         state = block.state
         static = block.static
         tend = block.tend
@@ -349,8 +315,8 @@ class DiagnosticsTools(
     @overload
     def compute_along_trajectory(
         self,
-        trajectory: vars.StateFields,
-        static: vars.StaticFields,
+        trajectory: vars.State,
+        static: vars.Static,
         to_ugrid: Literal[False] = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
         ...
@@ -358,25 +324,21 @@ class DiagnosticsTools(
     @overload
     def compute_along_trajectory(
         self,
-        trajectory: vars.StateArrays,
-        static: vars.StaticArrays,
+        trajectory: vars.State,
+        static: vars.Static,
         to_ugrid: Literal[True],
     ) -> Dict[str, tuxr.UGRIDDataArray]:
         ...
 
     def compute_along_trajectory(
         self,
-        trajectory: vars.StateArrays | vars.StateFields,
-        static: vars.StaticArrays | vars.StaticFields,
+        trajectory: vars.State,
+        static: vars.Static,
         to_ugrid: bool = False
     ) -> Mapping[
         str,
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
-        if isinstance(trajectory, vars.StateFields):
-            trajectory = trajectory.to_arrays()
-        if isinstance(static, vars.StaticFields):
-            static = static.to_arrays()
         if self.jit:
             compute = jax.jit(self.compute, static_argnames=("to_ugrid",))
         else:

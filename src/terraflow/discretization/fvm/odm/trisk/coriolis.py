@@ -12,13 +12,15 @@ from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.abstract import CoordinateSystem
-from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import BlockArrays
+from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block as swm_Block
 
 Int = typing.Int
 Float = typing.Float
 Array = typing.Array
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+
+Block = swm_Block
 
 FVM_ODM_TriSK = FiniteVolumeMethodOperator[
     OrthogonalDualMesh,
@@ -49,15 +51,15 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
 
     def __call__(
         self,
-        block: BlockArrays
-    ) -> BlockArrays:
+        block: Block
+    ) -> Block:
         """Compute nonlinear Coriolis term at dual edges."""
         edd_length = self.mesh.dual.edge.length  # (nedg,)
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
-        mfx_e = block.aux.mfx_e
-        pv_e = block.aux.pv_e
+        mfx_e = block.aux.mfx_e.unwrap()
+        pv_e = block.aux.pv_e.unwrap()
 
         def _wrap(
             mfx_e: Float[Array, "nEdge"],
@@ -80,21 +82,21 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
             mfx_e, pv_e
         )
         return eqx.tree_at(
-            lambda b: b.tend.dundt_coriolis,
+            lambda b: b.tend.dundt_coriolis.data,
             block,
             replace=res
         )
 
     def recon_tangent_velocity(
         self,
-        block: BlockArrays
-    ) -> BlockArrays:
+        block: Block
+    ) -> Block:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
         edd_length = self.mesh.dual.edge.length  # (nedg,)
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
-        un_e = block.state.un_e
+        un_e = block.state.un_e.unwrap()
 
         def _wrap(
             un_e: Float[Array, "nEdge"],
@@ -105,7 +107,7 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
 
         res = jax.vmap(_wrap, in_axes=0, out_axes=0)(un_e)
         return eqx.tree_at(
-            lambda b: b.aux.ut_e,
+            lambda b: b.aux.ut_e.data,
             block,
             replace=res
         )

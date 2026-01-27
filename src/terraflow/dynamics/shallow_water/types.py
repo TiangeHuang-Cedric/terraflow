@@ -146,10 +146,11 @@ class ExContinuityEqu(
 
     def __call__(self, block: BLOCK) -> BLOCK:
         block = self.div_mfx(block)
+        dzdt_mfx = block.tend.dzdt_mfx.unwrap()
         return eqx.tree_at(
-            lambda b: b.tend.dzdt,
+            lambda b: b.tend.dzdt.data,
             block,
-            block.tend.dzdt_mfx
+            dzdt_mfx
         )
 
     @staticmethod
@@ -213,13 +214,16 @@ class ExNormalMomentumEqu4UGRID(
         block = self.coriolis(block)
         block = self.grad_ke(block)
         block = self.pgf(block)
+        dundt_coriolis = block.tend.dundt_coriolis.unwrap()
+        dundt_grad_ke = block.tend.dundt_grad_ke.unwrap()
+        dundt_pgf = block.tend.dundt_pgf.unwrap()
         return eqx.tree_at(
-            lambda b: b.tend.dundt,
+            lambda b: b.tend.dundt.data,
             block,
             replace=(
-                block.tend.dundt_coriolis
-                + block.tend.dundt_grad_ke
-                + block.tend.dundt_pgf
+                dundt_coriolis
+                + dundt_grad_ke
+                + dundt_pgf
             )
         )
 
@@ -485,5 +489,5 @@ if TYPE_CHECKING:
         OneLayerVertCoordinate,
         TriSKBasedCGridStaggeringLayout,
         FiniteVolumeMethod,
-        fvm_odm_trisk_1lev_builder.BlockArrays
+        fvm_odm_trisk_1lev_builder.Block
     ]

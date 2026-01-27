@@ -1,7 +1,5 @@
-from abc import abstractmethod
-from typing import Dict, Optional, Self, Generic, TypeVar
+from typing import Dict, Optional, Self, TypeVar
 import jax.numpy as jnp
-import unxt as ux
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
@@ -12,42 +10,20 @@ from terraflow.layout.abstract import (
     Basis,
     MeshEntity
 )
-from terraflow.layout.field import Field, StaggeredFieldMetaData
+from terraflow.layout.field import ArrayField, Field, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import (
-    AbstractVariableSet,
-    AbstractFieldBasedVariableSet,
-    AbstractQuantityBasedVariableSet,
-    AbstractArrayBasedVariableSet,
+    AbstractFields,
     AbstractBlock,
-    AbstractBlockFields,
-    AbstractBlockQuantities,
-    AbstractBlockArrays
 )
 from terraflow.test_case.swe import MountainZonalFlowTestCase, ShallowWaterEquationTestCase
 
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
-DT = TypeVar("DT", "Array", Field, ux.AbstractQuantity)
-STATE = TypeVar(
-    "STATE",
-    "StateFields", "StateQuantities", "StateArrays"
-)
-STATIC = TypeVar(
-    "STATIC", "StaticFields", "StaticQuantities", "StaticArrays"
-)
-TEND = TypeVar(
-    "TEND",
-    "TendencyFields", "TendencyQuantities", "TendencyArrays"
-)
-AUX = TypeVar(
-    "AUX",
-    "AuxiliaryFields", "AuxiliaryQuantities", "AuxiliaryArrays"
-)
 
 Array = typing.Array
-ArrayWithUnits = typing.ArrayWithUnits
 
+FDT = ArrayField[StaggeredFieldMetaData]
 
 Coordsys = CoordinateSystem[
     OrthogonalDualMesh,
@@ -56,7 +32,27 @@ Coordsys = CoordinateSystem[
 ]
 
 
-class BaseBlock(AbstractBlock[STATE, STATIC, TEND, AUX], Generic[STATE, STATIC, TEND, AUX]):
+class Block(AbstractBlock["State", "Static", "Tendency", "Auxiliary"]):
+    state: "State"
+    static: "Static"
+    tend: "Tendency"
+    aux: "Auxiliary"
+
+    @staticmethod
+    def state_cls() -> type["State"]:
+        return State
+
+    @staticmethod
+    def static_cls() -> type["Static"]:
+        return Static
+
+    @staticmethod
+    def tend_cls() -> type["Tendency"]:
+        return Tendency
+
+    @staticmethod
+    def aux_cls() -> type["Auxiliary"]:
+        return Auxiliary
 
     @classmethod
     def from_testcase(
@@ -68,134 +64,11 @@ class BaseBlock(AbstractBlock[STATE, STATIC, TEND, AUX], Generic[STATE, STATIC, 
     ) -> Self:
         if case is None:
             case = MountainZonalFlowTestCase(para)
-        state: STATE = cls.state_cls().from_testcase(coord, para, case=case)
-        static: STATIC = cls.static_cls().from_testcase(coord, para, case=case)
-        aux: AUX = cls.aux_cls().from_coord(coord)
-        tend: TEND = cls.tend_cls().from_coord(coord)
+        state: "State" = cls.state_cls().from_testcase(coord, para, case=case)
+        static: "Static" = cls.static_cls().from_testcase(coord, para, case=case)
+        aux: "Auxiliary" = cls.aux_cls().from_coord(coord)
+        tend: "Tendency" = cls.tend_cls().from_coord(coord)
         return cls(state, static, tend, aux)
-
-
-class BlockFields(
-    AbstractBlockFields[
-        "StateFields",
-        "StaticFields",
-        "TendencyFields",
-        "AuxiliaryFields",
-        "BlockQuantities",
-        "BlockArrays"
-    ],
-    BaseBlock
-):
-    state: "StateFields"
-    static: "StaticFields"
-    tend: "TendencyFields"
-    aux: "AuxiliaryFields"
-
-    @staticmethod
-    def state_cls() -> type["StateFields"]:
-        return StateFields
-
-    @staticmethod
-    def static_cls() -> type["StaticFields"]:
-        return StaticFields
-
-    @staticmethod
-    def tend_cls() -> type["TendencyFields"]:
-        return TendencyFields
-
-    @staticmethod
-    def aux_cls() -> type["AuxiliaryFields"]:
-        return AuxiliaryFields
-
-    @staticmethod
-    def quantity_block_type() -> type["BlockQuantities"]:
-        return BlockQuantities
-
-    @staticmethod
-    def array_block_type() -> type["BlockArrays"]:
-        return BlockArrays
-
-
-class BlockArrays(
-    AbstractBlockArrays[
-        "StateArrays",
-        "StaticArrays",
-        "TendencyArrays",
-        "AuxiliaryArrays",
-        "BlockFields",
-        "BlockQuantities"
-    ],
-    BaseBlock
-):
-    state: "StateArrays"
-    static: "StaticArrays"
-    tend: "TendencyArrays"
-    aux: "AuxiliaryArrays"
-
-    @staticmethod
-    def state_cls() -> type["StateArrays"]:
-        return StateArrays
-
-    @staticmethod
-    def static_cls() -> type["StaticArrays"]:
-        return StaticArrays
-
-    @staticmethod
-    def tend_cls() -> type["TendencyArrays"]:
-        return TendencyArrays
-
-    @staticmethod
-    def aux_cls() -> type["AuxiliaryArrays"]:
-        return AuxiliaryArrays
-
-    @staticmethod
-    def quantity_block_type() -> type["BlockQuantities"]:
-        return BlockQuantities
-
-    @staticmethod
-    def field_block_type() -> type["BlockFields"]:
-        return BlockFields
-
-
-class BlockQuantities(
-    AbstractBlockQuantities[
-        "StateQuantities",
-        "StaticQuantities",
-        "TendencyQuantities",
-        "AuxiliaryQuantities",
-        "BlockFields",
-        "BlockArrays"
-    ],
-    BaseBlock
-):
-    state: "StateQuantities"
-    static: "StaticQuantities"
-    tend: "TendencyQuantities"
-    aux: "AuxiliaryQuantities"
-
-    @staticmethod
-    def state_cls() -> type["StateQuantities"]:
-        return StateQuantities
-
-    @staticmethod
-    def static_cls() -> type["StaticQuantities"]:
-        return StaticQuantities
-
-    @staticmethod
-    def tend_cls() -> type["TendencyQuantities"]:
-        return TendencyQuantities
-
-    @staticmethod
-    def aux_cls() -> type["AuxiliaryQuantities"]:
-        return AuxiliaryQuantities
-
-    @staticmethod
-    def field_block_type() -> type["BlockFields"]:
-        return BlockFields
-
-    @staticmethod
-    def array_block_type() -> type["BlockArrays"]:
-        return BlockArrays
 
 
 def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
@@ -256,9 +129,9 @@ def init_un_in_case(
     ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
 
-class BaseState(AbstractVariableSet, Generic[DT]):
-    z_pc: DT
-    un_e: DT
+class State(AbstractFields[StaggeredFieldMetaData]):
+    z_pc: FDT
+    un_e: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -281,63 +154,6 @@ class BaseState(AbstractVariableSet, Generic[DT]):
             },
             meta=cls.default_meta()
         )
-
-
-class StateArrays(
-    AbstractArrayBasedVariableSet[
-        "StateFields", "StateQuantities", StaggeredFieldMetaData
-    ],
-    BaseState[Array],
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_state_meta()
-
-    @staticmethod
-    def quantity_varset_type() -> type["StateQuantities"]:
-        return StateQuantities
-
-    @staticmethod
-    def field_varset_type() -> type["StateFields"]:
-        return StateFields
-
-
-class StateQuantities(
-    AbstractQuantityBasedVariableSet[
-        "StateFields", "StateArrays", StaggeredFieldMetaData
-    ],
-    BaseState[ux.AbstractQuantity],
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_state_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["StateArrays"]:
-        return StateArrays
-
-    @staticmethod
-    def field_varset_type() -> type["StateFields"]:
-        return StateFields
-
-
-class StateFields(
-    AbstractFieldBasedVariableSet[
-        "StateQuantities", "StateArrays", StaggeredFieldMetaData
-    ],
-    BaseState[Field[Array, StaggeredFieldMetaData]]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_state_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["StateArrays"]:
-        return StateArrays
-
-    @staticmethod
-    def quantity_varset_type() -> type["StateQuantities"]:
-        return StateQuantities
 
 
 def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
@@ -369,8 +185,8 @@ def init_topo_in_case(
     return test.init_topography(lon, lat)
 
 
-class BaseStatic(AbstractVariableSet, Generic[DT]):
-    zs_pc: DT
+class Static(AbstractFields[StaggeredFieldMetaData]):
+    zs_pc: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -392,63 +208,6 @@ class BaseStatic(AbstractVariableSet, Generic[DT]):
             },
             meta=cls.default_meta()
         )
-
-
-class StaticArrays(
-    AbstractArrayBasedVariableSet[
-        "StaticFields", "StaticQuantities", StaggeredFieldMetaData
-    ],
-    BaseStatic[Array]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_static_meta()
-
-    @staticmethod
-    def quantity_varset_type() -> type["StaticQuantities"]:
-        return StaticQuantities
-
-    @staticmethod
-    def field_varset_type() -> type["StaticFields"]:
-        return StaticFields
-
-
-class StaticQuantities(
-    AbstractQuantityBasedVariableSet[
-        "StaticFields", "StaticArrays", StaggeredFieldMetaData
-    ],
-    BaseStatic[ux.AbstractQuantity]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_static_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["StaticArrays"]:
-        return StaticArrays
-
-    @staticmethod
-    def field_varset_type() -> type["StaticFields"]:
-        return StaticFields
-
-
-class StaticFields(
-    AbstractFieldBasedVariableSet[
-        "StaticQuantities", "StaticArrays", StaggeredFieldMetaData
-    ],
-    BaseStatic[Field[Array, StaggeredFieldMetaData]]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_static_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["StaticArrays"]:
-        return StaticArrays
-
-    @staticmethod
-    def quantity_varset_type() -> type["StaticQuantities"]:
-        return StaticQuantities
 
 
 def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
@@ -534,13 +293,13 @@ def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
     }
 
 
-class BaseTendency(AbstractVariableSet, Generic[DT]):
-    dzdt: DT
-    dzdt_mfx: DT
-    dundt: DT
-    dundt_coriolis: DT
-    dundt_grad_ke: DT
-    dundt_pgf: DT
+class Tendency(AbstractFields[StaggeredFieldMetaData]):
+    dzdt: FDT
+    dzdt_mfx: FDT
+    dundt: FDT
+    dundt_coriolis: FDT
+    dundt_grad_ke: FDT
+    dundt_pgf: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -576,12 +335,7 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         )
         return cls.from_arrays(array_dict=array_dict, meta=meta)
 
-    @abstractmethod
-    def zeros_like(self, data: DT) -> DT:
-        """Create a tendency variable set with all-zero arrays."""
-        raise NotImplementedError
-
-    def _tend2state(self, pass_tag: str = "all_pass") -> dict[str, DT]:
+    def _tend2state(self, pass_tag: str = "all_pass") -> dict[str, ArrayField[StaggeredFieldMetaData]]:
         """Get a mapping from tendency variable names to state variable names.
 
         Args:
@@ -612,90 +366,18 @@ class BaseTendency(AbstractVariableSet, Generic[DT]):
         else:
             raise ValueError(f"Invalid pass_tag: {pass_tag}")
 
-
-class TendencyArrays(
-    AbstractArrayBasedVariableSet[
-        "TendencyFields", "TendencyQuantities", StaggeredFieldMetaData
-    ],
-    BaseTendency[Array]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_tendency_meta()
-
-    @staticmethod
-    def quantity_varset_type() -> type["TendencyQuantities"]:
-        return TendencyQuantities
-
-    @staticmethod
-    def field_varset_type() -> type["TendencyFields"]:
-        return TendencyFields
-
-    def to_state(self, pass_tag: str) -> StateArrays:
-        return StateArrays.from_arrays(
-            array_dict=self._tend2state(pass_tag=pass_tag),
-            meta=StateArrays.default_meta()
-        )
-
-    def zeros_like(self, data: Array) -> Array:
-        return jnp.zeros_like(data)
-
-
-class TendencyQuantities(
-    AbstractQuantityBasedVariableSet[
-        "TendencyFields", "TendencyArrays", StaggeredFieldMetaData
-    ],
-    BaseTendency[ux.AbstractQuantity]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_tendency_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["TendencyArrays"]:
-        return TendencyArrays
-
-    @staticmethod
-    def field_varset_type() -> type["TendencyFields"]:
-        return TendencyFields
-
-    def to_state(self, pass_tag: str) -> StateQuantities:
-        return StateQuantities(
-            **self._tend2state(pass_tag=pass_tag),
-            meta=StateQuantities.default_meta()
-        )
-
-    def zeros_like(self, data: ux.AbstractQuantity) -> ux.AbstractQuantity:
-        return data * 0.0
-
-
-class TendencyFields(
-    AbstractFieldBasedVariableSet[
-        "TendencyQuantities", "TendencyArrays", StaggeredFieldMetaData
-    ],
-    BaseTendency[Field[Array, StaggeredFieldMetaData]]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_tendency_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["TendencyArrays"]:
-        return TendencyArrays
-
-    @staticmethod
-    def quantity_varset_type() -> type["TendencyQuantities"]:
-        return TendencyQuantities
-
-    def to_state(self, pass_tag: str = "all") -> StateFields:
-        return StateFields(
-            **self._tend2state(pass_tag=pass_tag)
+    def to_state(self, pass_tag: str = "all") -> State:
+        return State.from_arrays(
+            array_dict={
+                key: var.data for key, var in self._tend2state(pass_tag=pass_tag).items()
+            },
+            meta=State.default_meta()
         )
 
     def zeros_like(
         self,
-        data: Field[Array, StaggeredFieldMetaData]
-    ) -> Field[Array, StaggeredFieldMetaData]:
+        data: ArrayField[StaggeredFieldMetaData],
+    ) -> ArrayField[StaggeredFieldMetaData]:
         return Field.create(
             data=jnp.zeros_like(data.data),
             meta=data.meta,
@@ -829,16 +511,16 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
     }
 
 
-class BaseAuxiliary(AbstractVariableSet, Generic[DT]):
-    ut_e: DT
-    z_e: DT
-    mfx_e: DT
-    z_dc: DT
-    rel_vor_dc: DT
-    abs_vor_dc: DT
-    pv_dc: DT
-    pv_e: DT
-    ke_pc: DT
+class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
+    ut_e: FDT
+    z_e: FDT
+    mfx_e: FDT
+    z_dc: FDT
+    rel_vor_dc: FDT
+    abs_vor_dc: FDT
+    pv_dc: FDT
+    pv_e: FDT
+    ke_pc: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -865,60 +547,3 @@ class BaseAuxiliary(AbstractVariableSet, Generic[DT]):
         array_dict["pv_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
         array_dict["ke_pc"] = jnp.zeros((1, n_polg,), dtype=float_type)
         return cls.from_arrays(array_dict=array_dict, meta=meta)
-
-
-class AuxiliaryArrays(
-    AbstractArrayBasedVariableSet[
-        "AuxiliaryFields", "AuxiliaryQuantities", StaggeredFieldMetaData
-    ],
-    BaseAuxiliary[Array]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_aux_meta()
-
-    @staticmethod
-    def quantity_varset_type() -> type["AuxiliaryQuantities"]:
-        return AuxiliaryQuantities
-
-    @staticmethod
-    def field_varset_type() -> type["AuxiliaryFields"]:
-        return AuxiliaryFields
-
-
-class AuxiliaryQuantities(
-    AbstractQuantityBasedVariableSet[
-        "AuxiliaryFields", "AuxiliaryArrays", StaggeredFieldMetaData
-    ],
-    BaseAuxiliary[ux.AbstractQuantity]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_aux_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["AuxiliaryArrays"]:
-        return AuxiliaryArrays
-
-    @staticmethod
-    def field_varset_type() -> type["AuxiliaryFields"]:
-        return AuxiliaryFields
-
-
-class AuxiliaryFields(
-    AbstractFieldBasedVariableSet[
-        "AuxiliaryQuantities", "AuxiliaryArrays", StaggeredFieldMetaData
-    ],
-    BaseAuxiliary[Field[Array, StaggeredFieldMetaData]]
-):
-    @staticmethod
-    def default_meta() -> dict[str, StaggeredFieldMetaData]:
-        return default_aux_meta()
-
-    @staticmethod
-    def array_varset_type() -> type["AuxiliaryArrays"]:
-        return AuxiliaryArrays
-
-    @staticmethod
-    def quantity_varset_type() -> type["AuxiliaryQuantities"]:
-        return AuxiliaryQuantities
