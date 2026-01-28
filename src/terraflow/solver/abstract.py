@@ -1,7 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Callable, TypeVar, Generic, Tuple
-from typing import Literal, overload, Self, TYPE_CHECKING
+from typing import overload, Self, TYPE_CHECKING
 import datetime
 import jax
 
@@ -88,7 +88,7 @@ def repeated_with_inout(
     return f_repeated
 
 
-class HistoryMultiStepWithFieldsOutput:
+class MultiStepWithHistory:
 
     def __init__(
         self,
@@ -137,56 +137,7 @@ class HistoryMultiStepWithFieldsOutput:
         return final
 
 
-class HistoryMultiStepWithArrayOutput:
-
-    def __init__(
-        self,
-        step: Callable,
-        repeated_step: Callable,
-        history_file: history.AbstractHistory,
-        outer_steps: int,
-        outer_scan_fn: Callable = jax.lax.scan,
-    ):
-        self.step = step
-        self.repeated_step = repeated_step
-        self.history_file = history_file
-        self.outer_steps = outer_steps
-        self.outer_scan_fn = outer_scan_fn
-
-    @overload
-    def __call__(
-        self,
-        block: fvm_odm_trisk_1lev_vars.Block,
-    ) -> fvm_odm_trisk_1lev_vars.Block:
-        ...
-
-    @overload
-    def __call__(
-        self,
-        block: AbstractBlock,
-    ) -> AbstractBlock:
-        ...
-
-    def __call__(
-        self,
-        block: AbstractBlock,
-    ) -> AbstractBlock:
-        """Returns a version of this MultiStep that outputs arrays."""
-        old_block = block
-        self.history_file.output_prepare(0)
-        new_block = self.step(old_block)
-        self.history_file.output(
-            old_block=old_block,
-            new_block=new_block,
-            save_idx=0
-        )
-        final, _ = self.outer_scan_fn(
-            self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
-        )[0]
-        return final
-
-
-class MultiStepWithFieldsOutput:
+class MultiStep:
 
     def __init__(
         self,
@@ -223,42 +174,6 @@ class MultiStepWithFieldsOutput:
         return final, trajectory
 
 
-class MultiStepWithArrayOutput:
-
-    def __init__(
-        self,
-        step: Callable,
-        outer_steps: int,
-        outer_scan_fn: Callable = jax.lax.scan,
-    ):
-        self.step = step
-        self.outer_steps = outer_steps
-        self.outer_scan_fn = outer_scan_fn
-
-    @overload
-    def __call__(
-        self,
-        x: fvm_odm_trisk_1lev_vars.Block,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.Block, fvm_odm_trisk_1lev_vars.State]:
-        ...
-
-    @overload
-    def __call__(
-        self,
-        x: AbstractBlock,
-    ) -> Tuple[AbstractBlock, AbstractFields]:
-        ...
-
-    def __call__(
-        self,
-        x: AbstractBlock,
-    ) -> Tuple[AbstractBlock, AbstractFields]:
-        """Returns a version of this MultiStep that outputs arrays."""
-        return self.outer_scan_fn(
-            self.step, x, xs=None, length=self.outer_steps
-        )
-
-
 def io_callback(
     step_fn: Callable,
     outer_steps: int,
@@ -266,9 +181,8 @@ def io_callback(
     *,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
-    output_fields: bool = True,
     history_file: history.AbstractHistory
-) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
+) -> MultiStepWithHistory:
     if inner_steps != 1:
         repeated_step_fn = repeated_with_inout(
             fn=step_fn,
@@ -289,22 +203,13 @@ def io_callback(
         )
         return (new_block, save_idx + 1), None
 
-    if output_fields:
-        return HistoryMultiStepWithFieldsOutput(
-            step=step_fn,
-            repeated_step=step,
-            history_file=history_file,
-            outer_steps=outer_steps,
-            outer_scan_fn=outer_scan_fn
-        )
-    else:
-        return HistoryMultiStepWithArrayOutput(
-            step=step_fn,
-            repeated_step=step,
-            history_file=history_file,
-            outer_steps=outer_steps,
-            outer_scan_fn=outer_scan_fn
-        )
+    return MultiStepWithHistory(
+        step=step_fn,
+        repeated_step=step,
+        history_file=history_file,
+        outer_steps=outer_steps,
+        outer_scan_fn=outer_scan_fn
+    )
 
 
 def trajectory_from_step(
@@ -316,8 +221,7 @@ def trajectory_from_step(
     post_process_fn: Callable = lambda x: x.state,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
-    output_fields: bool = True,
-) -> MultiStepWithArrayOutput | MultiStepWithFieldsOutput:
+) -> MultiStep:
     """Returns a function that accumulates repeated applications of `step_fn`.
 
     Compute a trajectory by repeatedly calling `step_fn()`
@@ -346,10 +250,7 @@ def trajectory_from_step(
         frame = old_block.state if start_with_input else new_block.state
         return new_block, post_process_fn(frame)
 
-    if output_fields:
-        return MultiStepWithFieldsOutput(step, outer_steps, outer_scan_fn)
-    else:
-        return MultiStepWithArrayOutput(step, outer_steps, outer_scan_fn)
+    return MultiStep(step, outer_steps, outer_scan_fn)
 
 
 ODE = TypeVar("ODE", bound=AbstractODE)
@@ -376,32 +277,6 @@ class AbstractSolver(Generic[ODE], ABC):
     def stepper(self, equation: ODE) -> Callable:
         raise NotImplementedError
 
-    @overload
-    def trajectory(
-        self,
-        equation: ODE,
-        *,
-        start_with_input: bool = False,
-        post_process_fn: Callable = lambda x: x,
-        outer_scan_fn: Callable = jax.lax.scan,
-        inner_scan_fn: Callable = jax.lax.scan,
-        output_fields: Literal[True],
-    ) -> MultiStepWithFieldsOutput:
-        ...
-
-    @overload
-    def trajectory(
-        self,
-        equation: ODE,
-        *,
-        start_with_input: bool = False,
-        post_process_fn: Callable = lambda x: x,
-        outer_scan_fn: Callable = jax.lax.scan,
-        inner_scan_fn: Callable = jax.lax.scan,
-        output_fields: Literal[False],
-    ) -> MultiStepWithArrayOutput:
-        ...
-
     def trajectory(
         self,
         equation: ODE,
@@ -410,8 +285,7 @@ class AbstractSolver(Generic[ODE], ABC):
         post_process_fn: Callable = lambda x: x,
         outer_scan_fn=jax.lax.scan,
         inner_scan_fn=jax.lax.scan,
-        output_fields: bool = True,
-    ) -> MultiStepWithFieldsOutput | MultiStepWithArrayOutput:
+    ) -> MultiStep:
         """Solve the ODE from start_time to end_time.
 
         Args:
@@ -436,10 +310,8 @@ class AbstractSolver(Generic[ODE], ABC):
             post_process_fn=post_process_fn,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
-            output_fields=output_fields,
         )
 
-    @overload
     def io_callback(
         self,
         equation: ODE,
@@ -447,31 +319,7 @@ class AbstractSolver(Generic[ODE], ABC):
         *,
         outer_scan_fn: Callable = jax.lax.scan,
         inner_scan_fn: Callable = jax.lax.scan,
-        output_fields: Literal[False],
-    ) -> HistoryMultiStepWithArrayOutput:
-        ...
-
-    @overload
-    def io_callback(
-        self,
-        equation: ODE,
-        history_file: history.AbstractHistory,
-        *,
-        outer_scan_fn: Callable = jax.lax.scan,
-        inner_scan_fn: Callable = jax.lax.scan,
-        output_fields: Literal[True],
-    ) -> HistoryMultiStepWithFieldsOutput:
-        ...
-
-    def io_callback(
-        self,
-        equation: ODE,
-        history_file: history.AbstractHistory,
-        *,
-        outer_scan_fn: Callable = jax.lax.scan,
-        inner_scan_fn: Callable = jax.lax.scan,
-        output_fields: bool = True,
-    ) -> HistoryMultiStepWithArrayOutput | HistoryMultiStepWithFieldsOutput:
+    ) -> MultiStepWithHistory:
         """Solve the ODE from start_time to end_time.
 
         Args:
@@ -494,7 +342,6 @@ class AbstractSolver(Generic[ODE], ABC):
             inner_steps,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
-            output_fields=output_fields,
             history_file=history_file
         )
 

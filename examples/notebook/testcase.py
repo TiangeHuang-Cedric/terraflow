@@ -93,7 +93,6 @@ solver = tf.solver.ExRungeKutta3Solver(
 integrate_fn = jax.jit(solver.trajectory(
     equation=equation,
     start_with_input=True,
-    output_fields=True,
 ))
 
 # %%

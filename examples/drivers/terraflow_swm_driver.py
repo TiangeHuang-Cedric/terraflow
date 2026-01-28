@@ -82,7 +82,6 @@ solver = tf.solver.ExRungeKutta3Solver(
 integrate_fn = jax.jit(solver.io_callback(
     equation=equation,
     history_file=h0,
-    output_fields=True,
 ))
 
 logger.info("Start integrating...")
