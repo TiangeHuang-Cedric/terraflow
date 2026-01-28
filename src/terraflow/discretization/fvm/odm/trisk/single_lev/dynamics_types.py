@@ -1,3 +1,4 @@
+from tkinter import N
 from typing import Dict, Optional, Self, TypeVar
 import jax.numpy as jnp
 
@@ -30,6 +31,10 @@ Coordsys = CoordinateSystem[
     VM,
     TriSKBasedCGridStaggeringLayout
 ]
+
+NCELL = "ncell"
+NEDGE = "nedge"
+NVTX = "nvtx"
 
 
 class Block(AbstractBlock["State", "Static", "Tendency", "Auxiliary"]):
@@ -74,9 +79,9 @@ class Block(AbstractBlock["State", "Static", "Tendency", "Auxiliary"]):
 def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
     """Get the default meta for shallow water state variables."""
     return {
-        "z_pc": StaggeredFieldMetaData(
-            name="z_pc",
-            dims=("nPrimal_Cell",),
+        "z": StaggeredFieldMetaData(
+            name="z",
+            dims=(NCELL,),
             long_name="Geopotential height at primal cell",
             description="Geopotential height at primal cell centers",
             units="m",
@@ -85,11 +90,11 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
             basis=Basis.Scalar,
             staggered_kind="C",
             mesh_name="primal",
-            coordinates="lon_pc lat_pc",
+            coordinates="lon_cell lat_cell",
         ),
-        "un_e": StaggeredFieldMetaData(
-            name="un_e",
-            dims=("nDual_Edge",),
+        "un": StaggeredFieldMetaData(
+            name="un",
+            dims=(NEDGE,),
             long_name="normal velocity at dual edge midpoints",
             description="Normal velocity at dual edge midpoints",
             units="m/s",
@@ -98,7 +103,7 @@ def default_state_meta() -> Dict[str, StaggeredFieldMetaData]:
             basis=Basis.Normal,
             staggered_kind="C",
             mesh_name="primal",
-            coordinates="lon_de lat_de",
+            coordinates="lon_edge lat_edge",
         )
     }
 
@@ -108,8 +113,8 @@ def init_z_in_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_state_meta()
-    lon = meta["z_pc"].get_position(coord).horizontal_coord["lon"]
-    lat = meta["z_pc"].get_position(coord).horizontal_coord["lat"]
+    lon = meta["z"].get_position(coord).horizontal_coord["lon"]
+    lat = meta["z"].get_position(coord).horizontal_coord["lat"]
     return test.init_geopotential_height(
         lon, lat
     ).reshape((1,) + lon.shape)  # add leading axis for vmap
@@ -120,18 +125,18 @@ def init_un_in_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_state_meta()
-    lon = meta["un_e"].get_position(coord).horizontal_coord["lon"]
-    lat = meta["un_e"].get_position(coord).horizontal_coord["lat"]
-    cart = meta["un_e"].get_position(coord).horizontal_coord["cart"]
-    nr = meta["un_e"].get_position(coord).horizontal_coord["nr_orient"]
+    lon = meta["un"].get_position(coord).horizontal_coord["lon"]
+    lat = meta["un"].get_position(coord).horizontal_coord["lat"]
+    cart = meta["un"].get_position(coord).horizontal_coord["cart"]
+    nr = meta["un"].get_position(coord).horizontal_coord["nr_orient"]
     return test.init_normal_velocity(
         lon, lat, cart, nr
     ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
 
 class State(AbstractFields[StaggeredFieldMetaData]):
-    z_pc: FDT
-    un_e: FDT
+    z: FDT
+    un: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -149,8 +154,8 @@ class State(AbstractFields[StaggeredFieldMetaData]):
             case = MountainZonalFlowTestCase(para)
         return cls.from_arrays(
             array_dict={
-                "z_pc": init_z_in_case(coord, case),
-                "un_e": init_un_in_case(coord, case)
+                "z": init_z_in_case(coord, case),
+                "un": init_un_in_case(coord, case)
             },
             meta=cls.default_meta()
         )
@@ -158,9 +163,9 @@ class State(AbstractFields[StaggeredFieldMetaData]):
 
 def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
-        "zs_pc": StaggeredFieldMetaData(
-            name="zs_pc",
-            dims=("nPrimal_Cell",),
+        "zs": StaggeredFieldMetaData(
+            name="zs",
+            dims=(NCELL,),
             long_name="topography at primal cell",
             description="Topography height at primal cell centers",
             units="m",
@@ -169,7 +174,7 @@ def default_static_meta() -> Dict[str, StaggeredFieldMetaData]:
             basis=Basis.Scalar,
             staggered_kind="C",
             mesh_name="primal",
-            coordinates="lon_pc lat_pc",
+            coordinates="lon_cell lat_cell",
         )
     }
 
@@ -179,14 +184,14 @@ def init_topo_in_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_static_meta()
-    coord_info = meta["zs_pc"].get_position(coord)
+    coord_info = meta["zs"].get_position(coord)
     lon = coord_info.horizontal_coord["lon"]
     lat = coord_info.horizontal_coord["lat"]
     return test.init_topography(lon, lat)
 
 
 class Static(AbstractFields[StaggeredFieldMetaData]):
-    zs_pc: FDT
+    zs: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -204,7 +209,7 @@ class Static(AbstractFields[StaggeredFieldMetaData]):
             case = MountainZonalFlowTestCase(para)
         return cls.from_arrays(
             array_dict={
-                "zs_pc": init_topo_in_case(coord, case)
+                "zs": init_topo_in_case(coord, case)
             },
             meta=cls.default_meta()
         )
@@ -214,88 +219,88 @@ def default_tendency_meta() -> Dict[str, StaggeredFieldMetaData]:
     return {
         "dzdt": StaggeredFieldMetaData(
             name="dzdt",
-            dims=("nPrimal_Cell",),
+            dims=(NCELL,),
             long_name="Tendency of geopotential height",
             description="Tendency of geopotential height calculated from state variables",
             units="m/s",
-            hori_location="cell",
+            hori_location=MeshEntity.Cell,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_pc lat_pc",
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal"
         ),
-        "dzdt_mfx": StaggeredFieldMetaData(
-            name="dzdt_mfx",
-            dims=("nPrimal_Cell",),
-            long_name="Tendency of geopotential height due to mass flux divergence term",
-            description="Tendency of geopotential height due to mass flux divergence term calculated from state variables",
+        "dzdt_mfn_e": StaggeredFieldMetaData(
+            name="dzdt_mfn_e",
+            dims=(NCELL,),
+            long_name="Tendency of geopotential height due to normal mass flux divergence term",
+            description="Tendency of geopotential height due to normal mass flux divergence term calculated from state variables",
             units="1/s",
-            hori_location="cell",
+            hori_location=MeshEntity.Cell,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_pc lat_pc",
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal"
         ),
         "dundt": StaggeredFieldMetaData(
             name="dundt",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Tendency of normal velocity",
             description="Tendency of normal velocity calculated from state variables",
-            units="m/s^2",
-            hori_location="edge",
+            units="m/s2",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="normal",
-            coordinates="lon_de lat_de",
+            basis=Basis.Normal,
+            coordinates="lon_edge lat_edge",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
         "dundt_coriolis": StaggeredFieldMetaData(
             name="dundt_coriolis",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Tendency of normal velocity due to coriolis term",
             description="Tendency of normal velocity due to coriolis term calculated from state variables",
-            units="m/s^2",
-            hori_location="edge",
+            units="m/s2",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_de lat_de",
+            basis=Basis.Normal,
+            coordinates="lon_edge lat_edge",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
         "dundt_grad_ke": StaggeredFieldMetaData(
             name="dundt_grad_ke",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Tendency of normal velocity due to gradient of kinetic energy term",
             description="Tendency of normal velocity due to gradient of kinetic energy term calculated from state variables",
-            units="m/s^2",
-            hori_location="edge",
+            units="m/s2",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_de lat_de",
+            basis=Basis.Normal,
+            coordinates="lon_edge lat_edge",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
         "dundt_pgf": StaggeredFieldMetaData(
             name="dundt_pgf",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Tendency of normal velocity due to pressure gradient force term",
             description="Tendency of normal velocity due to pressure gradient force term calculated from state variables",
-            units="m/s^2",
-            hori_location="edge",
+            units="m/s2",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_de lat_de",
+            basis=Basis.Normal,
+            coordinates="lon_edge lat_edge",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
     }
 
 
 class Tendency(AbstractFields[StaggeredFieldMetaData]):
     dzdt: FDT
-    dzdt_mfx: FDT
+    dzdt_mfn_e: FDT
     dundt: FDT
     dundt_coriolis: FDT
     dundt_grad_ke: FDT
@@ -318,7 +323,7 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
         array_dict["dzdt"] = jnp.zeros(
             (1, n_polg,), dtype=float_type
         )
-        array_dict["dzdt_mfx"] = jnp.zeros(
+        array_dict["dzdt_mfn_e"] = jnp.zeros(
             (1, n_polg,), dtype=float_type
         )
         array_dict["dundt"] = jnp.zeros(
@@ -350,18 +355,18 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
         """
         if pass_tag == "all_pass":
             return {
-                "z_pc": self.dzdt,
-                "un_e": self.dundt
+                "z": self.dzdt,
+                "un": self.dundt
             }
         elif pass_tag == "forward_pass":
             return {
-                "z_pc": self.dzdt,
-                "un_e": self.zeros_like(self.dundt)
+                "z": self.dzdt,
+                "un": self.zeros_like(self.dundt)
             }
         elif pass_tag == "backward_pass":
             return {
-                "z_pc": self.zeros_like(self.dzdt),
-                "un_e": self.dundt
+                "z": self.zeros_like(self.dzdt),
+                "un": self.dundt
             }
         else:
             raise ValueError(f"Invalid pass_tag: {pass_tag}")
@@ -388,123 +393,123 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
 def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
     """Get the default metadata for shallow water auxiliary variables."""
     return {
-        "ut_e": StaggeredFieldMetaData(
-            name="ut_e",
-            dims=("nDual_Edge",),
+        "ut": StaggeredFieldMetaData(
+            name="ut",
+            dims=(NEDGE,),
             long_name="Tangential velocity at dual edge midpoint",
             description="Tangential velocity at dual edge midpoint",
             units="m/s",
-            hori_location="edge",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="tangent",
+            basis=Basis.Tangent,
             staggered_kind="C",
-            coordinates="lon_de lat_de",
-            mesh_name="dual"
+            coordinates="lon_edge lat_edge",
+            mesh_name="primal"
         ),
         "z_e": StaggeredFieldMetaData(
             name="z_e",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Geopotential height at dual edge midpoint",
             description="Geopotential height at dual edge midpoint",
             units="m",
-            hori_location="edge",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="scalar",
+            basis=Basis.Scalar,
             staggered_kind="C",
-            coordinates="lon_de lat_de",
+            coordinates="lon_edge lat_edge",
             mesh_name="primal"
         ),
-        "z_dc": StaggeredFieldMetaData(
-            name="z_dc",
-            dims=("nDual_Cell",),
+        "z_vtx": StaggeredFieldMetaData(
+            name="z_vtx",
+            dims=(NVTX,),
             long_name="Geopotential height at dual cell center",
             description="Geopotential height at dual cell center",
             units="m",
-            hori_location="cell",
+            hori_location=MeshEntity.vtx,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_dc lat_dc",
+            basis=Basis.Scalar,
+            coordinates="lon_vtx lat_vtx",
             staggered_kind="C",
-            mesh_name="dual"
-        ),
-        "mfx_e": StaggeredFieldMetaData(
-            name="mfx_e",
-            dims=("nDual_Edge",),
-            long_name="Mass flux at dual edge midpoint",
-            description="Mass flux at dual edge midpoint",
-            units="m^2 /s",
-            hori_location="edge",
-            vert_location="",
-            basis="scalar",
-            staggered_kind="C",
-            coordinates="lon_de lat_de",
             mesh_name="primal"
         ),
-        "rel_vor_dc": StaggeredFieldMetaData(
-            name="rel_vor_dc",
-            dims=("nDual_Cell",),
+        "mfn_e": StaggeredFieldMetaData(
+            name="mfn_e",
+            dims=(NEDGE,),
+            long_name="Mass flux at dual edge midpoint",
+            description="Mass flux at dual edge midpoint",
+            units="m2 /s",
+            hori_location=MeshEntity.Edge,
+            vert_location="",
+            basis=Basis.Normal,
+            staggered_kind="C",
+            coordinates="lon_edge lat_edge",
+            mesh_name="primal"
+        ),
+        "rel_vor": StaggeredFieldMetaData(
+            name="rel_vor",
+            dims=(NVTX,),
             long_name="Relative vorticity at dual cell center",
             description="Relative vorticity at dual cell center",
             units="1/s",
-            hori_location="cell",
+            hori_location=MeshEntity.vtx,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_dc lat_dc",
+            basis=Basis.Scalar,
+            coordinates="lon_vtx lat_vtx",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
-        "abs_vor_dc": StaggeredFieldMetaData(
-            name="abs_vor_dc",
-            dims=("nDual_Cell",),
+        "abs_vor": StaggeredFieldMetaData(
+            name="abs_vor",
+            dims=(NVTX,),
             long_name="Absolute vorticity at dual cell center",
             description="Absolute vorticity at dual cell center",
             units="1/s",
-            hori_location="cell",
+            hori_location=MeshEntity.vtx,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_dc lat_dc",
+            basis=Basis.Scalar,
+            coordinates="lon_vtx lat_vtx",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
-        "pv_dc": StaggeredFieldMetaData(
-            name="pv_dc",
-            dims=("nDual_Cell",),
+        "pv_vtx": StaggeredFieldMetaData(
+            name="pv_vtx",
+            dims=(NVTX,),
             long_name="Potential vorticity at dual cell center",
             description=(
                 "Potential vorticity at dual cell center calculated from "
                 "absolute vorticity and geopotential height at dual cell center"
             ),
             units="1/(m s)",
-            hori_location="cell",
+            hori_location=MeshEntity.vtx,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_dc lat_dc",
+            basis=Basis.Scalar,
+            coordinates="lon_vtx lat_vtx",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
         "pv_e": StaggeredFieldMetaData(
             name="pv_e",
-            dims=("nDual_Edge",),
+            dims=(NEDGE,),
             long_name="Potential vorticity at dual edge midpoint",
             description="Potential vorticity at dual edge midpoint",
             units="1/(m s)",
-            hori_location="edge",
+            hori_location=MeshEntity.Edge,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_de lat_de",
+            basis=Basis.Scalar,
+            coordinates="lon_edge lat_edge",
             staggered_kind="C",
-            mesh_name="dual"
+            mesh_name="primal"
         ),
-        "ke_pc": StaggeredFieldMetaData(
-            name="ke_pc",
-            dims=("nPrimal_Cell",),
+        "ke": StaggeredFieldMetaData(
+            name="ke",
+            dims=(NCELL,),
             long_name="Kinetic energy at primal cell center",
             description="Kinetic energy at primal cell center",
-            units="m^2/s^2",
-            hori_location="cell",
+            units="m2/s2",
+            hori_location=MeshEntity.Cell,
             vert_location="",
-            basis="scalar",
-            coordinates="lon_pc lat_pc",
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal"
         )
@@ -512,15 +517,15 @@ def default_aux_meta() -> Dict[str, StaggeredFieldMetaData]:
 
 
 class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
-    ut_e: FDT
+    ut: FDT
     z_e: FDT
-    mfx_e: FDT
-    z_dc: FDT
-    rel_vor_dc: FDT
-    abs_vor_dc: FDT
-    pv_dc: FDT
+    mfn_e: FDT
+    z_vtx: FDT
+    rel_vor: FDT
+    abs_vor: FDT
+    pv_vtx: FDT
     pv_e: FDT
-    ke_pc: FDT
+    ke: FDT
 
     @staticmethod
     def default_meta() -> dict[str, StaggeredFieldMetaData]:
@@ -537,13 +542,13 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
         n_dual = coord.mesh.n_dual
         float_type = coord.mesh.dev.float_type
         array_dict = {}
-        array_dict["ut_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
+        array_dict["ut"] = jnp.zeros((1, n_edge,), dtype=float_type)
         array_dict["z_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
-        array_dict["mfx_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
-        array_dict["z_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
-        array_dict["rel_vor_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
-        array_dict["abs_vor_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
-        array_dict["pv_dc"] = jnp.zeros((1, n_dual,), dtype=float_type)
+        array_dict["mfn_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
+        array_dict["z_vtx"] = jnp.zeros((1, n_dual,), dtype=float_type)
+        array_dict["rel_vor"] = jnp.zeros((1, n_dual,), dtype=float_type)
+        array_dict["abs_vor"] = jnp.zeros((1, n_dual,), dtype=float_type)
+        array_dict["pv_vtx"] = jnp.zeros((1, n_dual,), dtype=float_type)
         array_dict["pv_e"] = jnp.zeros((1, n_edge,), dtype=float_type)
-        array_dict["ke_pc"] = jnp.zeros((1, n_polg,), dtype=float_type)
+        array_dict["ke"] = jnp.zeros((1, n_polg,), dtype=float_type)
         return cls.from_arrays(array_dict=array_dict, meta=meta)

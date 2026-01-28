@@ -212,31 +212,41 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
             return
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         # Create dimensions
-        ds.createDimension("nPrimal_Cell", int(self.mesh.primal.cell.shape[0]))
-        ds.createDimension("nDual_Cell", int(self.mesh.dual.cell.shape[0]))
-        ds.createDimension("nDual_Edge", int(self.mesh.primal.edge.shape[0]))
+        ds.createDimension("ncell", int(self.mesh.primal.cell.shape[0]))
+        ds.createDimension("nvtx", int(self.mesh.dual.cell.shape[0]))
+        ds.createDimension("nedge", int(self.mesh.primal.edge.shape[0]))
         # Create variables
-        ds.createVariable("lon_pc", "f8", ("nPrimal_Cell",))
-        ds.createVariable("lat_pc", "f8", ("nPrimal_Cell",))
-        ds.createVariable("lon_de", "f8", ("nDual_Edge",))
-        ds.createVariable("lat_de", "f8", ("nDual_Edge",))
+        ds.createVariable("lon_cell", "f8", ("ncell",))
+        ds.createVariable("lat_cell", "f8", ("ncell",))
+        ds.createVariable("lon_vtx", "f8", ("nvtx",))
+        ds.createVariable("lat_vtx", "f8", ("nvtx",))
+        ds.createVariable("lon_edge", "f8", ("nedge",))
+        ds.createVariable("lat_edge", "f8", ("nedge",))
         # Fill in coordinate variables
-        lon_pc = ds.variables["lon_pc"]
-        lon_pc[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
-        lon_pc.long_name = "Face Longitude"
-        lon_pc.units = "degrees_east"
-        lat_pc = ds.variables["lat_pc"]
-        lat_pc[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lat)
-        lat_pc.long_name = "Face Latitude"
-        lat_pc.units = "degrees_north"
-        lon_de = ds.variables["lon_de"]
-        lon_de[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
-        lon_de.long_name = "Edge Longitude"
-        lon_de.units = "degrees_east"
-        lat_de = ds.variables["lat_de"]
-        lat_de[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lat)
-        lat_de.long_name = "Edge Latitude"
-        lat_de.units = "degrees_north"
+        lon_cell = ds.variables["lon_cell"]
+        lon_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
+        lon_cell.long_name = "Longitude at cells"
+        lon_cell.units = "degrees_east"
+        lat_cell = ds.variables["lat_cell"]
+        lat_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lat)
+        lat_cell.long_name = "Latitude at cells"
+        lat_cell.units = "degrees_north"
+        lon_vtx = ds.variables["lon_vtx"]
+        lon_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lon)
+        lon_vtx.long_name = "Longitude at vertices"
+        lon_vtx.units = "degrees_east"
+        lat_vtx = ds.variables["lat_vtx"]
+        lat_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lat)
+        lat_vtx.long_name = "Latitude at vertices"
+        lat_vtx.units = "degrees_north"
+        lon_edge = ds.variables["lon_edge"]
+        lon_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
+        lon_edge.long_name = "Longitude at edges"
+        lon_edge.units = "degrees_east"
+        lat_edge = ds.variables["lat_edge"]
+        lat_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lat)
+        lat_edge.long_name = "Latitude at edges"
+        lat_edge.units = "degrees_north"
         ds.close()
         self._built = True
 

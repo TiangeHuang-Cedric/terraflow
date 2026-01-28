@@ -15,9 +15,8 @@ LO = TypeVar("LO", bound="AbstractLayout")
 
 
 class MeshEntityElement:
-    Node = "node"
+    vtx = "vtx"
     Edge = "edge"
-    Face = "face"
     Cell = "cell"
 
 
@@ -25,8 +24,8 @@ MeshEntity = MeshEntityElement()
 
 
 class VertCoordLocation:
-    FullLev = "full"
-    HalfLev = "half"
+    Cell = "cell"
+    Lev = "lev"
 
 
 VertLoc = VertCoordLocation()

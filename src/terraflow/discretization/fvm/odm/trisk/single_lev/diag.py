@@ -5,7 +5,7 @@ from terraflow.util import typing, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
-from terraflow.layout import Field, StaggeredFieldMetaData
+from terraflow.layout import Field, StaggeredFieldMetaData, MeshEntity, Basis
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as vars
 from terraflow.discretization.abstract import (
@@ -49,18 +49,18 @@ class DiagnosticsTools(
         StaggeredFieldMetaData
     ]
 ):
-    u_pc_option: bool
-    v_pc_option: bool
-    ut_e_option: bool
+    u_option: bool
+    v_option: bool
+    ut_option: bool
     z_e_option: bool
-    z_dc_option: bool
-    mfx_e_option: bool
-    rel_vor_dc_option: bool
-    abs_vor_dc_option: bool
-    pv_dc_option: bool
+    z_vtx_option: bool
+    mfn_e_option: bool
+    rel_vor_option: bool
+    abs_vor_option: bool
+    pv_vtx_option: bool
     pv_e_option: bool
-    ke_pc_option: bool
-    dzdt_mfx_option: bool
+    ke_option: bool
+    dzdt_mfn_e_option: bool
     dundt_coriolis_option: bool
     dundt_grad_ke_option: bool
     dundt_pgf_option: bool
@@ -70,18 +70,18 @@ class DiagnosticsTools(
     def __init__(
         self,
         equation: Equation,
-        u_pc: bool = True,
-        v_pc: bool = True,
-        ut_e: bool = False,
+        u: bool = True,
+        v: bool = True,
+        ut: bool = False,
         z_e: bool = False,
-        z_dc: bool = False,
-        mfx_e: bool = False,
-        rel_vor_dc: bool = False,
-        abs_vor_dc: bool = False,
-        pv_dc: bool = False,
+        z_vtx: bool = False,
+        mfn_e: bool = False,
+        rel_vor: bool = False,
+        abs_vor: bool = False,
+        pv_vtx: bool = False,
         pv_e: bool = False,
-        ke_pc: bool = False,
-        dzdt_mfx: bool = False,
+        ke: bool = False,
+        dzdt_mfn_e: bool = False,
         dundt_coriolis: bool = False,
         dundt_grad_ke: bool = False,
         dundt_pgf: bool = False,
@@ -93,18 +93,18 @@ class DiagnosticsTools(
         super().__init__(
             equation, jit=jit, trajectory=trajectory
         )
-        self.u_pc_option = u_pc
-        self.v_pc_option = v_pc
-        self.ut_e_option = ut_e
+        self.u_option = u
+        self.v_option = v
+        self.ut_option = ut
         self.z_e_option = z_e
-        self.z_dc_option = z_dc
-        self.mfx_e_option = mfx_e
-        self.rel_vor_dc_option = rel_vor_dc
-        self.abs_vor_dc_option = abs_vor_dc
-        self.pv_dc_option = pv_dc
+        self.z_vtx_option = z_vtx
+        self.mfn_e_option = mfn_e
+        self.rel_vor_option = rel_vor
+        self.abs_vor_option = abs_vor
+        self.pv_vtx_option = pv_vtx
         self.pv_e_option = pv_e
-        self.ke_pc_option = ke_pc
-        self.dzdt_mfx_option = dzdt_mfx
+        self.ke_option = ke
+        self.dzdt_mfn_e_option = dzdt_mfn_e
         self.dundt_coriolis_option = dundt_coriolis
         self.dundt_grad_ke_option = dundt_grad_ke
         self.dundt_pgf_option = dundt_pgf
@@ -117,20 +117,20 @@ class DiagnosticsTools(
     ) -> tuple[Field, Field]:
         import terraflow.mesh.orthogonal_dual_mesh.construct as odm
         uv = odm.reconstruct_vector_at_primal_cell_from_dual_edge(
-            self.equation.mesh, state.un_e.unwrap()
+            self.equation.mesh, state.un.unwrap()
         )
         u = Field.create(
             data=uv["u"],
             meta=StaggeredFieldMetaData(
-                name="u_pc",
-                dims=("nPrimal_Cell",),
+                name="u_cell",
+                dims=("ncell",),
                 long_name="Zonal velocity at primal cell center",
                 description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
                 units="m/s",
-                hori_location="cell",
+                hori_location=MeshEntity.Cell,
                 vert_location="",
-                basis="x",
-                coordinates="lon_pc lat_pc",
+                basis=Basis.NormalX,
+                coordinates="lon_cell lat_cell",
                 staggered_kind="C",
                 mesh_name="primal"
             ),
@@ -139,15 +139,15 @@ class DiagnosticsTools(
         v = Field.create(
             data=uv["v"],
             meta=StaggeredFieldMetaData(
-                name="v_pc",
-                dims=("nPrimal_Cell",),
+                name="v_cell",
+                dims=("ncell",),
                 long_name="Meridional velocity at primal cell center",
                 description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
                 units="m/s",
-                hori_location="cell",
+                hori_location=MeshEntity.Cell,
                 vert_location="",
-                basis="y",
-                coordinates="lon_pc lat_pc",
+                basis=Basis.NormalY,
+                coordinates="lon_cell lat_cell",
                 staggered_kind="C",
                 mesh_name="primal"
             ),
@@ -162,33 +162,32 @@ class DiagnosticsTools(
         aux: vars.Auxiliary,
     ) -> DiagnosticVariableSet:
         diag_vars: dict[str, Field] = {}
-        meta: dict[str, StaggeredFieldMetaData] = {}
-        if self.u_pc_option or self.v_pc_option:
-            u_pc, v_pc = self.uv_at_primal_cell(state)
-            if self.u_pc_option:
-                diag_vars["u_pc"] = u_pc
-            if self.v_pc_option:
-                diag_vars["v_pc"] = v_pc
-        if self.ut_e_option:
-            diag_vars["ut_e"] = aux.ut_e
+        if self.u_option or self.v_option:
+            u, v = self.uv_at_primal_cell(state)
+            if self.u_option:
+                diag_vars["u"] = u
+            if self.v_option:
+                diag_vars["v"] = v
+        if self.ut_option:
+            diag_vars["ut"] = aux.ut
         if self.z_e_option:
             diag_vars["z_e"] = aux.z_e
-        if self.z_dc_option:
-            diag_vars["z_dc"] = aux.z_dc
-        if self.mfx_e_option:
-            diag_vars["mfx_e"] = aux.mfx_e
-        if self.rel_vor_dc_option:
-            diag_vars["rel_vor_dc"] = aux.rel_vor_dc
-        if self.abs_vor_dc_option:
-            diag_vars["abs_vor_dc"] = aux.abs_vor_dc
-        if self.pv_dc_option:
-            diag_vars["pv_dc"] = aux.pv_dc
+        if self.z_vtx_option:
+            diag_vars["z_vtx"] = aux.z_vtx
+        if self.mfn_e_option:
+            diag_vars["mfn_e"] = aux.mfn_e
+        if self.rel_vor_option:
+            diag_vars["rel_vor"] = aux.rel_vor
+        if self.abs_vor_option:
+            diag_vars["abs_vor"] = aux.abs_vor
+        if self.pv_vtx_option:
+            diag_vars["pv_vtx"] = aux.pv_vtx
         if self.pv_e_option:
             diag_vars["pv_e"] = aux.pv_e
-        if self.ke_pc_option:
-            diag_vars["ke_pc"] = aux.ke_pc
-        if self.dzdt_mfx_option:
-            diag_vars["dzdt_mfx"] = tend.dzdt_mfx
+        if self.ke_option:
+            diag_vars["ke"] = aux.ke
+        if self.dzdt_mfn_e_option:
+            diag_vars["dzdt_mfn_e"] = tend.dzdt_mfn_e
         if self.dundt_coriolis_option:
             diag_vars["dundt_coriolis"] = tend.dundt_coriolis
         if self.dundt_grad_ke_option:
@@ -207,6 +206,7 @@ class DiagnosticsTools(
         state: vars.State,
         static: vars.Static,
         to_ugrid: Literal[True],
+        use_dual: bool = False,
     ) -> Dict[str, tuxr.UGRIDDataArray]:
         ...
 
@@ -216,6 +216,7 @@ class DiagnosticsTools(
         state: vars.State,
         static: vars.Static,
         to_ugrid: Literal[False] = False,
+        use_dual: bool = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
         ...
 
@@ -224,6 +225,7 @@ class DiagnosticsTools(
         state: vars.State,
         static: vars.Static,
         to_ugrid: bool = False,
+        use_dual: bool = False,
     ) -> Mapping[
         str,
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
@@ -250,65 +252,66 @@ class DiagnosticsTools(
             str,
             Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
         ] = {}
-        diag_vars["z_pc"] = self.process_field(
-            state.z_pc, to_ugrid=to_ugrid
+        diag_vars["z"] = self.process_field(
+            state.z, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["un_e"] = self.process_field(
-            state.un_e, to_ugrid=to_ugrid
+        diag_vars["un"] = self.process_field(
+            state.un, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["zs_pc"] = self.process_field(
-            static.zs_pc, to_ugrid=to_ugrid
+        diag_vars["zs"] = self.process_field(
+            static.zs, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        u_pc, v_pc = self.uv_at_primal_cell(state)
-        diag_vars["u_pc"] = self.process_field(
-            u_pc, to_ugrid=to_ugrid
+        u, v = self.uv_at_primal_cell(state)
+        diag_vars["u"] = self.process_field(
+            u, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["v_pc"] = self.process_field(
-            v_pc, to_ugrid=to_ugrid
+        diag_vars["v"] = self.process_field(
+            v, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["ut_e"] = self.process_field(
-            aux.ut_e, to_ugrid=to_ugrid
+        diag_vars["ut"] = self.process_field(
+            aux.ut, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["z_e"] = self.process_field(
-            aux.z_e, to_ugrid=to_ugrid
+            aux.z_e, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["z_dc"] = self.process_field(
-            aux.z_dc, to_ugrid=to_ugrid
+        diag_vars["z_vtx"] = self.process_field(
+            aux.z_vtx, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["mfx_e"] = self.process_field(
-            aux.mfx_e, to_ugrid=to_ugrid
+        diag_vars["mfn_e"] = self.process_field(
+            aux.mfn_e, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["rel_vor_dc"] = self.process_field(
-            aux.rel_vor_dc, to_ugrid=to_ugrid)
-        diag_vars["abs_vor_dc"] = self.process_field(
-            aux.abs_vor_dc, to_ugrid=to_ugrid
+        diag_vars["rel_vor"] = self.process_field(
+            aux.rel_vor, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["pv_dc"] = self.process_field(
-            aux.pv_dc, to_ugrid=to_ugrid
+        diag_vars["abs_vor"] = self.process_field(
+            aux.abs_vor, to_ugrid=to_ugrid, use_dual=use_dual
+        )
+        diag_vars["pv_vtx"] = self.process_field(
+            aux.pv_vtx, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["pv_e"] = self.process_field(
-            aux.pv_e, to_ugrid=to_ugrid
+            aux.pv_e, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["ke_pc"] = self.process_field(
-            aux.ke_pc, to_ugrid=to_ugrid
+        diag_vars["ke"] = self.process_field(
+            aux.ke, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["dzdt_mfx"] = self.process_field(
-            tend.dzdt_mfx, to_ugrid=to_ugrid
+        diag_vars["dzdt_mfn_e"] = self.process_field(
+            tend.dzdt_mfn_e, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt_coriolis"] = self.process_field(
-            tend.dundt_coriolis, to_ugrid=to_ugrid
+            tend.dundt_coriolis, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt_grad_ke"] = self.process_field(
-            tend.dundt_grad_ke, to_ugrid=to_ugrid
+            tend.dundt_grad_ke, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt_pgf"] = self.process_field(
-            tend.dundt_pgf, to_ugrid=to_ugrid
+            tend.dundt_pgf, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dzdt"] = self.process_field(
-            tend.dzdt, to_ugrid=to_ugrid
+            tend.dzdt, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt"] = self.process_field(
-            tend.dundt, to_ugrid=to_ugrid
+            tend.dundt, to_ugrid=to_ugrid, use_dual=use_dual
         )
         return diag_vars
 
@@ -318,6 +321,7 @@ class DiagnosticsTools(
         trajectory: vars.State,
         static: vars.Static,
         to_ugrid: Literal[False] = False,
+        use_dual: bool = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
         ...
 
@@ -327,6 +331,7 @@ class DiagnosticsTools(
         trajectory: vars.State,
         static: vars.Static,
         to_ugrid: Literal[True],
+        use_dual: bool = False,
     ) -> Dict[str, tuxr.UGRIDDataArray]:
         ...
 
@@ -334,40 +339,49 @@ class DiagnosticsTools(
         self,
         trajectory: vars.State,
         static: vars.Static,
-        to_ugrid: bool = False
+        to_ugrid: bool = False,
+        use_dual: bool = False,
     ) -> Mapping[
         str,
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
         if self.jit:
-            compute = jax.jit(self.compute, static_argnames=("to_ugrid",))
+            compute = jax.jit(
+                self.compute,
+                static_argnames=("to_ugrid", "use_dual")
+            )
         else:
             compute = self.compute
 
         if to_ugrid:
             fields = jax.vmap(
                 compute,
-                in_axes=(0, None, None),
+                in_axes=(0, None, None, None),
                 out_axes=0
             )(
                 trajectory,
                 static,
-                False
+                False,
+                use_dual
             )
-            uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+            uxgrid = self.coord.mesh.to_ugrid(use_dual=use_dual).to_uxgrid()
             return {
                 name: tuxr.UGRIDDataArray.from_xarray(
-                    field.to_xarray_with_ugrid_format(), uxgrid
+                    da=field.to_xarray_with_ugrid_format(
+                        use_dual=use_dual
+                    ),
+                    uxgrid=uxgrid
                 )
                 for name, field in fields.items()
             }
 
         return jax.vmap(
             compute,
-            in_axes=(0, None, None),
+            in_axes=(0, None, None, None),
             out_axes=0
         )(
             trajectory,
             static,
-            to_ugrid
+            to_ugrid,
+            use_dual
         )

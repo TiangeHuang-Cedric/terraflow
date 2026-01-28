@@ -59,16 +59,16 @@ class RelativeVorticityAtDualCell(Term):
         )
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        res = self.curl_at_dual_cell(un_e)
+        un = block.state.un.unwrap()
+        res = self.curl_at_dual_cell(un)
         return eqx.tree_at(
-            lambda b: b.aux.rel_vor_dc.data,
+            lambda b: b.aux.rel_vor.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.rel_vor_dc
+        return block.aux.rel_vor
 
     def build_default(self) -> Self:
         self._built = True
@@ -87,18 +87,18 @@ class AbsoluteVorticityAtDualCell(Term):
         super().__init__(disc, coord, para, method)
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        rel_vor = block.aux.rel_vor_dc.unwrap()
+        rel_vor = block.aux.rel_vor.unwrap()
         omega = self.para.omega.unwrap()
         coriolis = 2 * omega * jnp.sin(self.mesh._dua.centroid.lat)
         res = coriolis[None, :] + rel_vor
         return eqx.tree_at(
-            lambda b: b.aux.abs_vor_dc.data,
+            lambda b: b.aux.abs_vor.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.abs_vor_dc
+        return block.aux.abs_vor
 
     def build_default(self) -> Self:
         self._built = True
@@ -118,11 +118,11 @@ class GeopotentialHeightAtPrimalEdge(Term):
         self.recon_scheme = fr.FluxReconstructAtPrimalEdge(coord, para)
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        z_pc = block.state.z_pc.unwrap()
+        un = block.state.un.unwrap()
+        z = block.state.z.unwrap()
         res = self.recon_scheme(
-            x_at_primal_cell=z_pc,
-            normal_u_at_edge=un_e,
+            x_at_primal_cell=z,
+            normal_u_at_edge=un,
         )
         return eqx.tree_at(
             lambda b: b.aux.z_e.data,
@@ -150,17 +150,17 @@ class MassFluxAtPrimalEdge(Term):
         super().__init__(disc, coord, para, method)
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
+        un = block.state.un.unwrap()
         z_e = block.aux.z_e.unwrap()
-        res = un_e * z_e
+        res = un * z_e
         return eqx.tree_at(
-            lambda b: b.aux.mfx_e.data,
+            lambda b: b.aux.mfn_e.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.mfx_e
+        return block.aux.mfn_e
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -183,16 +183,16 @@ class GeopotentialHeightAtDualCell(Term):
         )
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        z_pc = block.state.z_pc.unwrap()
-        res = self.interp_weighted_add_plg2dua(z_pc)
+        z = block.state.z.unwrap()
+        res = self.interp_weighted_add_plg2dua(z)
         return eqx.tree_at(
-            lambda b: b.aux.z_dc.data,
+            lambda b: b.aux.z_vtx.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.z_dc
+        return block.aux.z_vtx
 
     def build_default(self) -> Self:
         self._built = True
@@ -215,13 +215,13 @@ class InterpPotentialVorticityMidpoint(Term):
         self.order = 2
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        pv_dc = block.aux.pv_dc.unwrap()
-        ut_e = block.aux.ut_e.unwrap()
+        un = block.state.un.unwrap()
+        pv_vtx = block.aux.pv_vtx.unwrap()
+        ut = block.aux.ut.unwrap()
         res = self.recon_scheme(
-            x_at_dual_cell=pv_dc,
-            tangent_u_at_edge=ut_e,
-            normal_u_at_edge=un_e,
+            x_at_dual_cell=pv_vtx,
+            tangent_u_at_edge=ut,
+            normal_u_at_edge=un,
         )
         return eqx.tree_at(
             lambda b: b.aux.pv_e.data,
@@ -263,19 +263,19 @@ class InterpPotentialVorticityUpwind(Term):
         self.order = order
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        pv_dc = block.aux.pv_dc.unwrap()
-        ut_e = block.aux.ut_e.unwrap()
-        b = jnp.abs(un_e) / jnp.sqrt(
-            un_e ** 2 + ut_e ** 2 + 1.0
+        un = block.state.un.unwrap()
+        pv_vtx = block.aux.pv_vtx.unwrap()
+        ut = block.aux.ut.unwrap()
+        b = jnp.abs(un) / jnp.sqrt(
+            un ** 2 + ut ** 2 + 1.0
         )
         flux1 = self.central_difference_scheme(
-            x_at_dual_cell=pv_dc,
-            tangent_u_at_edge=ut_e
+            x_at_dual_cell=pv_vtx,
+            tangent_u_at_edge=ut
         )
         flux2 = self.recon_scheme(
-            x_at_dual_cell=pv_dc,
-            tangent_u_at_edge=ut_e
+            x_at_dual_cell=pv_vtx,
+            tangent_u_at_edge=ut
         )
         res = (1 - b) * flux1 + b * flux2
         return eqx.tree_at(
@@ -316,13 +316,13 @@ class InterpPotentialVorticityPureUpwind(Term):
         self.order = order
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        pv_dc = block.aux.pv_dc.unwrap()
-        ut_e = block.aux.ut_e.unwrap()
+        un = block.state.un.unwrap()
+        pv_vtx = block.aux.pv_vtx.unwrap()
+        ut = block.aux.ut.unwrap()
         res = self.recon_scheme(
-            x_at_dual_cell=pv_dc,
-            normal_u_at_edge=un_e,
-            tangent_u_at_edge=ut_e,
+            x_at_dual_cell=pv_vtx,
+            normal_u_at_edge=un,
+            tangent_u_at_edge=ut,
         )
         return eqx.tree_at(
             lambda b: b.aux.pv_e.data,
@@ -407,17 +407,17 @@ class PotentialVorticityAtDualCell(Term):
         super().__init__(disc, coord, para, method)
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        abs_vor_dc = block.aux.abs_vor_dc.data
-        z_dc = block.aux.z_dc.data
-        res = abs_vor_dc / z_dc
+        abs_vor = block.aux.abs_vor.data
+        z_vtx = block.aux.z_vtx.data
+        res = abs_vor / z_vtx
         return eqx.tree_at(
-            lambda b: b.aux.pv_dc.data,
+            lambda b: b.aux.pv_vtx.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.pv_dc
+        return block.aux.pv_vtx
 
     def build_default(self) -> Self:
         self._built = True
@@ -470,16 +470,16 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
         )
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        res = self.interp_weighted_add_edp2plg(un_e ** 2)
+        un = block.state.un.unwrap()
+        res = self.interp_weighted_add_edp2plg(un ** 2)
         return eqx.tree_at(
-            lambda b: b.aux.ke_pc.data,
+            lambda b: b.aux.ke.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.ke_pc
+        return block.aux.ke
 
     def build_default(self) -> Self:
         self._built = True
@@ -508,20 +508,20 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
         self.gamma: FloatType = 0.9
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        un_e = block.state.un_e.unwrap()
-        ke_edge = un_e ** 2
-        ke_dc = self.interp_weighted_add_edd2dua(ke_edge)
-        ke_pc = self.ringler_2010(block).aux.ke_pc.unwrap()
-        ke_dc_pc = self.interp_weighted_add_dua2plg(ke_dc)
-        res = 1 * self.gamma * ke_pc + (1 - self.gamma) * ke_dc_pc
+        un = block.state.un.unwrap()
+        ke_edge = un ** 2
+        ke_vtx = self.interp_weighted_add_edd2dua(ke_edge)
+        ke_cell = self.ringler_2010(block).aux.ke.unwrap()
+        ke_vtx_cell = self.interp_weighted_add_dua2plg(ke_vtx)
+        res = 1 * self.gamma * ke_cell + (1 - self.gamma) * ke_vtx_cell
         return eqx.tree_at(
-            lambda b: b.aux.ke_pc.data,
+            lambda b: b.aux.ke.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.ke_pc
+        return block.aux.ke
 
     def build_default(self) -> Self:
         self._built = True
@@ -543,7 +543,7 @@ class KineticEnergyAtPrimalCell(Term):
         return self.scheme(block)
 
     def unwrap(self, block: Block) -> Field:
-        return block.aux.ke_pc
+        return block.aux.ke
 
     def gassmann_2013(
         self,

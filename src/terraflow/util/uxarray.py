@@ -1423,20 +1423,36 @@ def format_terraflow2ugrid(
         units = meta["units"]
     else:
         raise TypeError(f"Variable has unsupported type.")
+
+    # Convert mesh_name and location
     mesh_name = meta["mesh_name"]
     if mesh_name not in ["primal", "dual"]:
         raise ValueError(
             f"mesh_name must be 'primal' or 'dual', got {mesh_name}."
         )
+    location = meta["hori_location"]
+    if location not in ["cell", "edge", "vtx"]:
+        raise ValueError(
+            f"hori_location must be 'cell', 'edge' or 'vtx', got {location}."
+        )
+    if location == "cell":
+        location = "face"
+    elif location == "vtx":
+        location = "node"
+    else:
+        location = location
+
+    # Rename mesh and location if use_dual is True
     if use_dual:
         mesh_name = "dual" if mesh_name == "primal" else "primal"
-    location = meta["hori_location"]
-    if location not in ["cell", "edge", "node"]:
-        raise ValueError(
-            f"hori_location must be 'cell', 'edge' or 'node', got {location}."
-        )
-    location = "face" if location == "cell" and mesh_name == "primal" else location
-    location = "node" if location == "cell" and mesh_name == "dual" else location
+        if location == "face":
+            location = "node"
+        elif location == "node":
+            location = "face"
+        else:
+            location = location
+
+    # Determine dims and coordinates
     if len(meta["dims"]) == 1:
         dims = (f"n_{location}",)
         if len(var.shape) == 2:
@@ -1457,6 +1473,7 @@ def format_terraflow2ugrid(
             f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
         )
     coordinates = f"{location}_lon {location}_lat"
+
     return xr.DataArray(
         data=np.asarray(var),
         dims=dims,

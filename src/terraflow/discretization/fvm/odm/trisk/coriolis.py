@@ -58,11 +58,11 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
-        mfx_e = block.aux.mfx_e.unwrap()
+        mfn_e = block.aux.mfn_e.unwrap()
         pv_e = block.aux.pv_e.unwrap()
 
         def _wrap(
-            mfx_e: Float[Array, "nEdge"],
+            mfn_e: Float[Array, "nEdge"],
             pv_e: Float[Array, "nEdge"],
         ) -> Float[Array, "nEdge"]:
             pv_iee = pv_e
@@ -73,13 +73,13 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
             )  # (nedge, max_numb*2)
             pv_eep = (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
 
-            mfx_tile = mfx_e[ep_idx]  # (nedg, maxnnb*2)
+            mfx_tile = mfn_e[ep_idx]  # (nedg, maxnnb*2)
             mfx_tile = jnp.where(ep_idx < 0, 0.0, mfx_tile)
             mfx_tile = mfx_tile * pv_eep
             return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
 
         res = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
-            mfx_e, pv_e
+            mfn_e, pv_e
         )
         return eqx.tree_at(
             lambda b: b.tend.dundt_coriolis.data,
@@ -96,18 +96,18 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
         ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = self.edp_trsk_on_edge
         lenp = self.edp_edpl_on_edge
-        un_e = block.state.un_e.unwrap()
+        un = block.state.un.unwrap()
 
         def _wrap(
-            un_e: Float[Array, "nEdge"],
+            un: Float[Array, "nEdge"],
         ) -> Float[Array, "nEdge"]:
-            wind_tile = un_e[ep_idx]  # (nedg, maxnnb*2)
+            wind_tile = un[ep_idx]  # (nedg, maxnnb*2)
             wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
             return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
 
-        res = jax.vmap(_wrap, in_axes=0, out_axes=0)(un_e)
+        res = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
         return eqx.tree_at(
-            lambda b: b.aux.ut_e.data,
+            lambda b: b.aux.ut.data,
             block,
             replace=res
         )

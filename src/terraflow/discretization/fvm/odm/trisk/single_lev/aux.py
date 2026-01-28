@@ -29,43 +29,43 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
         method: FiniteVolumeMethod
     ):
         super().__init__(disc, coord, para, method)
-        self.ut_e = coriolis.CoriolisForceAtDualEdge(
+        self.ut = coriolis.CoriolisForceAtDualEdge(
             coord, para
         )
-        self.rel_vor_dc = base.RelativeVorticityAtDualCell(
+        self.rel_vor = base.RelativeVorticityAtDualCell(
             disc, coord, para, method
         )
-        self.abs_vor_dc = base.AbsoluteVorticityAtDualCell(
+        self.abs_vor = base.AbsoluteVorticityAtDualCell(
             disc, coord, para, method
         )
         self.z_e = base.GeopotentialHeightAtPrimalEdge(
             disc, coord, para, method
         )
-        self.mfx_e = base.MassFluxAtPrimalEdge(
+        self.mfn_e = base.MassFluxAtPrimalEdge(
             disc, coord, para, method
         )
-        self.z_dc = base.GeopotentialHeightAtDualCell(
+        self.z_vtx = base.GeopotentialHeightAtDualCell(
             disc, coord, para, method
         )
-        self.pv_dc = base.PotentialVorticityAtDualCell(
+        self.pv_vtx = base.PotentialVorticityAtDualCell(
             disc, coord, para, method
         )
         self.pv_e = base.PotentialVorticityAtDualEdge(
             disc, coord, para, method
         )
-        self.ke_pc = base.KineticEnergyAtPrimalCell(
+        self.ke = base.KineticEnergyAtPrimalCell(
             disc, coord, para, method
         )
 
     def build_default(self) -> "AuxiliaryTerms":
-        self.rel_vor_dc.build_default()
-        self.abs_vor_dc.build_default()
+        self.rel_vor.build_default()
+        self.abs_vor.build_default()
         self.z_e.build_default()
-        self.mfx_e.build_default()
-        self.z_dc.build_default()
-        self.pv_dc.build_default()
+        self.mfn_e.build_default()
+        self.z_vtx.build_default()
+        self.pv_vtx.build_default()
         self.pv_e.build_default()
-        self.ke_pc.build_default()
+        self.ke.build_default()
         return self
 
     def __call__(
@@ -79,14 +79,14 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
             return block
 
         def backward_call(block: Block) -> Block:
-            block = self.ut_e.recon_tangent_velocity(block)
-            block = self.rel_vor_dc(block)
-            block = self.abs_vor_dc(block)
-            block = self.mfx_e(block)
-            block = self.z_dc(block)
-            block = self.pv_dc(block)
+            block = self.ut.recon_tangent_velocity(block)
+            block = self.rel_vor(block)
+            block = self.abs_vor(block)
+            block = self.mfn_e(block)
+            block = self.z_vtx(block)
+            block = self.pv_vtx(block)
             block = self.pv_e(block)
-            block = self.ke_pc(block)
+            block = self.ke(block)
             return block
 
         if pass_tag == "all_pass":

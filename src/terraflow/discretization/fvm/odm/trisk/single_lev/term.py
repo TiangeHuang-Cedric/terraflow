@@ -55,17 +55,17 @@ class DivergenceOfMassFluxAtPrimalCell(DivergenceOfMassFluxProtocol, Term):
         )
 
     def __call__(self, block: Block) -> Block:
-        un_e = block.state.un_e.unwrap()
+        un = block.state.un.unwrap()
         z_e = block.aux.z_e.unwrap()
-        res = - self.div_at_primal_cell(z_e * un_e)
+        res = - self.div_at_primal_cell(z_e * un)
         return eqx.tree_at(
-            lambda b: b.tend.dzdt_mfx.data,
+            lambda b: b.tend.dzdt_mfn_e.data,
             block,
             replace=res
         )
 
     def unwrap(self, block: Block) -> Field:
-        return block.tend.dzdt_mfx
+        return block.tend.dzdt_mfn_e
 
     def build_default(self) -> "DivergenceOfMassFluxAtPrimalCell":
         if not self.has_built():
@@ -118,10 +118,10 @@ class PressureGradientForceAtDualEdge(PressureGradientForceTermProtocol, Term):
         )
 
     def __call__(self, block: Block) -> Block:
-        z_pc = block.state.z_pc.unwrap()
-        zs_pc = block.static.zs_pc.unwrap()
+        z = block.state.z.unwrap()
+        zs = block.static.zs.unwrap()
         gravity = self.para.gravity.unwrap()
-        gz = gravity * (z_pc + zs_pc)
+        gz = gravity * (z + zs)
         res = - self.grad_at_dual_edge(gz)
         return eqx.tree_at(
             lambda b: b.tend.dundt_pgf.data,
@@ -158,8 +158,8 @@ class GradientOfKineticEnergyAtDualEdge(GradientOfKineticEnergyProtocol, Term):
         )
 
     def __call__(self, block: Block) -> Block:
-        ke_pc = self.ke_at_primal_cell(block).aux.ke_pc.unwrap()
-        res = - self.grad_at_dual_edge(ke_pc)
+        ke = self.ke_at_primal_cell(block).aux.ke.unwrap()
+        res = - self.grad_at_dual_edge(ke)
         return eqx.tree_at(
             lambda b: b.tend.dundt_grad_ke.data,
             block,

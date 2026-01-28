@@ -62,15 +62,15 @@ block = block_cls.from_testcase(coord, para, case=testcase)
 # ## Plot using easygems
 
 # %%
-z_pc = xr.DataArray(np.array(block.state.z_pc.unwrap()).squeeze())
+z = xr.DataArray(np.array(block.state.z.unwrap()).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
-remap_z_pc = tf.util.easygems.terraflow2healpix(
-    z_pc, from_lon, from_lat, 10
+remap_z = tf.util.easygems.terraflow2healpix(
+    z, from_lon, from_lat, 10
 )
 
-img = tf.util.easygems.plot_healpix_grid(remap_z_pc)
+img = tf.util.easygems.plot_healpix_grid(remap_z)
 
 display(img)
 
@@ -109,13 +109,13 @@ ugrid_ds.uxgrid.plot(
 # #### Plot in 2d figure
 
 # %%
-ugrid_ds.uxds.z_pc.plot(height=500, width=1000)
+ugrid_ds.uxds.z.plot(height=500, width=1000)
 
 # %% [markdown]
 # #### Plot in 2d geomap
 
 # %%
-ugrid_ds.uxds["z_pc"].plot(
+ugrid_ds.uxds["z"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -136,7 +136,7 @@ fig, ax = plt.subplots(
 
 ax.set_global()
 
-raster = ugrid_ds.uxds["z_pc"].to_raster(ax=ax, pixel_ratio=0.5,)
+raster = ugrid_ds.uxds["z"].to_raster(ax=ax, pixel_ratio=0.5,)
 img = ax.imshow(
     raster, cmap="plasma", origin="lower", extent=ax.get_xlim() + ax.get_ylim()
 )
@@ -189,7 +189,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z_pc"]
+data = dst["z"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -219,7 +219,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z_pc"]
+data = dst["z"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -233,7 +233,7 @@ contour = ax.contourf(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z_pc on Lat-Lon Grid")
+ax.set_title("Remapped z on Lat-Lon Grid")
 cbar = plt.colorbar(contour, ax=ax, orientation="vertical", pad=0.04)
 cbar.set_label("Layer Geopotential Height (m)")
 plt.tight_layout()
@@ -249,7 +249,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z_pc"]
+data = dst["z"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -263,7 +263,7 @@ contour = ax.contourf(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z_pc on Lat-Lon Grid")
+ax.set_title("Remapped z on Lat-Lon Grid")
 cbar = plt.colorbar(contour, ax=ax, orientation="vertical", pad=0.04)
 cbar.set_label("Layer Geopotential Height (m)")
 plt.tight_layout()
@@ -299,7 +299,7 @@ contour = ax.contour(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z_pc on Lat-Lon Grid")
+ax.set_title("Remapped z on Lat-Lon Grid")
 cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
 cbar.set_label("Layer Geopotential Height at primal cell (m)")
 plt.tight_layout()
@@ -310,12 +310,12 @@ display(fig)
 # ##### Plot UV Wind Vectors on Lat-Lon Grid
 
 # %%
-un_e = block.state.un_e.unwrap()
+un = block.state.un.unwrap()
 
-uv = coord.mesh.reconstruct_vector(un_e)
+uv = coord.mesh.reconstruct_vector(un)
 
-u_pc = uv["u"]
-v_pc = uv["v"]
+u = uv["u"]
+v = uv["v"]
 
 ugrid_builder = UGRIDGrid.from_orthogonal_dual_mesh(
     mesh,
@@ -325,8 +325,8 @@ ugrid_builder = UGRIDGrid.from_orthogonal_dual_mesh(
 
 uxgrid = ugrid_builder.to_uxgrid()
 
-u_pc = xr.DataArray(
-    data=u_pc.squeeze(),
+u = xr.DataArray(
+    data=u.squeeze(),
     dims=("n_face",),
     attrs={
         "long_name": "u component wind",
@@ -337,8 +337,8 @@ u_pc = xr.DataArray(
     },
 )
 
-v_pc = xr.DataArray(
-    data=v_pc.squeeze(),
+v = xr.DataArray(
+    data=v.squeeze(),
     dims=("n_face",),
     attrs={
         "long_name": "v component wind",
@@ -351,8 +351,8 @@ v_pc = xr.DataArray(
 
 variables = xr.Dataset(
     data_vars={
-        "u_pc": u_pc,
-        "v_pc": v_pc
+        "u": u,
+        "v": v
     }
 )
 
@@ -378,8 +378,8 @@ dst, dst_reshaped = uv_ugrid_ds.to_structured_grid(
 
 lon = dst_reshaped["face_lon"]
 lat = dst_reshaped["face_lat"]
-u = dst_reshaped["u_pc"]
-v = dst_reshaped["v_pc"]
+u = dst_reshaped["u"]
+v = dst_reshaped["v"]
 speed = np.sqrt(u**2 + v**2)
 
 
@@ -456,7 +456,7 @@ dst = ugrid_ds.to_structured_grid(
 )
 
 
-dst["z_pc"].plot(
+dst["z"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -475,7 +475,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["z_pc"].plot(
+dst["z"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -494,7 +494,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["z_pc"].plot(
+dst["z"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

@@ -115,12 +115,12 @@ trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
 )
 
 # %%
-diag_vars = diag_tools.compute(final.state, final.static, to_ugrid=True)
+diag_vars = diag_tools.compute(final.state, final.static, to_ugrid=True, use_dual=True)
 
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["z_pc"].to_structured_grid(
+_, da = diag_vars["z"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -168,7 +168,7 @@ plt.tight_layout()
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["u_pc"].to_structured_grid(
+_, da = diag_vars["u"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -242,7 +242,7 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
 plt.rcParams["animation.embed_limit"] = 200
 
 # Get number of time steps
-n_frames = trajectory_vars["z_pc"].data.shape[0]
+n_frames = trajectory_vars["z"].data.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.PlateCarree())
@@ -250,7 +250,7 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-_, da = trajectory_vars["z_pc"].to_structured_grid(
+_, da = trajectory_vars["z"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -282,13 +282,13 @@ cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
 # Initial wind (quiver, updatable)
-_, u_da = trajectory_vars["u_pc"].to_structured_grid(
+_, u_da = trajectory_vars["u"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
     with_reshaped_da=True,
 )
-_, v_da = trajectory_vars["v_pc"].to_structured_grid(
+_, v_da = trajectory_vars["v"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
@@ -335,13 +335,13 @@ HTML(anim.to_jshtml())
 
 # %%
 # # %matplotlib inline
-_, u_da = diag_vars["u_pc"].to_structured_grid(
+_, u_da = diag_vars["u"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
     with_reshaped_da=True,
 )
-_, v_da = diag_vars["v_pc"].to_structured_grid(
+_, v_da = diag_vars["v"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",

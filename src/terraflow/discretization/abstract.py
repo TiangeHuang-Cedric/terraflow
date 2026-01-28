@@ -1002,7 +1002,8 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     def process_field(
         self,
         field: Field,
-        to_ugrid: Literal[False] = False
+        to_ugrid: Literal[False] = False,
+        **kwargs
     ) -> Field:
         ...
 
@@ -1010,14 +1011,16 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     def process_field(
         self,
         field: Field,
-        to_ugrid: Literal[True]
+        to_ugrid: Literal[True],
+        **kwargs
     ) -> tuxr.UGRIDDataArray:
         ...
 
     def process_field(
         self,
         field: Field,
-        to_ugrid: bool = False
+        to_ugrid: bool = False,
+        **kwargs
     ) -> Field | tuxr.UGRIDDataArray:
         """
         Process Field based on trajectory setting.
@@ -1038,15 +1041,15 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
                 as_quantity=field.is_quantity()
             )
             if to_ugrid:
-                ds = res.to_xarray_with_ugrid_format()
-                uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+                ds = res.to_xarray_with_ugrid_format(**kwargs)
+                uxgrid = self.coord.mesh.to_ugrid(**kwargs).to_uxgrid()
                 return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
             else:
                 return res
         else:
             if to_ugrid:
-                ds = field.to_xarray_with_ugrid_format()
-                uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+                ds = field.to_xarray_with_ugrid_format(**kwargs)
+                uxgrid = self.coord.mesh.to_ugrid(**kwargs).to_uxgrid()
                 return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
             else:
                 return field

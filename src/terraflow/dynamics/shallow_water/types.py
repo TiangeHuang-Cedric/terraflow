@@ -146,11 +146,11 @@ class ExContinuityEqu(
 
     def __call__(self, block: BLOCK) -> BLOCK:
         block = self.div_mfx(block)
-        dzdt_mfx = block.tend.dzdt_mfx.unwrap()
+        dzdt_mfn_e = block.tend.dzdt_mfn_e.unwrap()
         return eqx.tree_at(
             lambda b: b.tend.dzdt.data,
             block,
-            dzdt_mfx
+            dzdt_mfn_e
         )
 
     @staticmethod
