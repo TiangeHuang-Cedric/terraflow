@@ -1,5 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
+import equinox as eqx
+
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
 
@@ -7,7 +9,7 @@ from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
 VMST = TypeVar("VMST", bound=AbstractVertHistorySetup)
 
 
-class AbstractVertCoordinate(ABC, Generic[VMST]):
+class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
     """
     AbstractVertCoordinate is the base class for vertical coordinate systems.
     """

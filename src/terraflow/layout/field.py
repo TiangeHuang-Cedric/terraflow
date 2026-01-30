@@ -45,6 +45,8 @@ class AbstractFieldMetaData(eqx.Module, ABC):
     vert_location: str = eqx.field(static=True, default="")
     basis: str = eqx.field(static=True, default="")
     coordinates: str = eqx.field(static=True, default="")
+    is_prognostic: bool = eqx.field(static=True, default=False)
+    output: str = eqx.field(static=True, default="")
 
     @abstractmethod
     def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
@@ -80,6 +82,8 @@ class AbstractFieldMetaData(eqx.Module, ABC):
             "vert_location": self.vert_location,
             "basis": self.basis,
             "coordinates": self.coordinates,
+            "is_prognostic": self.is_prognostic,
+            "output": self.output,
         }
 
 
@@ -107,6 +111,8 @@ class FieldMetaData(AbstractFieldMetaData):
             vert_location=self.vert_location,
             basis=self.basis,
             coordinates=self.coordinates,
+            is_prognostic=self.is_prognostic,
+            output=self.output,
         )
 
     @classmethod
@@ -122,6 +128,8 @@ class FieldMetaData(AbstractFieldMetaData):
             vert_location=kwargs.get("vert_location", ""),
             basis=kwargs.get("basis", ""),
             coordinates=kwargs.get("coordinates", ""),
+            is_prognostic=kwargs.get("is_prognostic", False),
+            output=kwargs.get("output", ""),
         )
 
     @classmethod
@@ -137,6 +145,8 @@ class FieldMetaData(AbstractFieldMetaData):
             vert_location=meta.get("vert_location", ""),
             basis=meta.get("basis", ""),
             coordinates=meta.get("coordinates", ""),
+            is_prognostic=meta.get("is_prognostic", False),
+            output=meta.get("output", ""),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -168,6 +178,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             coordinates=self.coordinates,
             staggered_kind=self.staggered_kind,
             mesh_name=self.mesh_name,
+            is_prognostic=self.is_prognostic,
+            output=self.output,
         )
 
     @classmethod
@@ -185,6 +197,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             coordinates=kwargs.get("coordinates", ""),
             staggered_kind=kwargs.get("staggered_kind", ""),
             mesh_name=kwargs.get("mesh_name", ""),
+            is_prognostic=kwargs.get("is_prognostic", False),
+            output=kwargs.get("output", ""),
         )
 
     @classmethod
@@ -202,6 +216,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             coordinates=meta.get("coordinates", ""),
             staggered_kind=meta.get("staggered_kind", ""),
             mesh_name=meta.get("mesh_name", ""),
+            is_prognostic=meta.get("is_prognostic", False),
+            output=meta.get("output", ""),
         )
 
     def to_dict(self) -> Dict[str, Any]:

@@ -1,6 +1,7 @@
-from typing import TypeVar, Self, Optional
+from typing import TypeVar, Type, Self, Generic
 from abc import ABC, abstractmethod
 import sys
+from pathlib import Path
 from loguru import logger
 import netCDF4 as nc4
 import numpy as np
@@ -14,10 +15,8 @@ from terraflow import vert_coord
 from terraflow import layout
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.discretization.abstract import (
-    DiagnosticVariableSet,
     AbstractFields,
     AbstractBlock,
-    AbstractDiagnosticTools
 )
 
 logger.remove()
@@ -51,41 +50,90 @@ UM = TypeVar("UM", bound=mesh.AbstractUnstructuredMesh)
 HM = TypeVar("HM", bound=mesh.AbstractMesh)
 VM = TypeVar("VM", bound=vert_coord.AbstractVertCoordinate)
 LO = TypeVar("LO", bound=layout.AbstractLayout)
+HY = TypeVar("HY", bound='AbstractHistory')
+SHY = TypeVar("SHY", bound='AbstractHistory')
 
 
-class AbstractHistory(ABC):
-    file_path: str
+HISTORY_LIST = ["h0", "h1", "h2"]
+
+
+class AbstractHistoryset(ABC, Generic[HY, SHY]):
+    h0: HY
+    h1: HY
+    h2: SHY
+    output_h0: bool
+    output_h1: bool
+    output_h2: bool
     time_manager: DateTimeManager
+    case_name: str
     _built: bool
-    diag_tool: Optional[AbstractDiagnosticTools]
 
     @abstractmethod
     def __init__(
         self,
         time_manager: DateTimeManager,
-        file_path: str = "terraflow.nc",
-        diag_tool: Optional[AbstractDiagnosticTools] = None,
+        case_name: str = "terraflow",
+        file_path: str = "",
+        output_h0: bool = True,
+        output_h1: bool = False,
+        output_h2: bool = False,
+        **kwargs
     ) -> None:
-        ds = nc4.Dataset(file_path, mode="w", format="NETCDF4")
-        ds.sync()
-        ds.close()
-        self.file_path = file_path
-        self.time_manager = time_manager
         self._built = False
-        self.diag_tool = diag_tool
+        self.time_manager = time_manager
+        self.case_name = case_name
+        self.output_h0 = output_h0
+        self.output_h1 = output_h1
+        self.output_h2 = output_h2
+        if self.output_h0:
+            self.h0 = self.history_type()(
+                time_manager=time_manager,
+                history_name="h0",
+                case_name=case_name,
+                file_path=file_path,
+                **kwargs
+            )
+            logger.info(f"History will output h0: {self.h0.file_path}")
+        if self.output_h1:
+            self.h1 = self.history_type()(
+                time_manager=time_manager,
+                history_name="h1",
+                case_name=case_name,
+                file_path=file_path,
+                **kwargs
+            )
+            logger.info(f"History will output h1: {self.h1.file_path}")
+        if self.output_h2:
+            self.h2 = self.structured_history_type()(
+                time_manager=time_manager,
+                history_name="h2",
+                case_name=case_name,
+                file_path=file_path,
+                **kwargs
+            )
+            logger.info(f"History will output h2: {self.h2.file_path}")
 
+    def setup(self, block: AbstractBlock) -> Self:
+        if self.has_built():
+            return self
+        self.setup_h0(block)
+        self.setup_h1(block)
+        self.setup_h2(block)
+        self._built = True
+        return self
+
+    @staticmethod
     @abstractmethod
-    def setup(self, *args, **kwargs) -> Self:
+    def history_type() -> Type[HY]:
         raise NotImplementedError
 
-    def has_diag_output(self) -> bool:
-        return self.diag_tool is not None
+    @staticmethod
+    @abstractmethod
+    def structured_history_type() -> Type[SHY]:
+        raise NotImplementedError
 
     def has_built(self) -> bool:
         return self._built
-
-    def open_dataset(self) -> nc4.Dataset:
-        return nc4.Dataset(self.file_path, mode="r")
 
     def output_prepare(self, save_idx: int) -> None:
         jax.experimental.io_callback(
@@ -112,20 +160,12 @@ class AbstractHistory(ABC):
         Returns:
             None
         """
-        if self.diag_tool is not None:
-            diag = self.diag_tool.to_diag(
-                state=old_block.state,
-                tend=new_block.tend,
-                aux=new_block.aux
-            )
-        else:
-            diag = None
         jax.experimental.io_callback(
             self.advance_forward_in_time,
             None,
             save_idx,
-            old_block.state,
-            diag,
+            old_block,
+            new_block,
             ordered=True
         )
 
@@ -133,53 +173,201 @@ class AbstractHistory(ABC):
         logger.info(f"==> {self.time_manager.curr_time(save_interval_idx)}")
         return None
 
-    def log_done_write(self) -> None:
-        logger.success("Done write history file")
+    def log_done_write(self, history: str = "history") -> None:
+        logger.success(f"Done write {history} file.")
         return None
 
     def advance_forward_in_time(
         self,
         save_interval_idx: int,
-        fields: AbstractFields,
-        diag: Optional[DiagnosticVariableSet] = None
+        old_block: AbstractBlock,
+        new_block: AbstractBlock
     ) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        time_var = ds.variables["time"]
-        current_length = len(time_var)
-        interval = save_interval_idx * self.time_manager.save_interval_value
-        time_var[current_length] = interval
-        ds.close()
-        self.write_fields(fields)
-        if diag is not None:
-            self.write_fields(diag)
-        self.log_done_write()
+        def _set_time_var(h: HY | SHY):
+            ds = nc4.Dataset(h.file_path, mode="a")
+            time_var = ds.variables["time"]
+            current_length = len(time_var)
+            interval = save_interval_idx * h.time_manager.save_interval_value
+            time_var[current_length] = interval
+            ds.close()
+        if self.output_h0:
+            _set_time_var(self.h0)
+            self.write_h0(old_block)
+            self.log_done_write("h0")
+        if self.output_h1:
+            _set_time_var(self.h1)
+            self.write_h1(new_block)
+            self.log_done_write("h1")
+        if self.output_h2:
+            _set_time_var(self.h2)
+            self.write_h2(old_block, new_block)
+            self.log_done_write("h2")
         return None
 
-    def write_fields(
+    def setup_h0(self, block: AbstractBlock) -> None:
+        if self.output_h0:
+            self.h0.setup([block.state])
+
+    def setup_h1(self, block: AbstractBlock) -> None:
+        if self.output_h1:
+            self.h1.setup([block.tend, block.aux])
+
+    def setup_h2(self, block: AbstractBlock) -> None:
+        if self.output_h2:
+            h2_list = []
+            if self.output_h0:
+                h2_list = h2_list + [block.state]
+            if self.output_h1:
+                h2_list = h2_list + [block.tend, block.aux]
+            if h2_list:
+                self.h2.setup(h2_list)
+            else:
+                raise ValueError(
+                    "output_h0 and output_h1 are both False, cannot setup h2."
+                )
+
+    def write_h0(self, old_block: AbstractBlock):
+        self.h0.write_fields(old_block.state)
+
+    def write_h1(self, new_block: AbstractBlock):
+        self.h1.write_fields(new_block.tend)
+        self.h1.write_fields(new_block.aux)
+
+    def write_h2(self, old_block: AbstractBlock, new_block: AbstractBlock):
+        if self.output_h0:
+            self.h2.write_fields(old_block.state)
+        if self.output_h1:
+            self.h2.write_fields(new_block.tend)
+            self.h2.write_fields(new_block.aux)
+
+
+class UGRIDHistoryset(
+    AbstractHistoryset["UGRIDHistory", "Unstructured2StructuredHistory"]
+):
+
+    def __init__(
         self,
-        fields: AbstractFields | DiagnosticVariableSet
+        coord: CoordinateSystem[HM, VM, LO],
+        time_manager: DateTimeManager,
+        case_name: str = "terraflow",
+        file_path: str = "",
+        output_h0: bool = True,
+        output_h1: bool = False,
+        output_h2: bool = False,
+        use_dual: bool = False,
+        **kwargs
     ) -> None:
+        super().__init__(
+            coord=coord,
+            time_manager=time_manager,
+            case_name=case_name,
+            file_path=file_path,
+            output_h0=output_h0,
+            output_h1=output_h1,
+            output_h2=output_h2,
+            use_dual=use_dual,
+            **kwargs
+        )
+
+    @staticmethod
+    def history_type() -> Type["UGRIDHistory"]:
+        return UGRIDHistory
+
+    @staticmethod
+    def structured_history_type() -> Type["Unstructured2StructuredHistory"]:
+        return Unstructured2StructuredHistory
+
+
+class UnstructuredHistoryset(
+    AbstractHistoryset["UnstructuredHistory", "Unstructured2StructuredHistory"]
+):
+
+    def __init__(
+        self,
+        coord: CoordinateSystem[UM, VM, LO],
+        time_manager: DateTimeManager,
+        case_name: str = "terraflow",
+        file_path: str = "",
+        output_h0: bool = True,
+        output_h1: bool = False,
+        output_h2: bool = False,
+        **kwargs
+    ) -> None:
+        super().__init__(
+            coord=coord,
+            time_manager=time_manager,
+            case_name=case_name,
+            file_path=file_path,
+            output_h0=output_h0,
+            output_h1=output_h1,
+            output_h2=output_h2,
+            **kwargs
+        )
+
+    @staticmethod
+    def history_type() -> Type["UnstructuredHistory"]:
+        return UnstructuredHistory
+
+    @staticmethod
+    def structured_history_type() -> Type["Unstructured2StructuredHistory"]:
+        return Unstructured2StructuredHistory
+
+
+class AbstractHistory(ABC):
+    file_path: str
+    time_manager: DateTimeManager
+    _built: bool
+
+    @abstractmethod
+    def __init__(
+        self,
+        time_manager: DateTimeManager,
+        history_name: str,
+        case_name: str,
+        file_path: str,
+    ) -> None:
+        self.time_manager = time_manager
+        self._built = False
+        self.history_name = history_name
+        self.case_name = case_name
+        self.file_path = str(
+            Path(file_path) /
+            f"{case_name}.{history_name}.nc"
+        )
+        ds = nc4.Dataset(self.file_path, mode="w", format="NETCDF4")
+        ds.sync()
+        ds.close()
+
+    @abstractmethod
+    def setup(self, *args, **kwargs) -> Self:
+        raise NotImplementedError
+
+    def has_built(self) -> bool:
+        return self._built
+
+    def open_dataset(self) -> nc4.Dataset:
+        return nc4.Dataset(self.file_path, mode="r")
+
+    def write_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         for field_name in fields.keys():
-            data = getattr(fields, field_name).unwrap()
-            data = np.asarray(data)
+            field = getattr(fields, field_name)
+            if field.meta.output != self.history_name or field.meta.output == "":
+                continue
+            data = np.asarray(field.unwrap())
             ds.variables[field_name][idx, ...] = data
         ds.close()
         return None
 
     @abstractmethod
-    def add_fields(
-        self,
-        fields: AbstractFields | DiagnosticVariableSet
-    ) -> None:
+    def add_fields(self, fields: AbstractFields) -> None:
         raise NotImplementedError
 
 
 class UGRIDHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
-    diag_tool: Optional[AbstractDiagnosticTools]
     use_dual: bool
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
@@ -191,26 +379,31 @@ class UGRIDHistory(AbstractHistory):
         self,
         coord: CoordinateSystem[HM, VM, LO],
         time_manager: DateTimeManager,
-        file_path: str = "terraflow.nc",
-        diag_tool: Optional[AbstractDiagnosticTools] = None,
+        history_name: str,
+        case_name: str,
+        file_path: str,
         use_dual: bool = False,
     ) -> None:
         super().__init__(
+            history_name=history_name,
             time_manager=time_manager,
+            case_name=case_name,
             file_path=file_path,
-            diag_tool=diag_tool
         )
         self.use_dual = use_dual
-        self.attr = st.base.GlobalAttributesSetup(file_path)
+        self.attr = st.base.GlobalAttributesSetup(self.file_path)
         self.time = st.base.TimeSetup(
-            file_path=file_path,
+            file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
         )
-        self.mesh = coord.mesh.history_builder(file_path, output_type="ugrid")
-        self.vert = coord.vert.history_builder(file_path)
+        self.mesh = coord.mesh.history_builder(
+            self.file_path,
+            output_type="ugrid"
+        )
+        self.vert = coord.vert.history_builder(self.file_path)
 
-    def setup(self, block: AbstractBlock) -> Self:
+    def setup(self, fields_list: list[AbstractFields]) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -223,20 +416,16 @@ class UGRIDHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_fields(block.state)
-            if self.diag_tool is not None:
-                diag = self.diag_tool.to_diag(
-                    state=block.state,
-                    tend=block.tend,
-                    aux=block.aux
-                )
-                self.add_fields(diag)
+            for fields in fields_list:
+                self.add_fields(fields)
             self._built = True
         return self
 
-    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         for field_name, field in fields.items():
+            if field.meta.output != self.history_name or field.meta.output == "":
+                continue
             dsxr = tuxr.format_terraflow2ugrid(
                 field.data, field.meta.to_dict(), use_dual=self.use_dual
             )
@@ -256,7 +445,6 @@ class UGRIDHistory(AbstractHistory):
 class UnstructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
-    diag: Optional[AbstractDiagnosticTools]
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
     mesh: st.mesh.AbstractMeshHistorySetup
@@ -267,26 +455,29 @@ class UnstructuredHistory(AbstractHistory):
         self,
         coord: CoordinateSystem[UM, VM, LO],
         time_manager: DateTimeManager,
-        file_path: str = "terraflow.nc",
-        diag_tool: Optional[AbstractDiagnosticTools] = None,
+        history_name: str,
+        case_name: str,
+        file_path: str,
     ) -> None:
         super().__init__(
+            history_name=history_name,
             time_manager=time_manager,
+            case_name=case_name,
             file_path=file_path,
-            diag_tool=diag_tool
         )
-        self.attr = st.base.GlobalAttributesSetup(file_path)
+        self.attr = st.base.GlobalAttributesSetup(self.file_path)
         self.time = st.base.TimeSetup(
-            file_path=file_path,
+            file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
         )
         self.mesh = coord.mesh.history_builder(
-            file_path, output_type="unstructured"
+            self.file_path,
+            output_type="unstructured"
         )
-        self.vert = coord.vert.history_builder(file_path)
+        self.vert = coord.vert.history_builder(self.file_path)
 
-    def setup(self, block: AbstractBlock) -> Self:
+    def setup(self, fields_list: list[AbstractFields]) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -299,20 +490,16 @@ class UnstructuredHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_fields(block.state)
-            if self.diag_tool is not None:
-                diag = self.diag_tool.to_diag(
-                    state=block.state,
-                    tend=block.tend,
-                    aux=block.aux
-                )
-                self.add_fields(diag)
+            for fields in fields_list:
+                self.add_fields(fields)
             self._built = True
         return self
 
-    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         for field_name, field in fields.items():
+            if field.meta.output != self.history_name or field.meta.output == "":
+                continue
             var_dims = tuple(("time",) + field.meta.dims)
             var_dtype = "f8"
             v = ds.createVariable(field_name, var_dtype, var_dims)
@@ -329,7 +516,6 @@ class UnstructuredHistory(AbstractHistory):
 class Unstructured2StructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
-    diag_tool: Optional[AbstractDiagnosticTools]
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
     mesh: st.mesh.AbstractMeshHistorySetup
@@ -349,8 +535,9 @@ class Unstructured2StructuredHistory(AbstractHistory):
         self,
         coord: CoordinateSystem[UM, VM, LO],
         time_manager: DateTimeManager,
-        file_path: str = "terraflow.nc",
-        diag_tool: Optional[AbstractDiagnosticTools] = None,
+        history_name: str,
+        case_name: str,
+        file_path: str,
         remap_method: str = "nearest_neighbor",
         remap_to: str = "faces",
         lon_west: float = -180,
@@ -361,21 +548,22 @@ class Unstructured2StructuredHistory(AbstractHistory):
         south_north_resolution: float = 1.0,
     ) -> None:
         super().__init__(
+            history_name=history_name,
             time_manager=time_manager,
+            case_name=case_name,
             file_path=file_path,
-            diag_tool=diag_tool
         )
-        self.attr = st.base.GlobalAttributesSetup(file_path)
+        self.attr = st.base.GlobalAttributesSetup(self.file_path)
         self.time = st.base.TimeSetup(
-            file_path=file_path,
+            file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
         )
         self.mesh = coord.mesh.history_builder(
-            file_path=file_path,
+            file_path=self.file_path,
             output_type="structured"
         )
-        self.vert = coord.vert.history_builder(file_path)
+        self.vert = coord.vert.history_builder(self.file_path)
         self.coord = coord
         self.remap_method = remap_method
         self.remap_to = remap_to
@@ -386,7 +574,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         self.east_west_resolution = east_west_resolution
         self.south_north_resolution = south_north_resolution
 
-    def setup(self, block: AbstractBlock) -> Self:
+    def setup(self, fields_list: list[AbstractFields]) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -407,18 +595,12 @@ class Unstructured2StructuredHistory(AbstractHistory):
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
            self.mesh.has_built() and self.vert.has_built():
-            self.add_fields(block.state)
-            if self.diag_tool is not None:
-                diag = self.diag_tool.to_diag(
-                    state=block.state,
-                    tend=block.tend,
-                    aux=block.aux
-                )
-                self.add_fields(diag)
+            for fields in fields_list:
+                self.add_fields(fields)
             self._built = True
         return self
 
-    def write_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
+    def write_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         _, fields_remapped = fields.to_ugrid(self.coord).to_structured_grid(
@@ -433,12 +615,16 @@ class Unstructured2StructuredHistory(AbstractHistory):
             with_reshaped_ds=True
         )
         for field_name in fields_remapped.keys():
+            field = fields_remapped.variables[field_name]
+            output = field.attrs.get("output", None)
+            if output not in HISTORY_LIST or output == "":
+                continue
             data = fields_remapped.variables[field_name].data
             ds.variables[str(field_name)][idx, ...] = np.array(data)
         ds.close()
         return None
 
-    def add_fields(self, fields: AbstractFields | DiagnosticVariableSet) -> None:
+    def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         remapped_ds = fields.to_ugrid(self.coord).to_structured_grid(
             remap_method=self.remap_method,
@@ -452,6 +638,11 @@ class Unstructured2StructuredHistory(AbstractHistory):
             with_reshaped_ds=True
         )[1]
         for var_name, da in remapped_ds.data_vars.items():
+            output = da.attrs.get("output", None)
+            if output not in HISTORY_LIST or output == "":
+                print(
+                    f"Skip variable {var_name} for history {self.history_name}.")
+                continue
             var_dtype = "f8"
             v = ds.createVariable(
                 str(var_name), var_dtype, ("time", "lat", "lon"))

@@ -76,22 +76,24 @@ equation.aux.z_e.recon_scheme.central_difference()
 equation.aux.pv_e.interp.upwind(3)
 
 # %%
+block = equation.prepare(block)
+
+# %%
 time_manager = DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-21T00:00:00",
     save_interval="6 hours",
+    dt_dyn=datetime.timedelta(seconds=300.0),
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=300.0),
     time_manager=time_manager,
     dev=dev,
 )
 
 # %%
 integrate_fn = jax.jit(solver.trajectory(
-    equation=equation,
     start_with_input=True,
 ))
 
@@ -103,18 +105,30 @@ trajectory = jax.block_until_ready(trajectory)
 
 # %%
 diag_tools = tf.discretization.DiagnosticTools.from_equation(
-    equation,
+    coord=coord,
+    para=para,
+    equation=equation,
     jit=True
 )
 
 trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
-    equation,
+    coord=coord,
+    para=para,
+    equation=equation,
     trajectory=True,
     jit=True
 )
 
 # %%
-diag_vars = diag_tools.compute(final.state, final.static, to_ugrid=True, use_dual=True)
+diag_vars = diag_tools.compute(
+    coord=coord,
+    para=para,
+    state=final.state, 
+    static=final.static, 
+    equaux=block.equaux,
+    to_ugrid=True, 
+    use_dual=True
+    )
 
 # %%
 # %matplotlib inline
@@ -231,8 +245,11 @@ plt.tight_layout()
 
 # %%
 trajectory_vars = trajectory_tools.compute_along_trajectory(
-    trajectory,
+    coord=coord,
+    para=para,
+    trajectory=trajectory,
     static=final.static,
+    equaux=block.equaux,
     to_ugrid=True
 )
 

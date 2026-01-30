@@ -5,7 +5,7 @@ from typing import overload, Self, TYPE_CHECKING
 import datetime
 import jax
 
-from terraflow.util import typing, device, history
+from terraflow.util import typing, device, history as hy
 from terraflow.util.datetime import DateTimeManager
 
 if TYPE_CHECKING:
@@ -94,13 +94,13 @@ class MultiStepWithHistory:
         self,
         step: Callable,
         repeated_step: Callable,
-        history_file: history.AbstractHistory,
+        history: hy.AbstractHistoryset,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
         self.step = step
         self.repeated_step = repeated_step
-        self.history_file = history_file
+        self.history = history
         self.outer_steps = outer_steps
         self.outer_scan_fn = outer_scan_fn
 
@@ -123,10 +123,10 @@ class MultiStepWithHistory:
         block: AbstractBlock,
     ) -> AbstractBlock:
         """Returns a version of this MultiStep that outputs fields."""
-        old_block = block
-        self.history_file.output_prepare(0)
+        old_block = block.diagnose()
+        self.history.output_prepare(0)
         new_block = self.step(old_block)
-        self.history_file.output(
+        self.history.output(
             old_block=old_block,
             new_block=new_block,
             save_idx=0
@@ -181,7 +181,7 @@ def io_callback(
     *,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
-    history_file: history.AbstractHistory
+    history: hy.AbstractHistoryset
 ) -> MultiStepWithHistory:
     if inner_steps != 1:
         repeated_step_fn = repeated_with_inout(
@@ -194,9 +194,10 @@ def io_callback(
 
     def step(carry_in, _):
         block, save_idx = carry_in
-        history_file.output_prepare(save_idx)
+        history.output_prepare(save_idx)
         new_block, old_block = repeated_step_fn((block, block))
-        history_file.output(
+        old_block = old_block.diagnose()
+        history.output(
             old_block=old_block,
             new_block=new_block,
             save_idx=save_idx
@@ -206,7 +207,7 @@ def io_callback(
     return MultiStepWithHistory(
         step=step_fn,
         repeated_step=step,
-        history_file=history_file,
+        history=history,
         outer_steps=outer_steps,
         outer_scan_fn=outer_scan_fn
     )
@@ -263,23 +264,20 @@ class AbstractSolver(Generic[ODE], ABC):
     def __init__(
         self,
         equation: ODE,
-        dt: datetime.timedelta,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice
     ):
-        equation.build_default()
         self.equation = equation
         self.time_manager = time_manager
-        self.dt = dt
+        self.dt = time_manager.dt_dyn
         self.dev = dev
 
     @abstractmethod
-    def stepper(self, equation: ODE) -> Callable:
+    def stepper(self, *args, **kwargs) -> Callable:
         raise NotImplementedError
 
     def trajectory(
         self,
-        equation: ODE,
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x,
@@ -300,7 +298,7 @@ class AbstractSolver(Generic[ODE], ABC):
         outer_steps = int((end_time - start_time) / save_interval) + 1
         inner_steps = int((save_interval) / dt)
 
-        stepper = self.stepper(equation)
+        stepper = self.stepper()
 
         return trajectory_from_step(
             stepper,
@@ -314,8 +312,7 @@ class AbstractSolver(Generic[ODE], ABC):
 
     def io_callback(
         self,
-        equation: ODE,
-        history_file: history.AbstractHistory,
+        history: hy.AbstractHistoryset,
         *,
         outer_scan_fn: Callable = jax.lax.scan,
         inner_scan_fn: Callable = jax.lax.scan,
@@ -334,7 +331,7 @@ class AbstractSolver(Generic[ODE], ABC):
         outer_steps = int((end_time - start_time) / save_interval)
         inner_steps = int((save_interval) / dt)
 
-        stepper = self.stepper(equation)
+        stepper = self.stepper()
 
         return io_callback(
             stepper,
@@ -342,7 +339,7 @@ class AbstractSolver(Generic[ODE], ABC):
             inner_steps,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
-            history_file=history_file
+            history=history
         )
 
 

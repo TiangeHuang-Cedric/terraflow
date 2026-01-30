@@ -1,18 +1,26 @@
-from typing import TypeVar
+from __future__ import annotations
+from typing import Self, TypeVar, TYPE_CHECKING
 from jax import numpy as jnp
 from jax import lax, debug
 import jax
 import equinox as eqx
+from zeroth import T
 
 from terraflow.util import typing
-from terraflow.planet import PlanetParameterSet
-from terraflow.operator import FiniteVolumeMethodOperator
+from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.abstract import CoordinateSystem
-from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block as swm_Block
+from terraflow.discretization.abstract import (
+    AbstractEquationSetAuxiliaryTerms,
+    DiscretizationInfo,
+    AbstractEquationTermAuxiliaryData
+)
+
+if TYPE_CHECKING:
+    from terraflow.discretization.fvm.odm.trisk.base import Block
 
 Int = typing.Int
 Float = typing.Float
@@ -20,13 +28,6 @@ Array = typing.Array
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
 
-Block = swm_Block
-
-FVM_ODM_TriSK = FiniteVolumeMethodOperator[
-    OrthogonalDualMesh,
-    VM,
-    TriSKBasedCGridStaggeringLayout
-]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
@@ -34,30 +35,64 @@ CoordSys = CoordinateSystem[
     TriSKBasedCGridStaggeringLayout
 ]
 
+Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
 
-class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
+
+class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
+    edp_numb_on_edge: Float[Array, "n_edge"]
+    edp_edge_on_edge: Int[Array, "n_edge maxnnb*2"]
+    edp_trsk_on_edge: Float[Array, "n_edge maxnnb*2"]
+    edp_edpl_on_edge: Float[Array, "n_edge maxnnb*2"]
+
+    @classmethod
+    def empty(cls) -> "TriSKCoriolisForceAtEdgeData":
+        edp_numb_on_edge = jnp.empty(0)
+        edp_edge_on_edge = jnp.empty(0)
+        edp_trsk_on_edge = jnp.empty(0)
+        edp_edpl_on_edge = jnp.empty(0)
+        return cls(
+            _init=False,
+            edp_numb_on_edge=edp_numb_on_edge,
+            edp_edge_on_edge=edp_edge_on_edge,
+            edp_trsk_on_edge=edp_trsk_on_edge,
+            edp_edpl_on_edge=edp_edpl_on_edge
+        )
+
+    @classmethod
+    def from_coord(cls, coord: CoordSys) -> "TriSKCoriolisForceAtEdgeData":
+        collection = trisk_weighted_interpolation_operator(coord.mesh)
+        edp_numb_on_edge = collection[0]
+        edp_edge_on_edge = collection[1]
+        edp_trsk_on_edge = collection[2]
+        edp_edpl_on_edge = collection[3]
+        return cls(
+            _init=True,
+            edp_numb_on_edge=edp_numb_on_edge,
+            edp_edge_on_edge=edp_edge_on_edge,
+            edp_trsk_on_edge=edp_trsk_on_edge,
+            edp_edpl_on_edge=edp_edpl_on_edge
+        )
+
+
+class TriSKCoriolisForceAtEdge(Term):
 
     def __init__(
         self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
     ):
-        super().__init__(coord, para)
-        collection = trisk_weighted_interpolation_operator(self.mesh)
-        self.edp_numb_on_edge = collection[0]
-        self.edp_edge_on_edge = collection[1]
-        self.edp_trsk_on_edge = collection[2]
-        self.edp_edpl_on_edge = collection[3]
+        super().__init__(
+            disc=disc, method=method
+        )
 
-    def __call__(
-        self,
-        block: Block
-    ) -> Block:
+    def __call__(self, block: Block) -> Block:
         """Compute nonlinear Coriolis term at dual edges."""
-        edd_length = self.mesh.dual.edge.length  # (nedg,)
-        ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
-        weight = self.edp_trsk_on_edge
-        lenp = self.edp_edpl_on_edge
+        coord = block.coord
+        coriolis = block.equaux.coriolis.trisk
+        edd_length = coord.mesh.dual.edge.length  # (nedg,)
+        ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
+        weight = coriolis.edp_trsk_on_edge
+        lenp = coriolis.edp_edpl_on_edge
         mfn_e = block.aux.mfn_e.unwrap()
         pv_e = block.aux.pv_e.unwrap()
 
@@ -92,10 +127,12 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
         block: Block
     ) -> Block:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
-        edd_length = self.mesh.dual.edge.length  # (nedg,)
-        ep_idx = self.edp_edge_on_edge  # (nedg, maxnnb*2)
-        weight = self.edp_trsk_on_edge
-        lenp = self.edp_edpl_on_edge
+        coord = block.coord
+        coriolis = block.equaux.coriolis.trisk
+        edd_length = coord.mesh.dual.edge.length  # (nedg,)
+        ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
+        weight = coriolis.edp_trsk_on_edge
+        lenp = coriolis.edp_edpl_on_edge
         un = block.state.un.unwrap()
 
         def _wrap(
@@ -111,6 +148,18 @@ class CoriolisForceAtDualEdge(FVM_ODM_TriSK):
             block,
             replace=res
         )
+
+    def prepare(self, block: Block) -> Block:
+        coord = block.coord
+        return eqx.tree_at(
+            lambda b: b.equaux.coriolis.trisk,
+            block,
+            replace=TriSKCoriolisForceAtEdgeData.from_coord(coord)
+        )
+
+    def build_default(self) -> Self:
+        self._built = True
+        return self
 
 
 def calc_trsk_weight(

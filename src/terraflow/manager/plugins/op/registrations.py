@@ -25,92 +25,92 @@ def register(model: Catalog) -> None:
     # Register base operators
     model.op.register(
         belong_key, group="div",
-        factory=op.DivAtPrimalCell
+        factory=op.div_at_primal_cell
     )
     model.op.register(
         belong_key, group="grad",
-        factory=op.GradAtDualEdge
+        factory=op.grad_at_dual_edge
     )
     model.op.register(
         belong_key, group="curl",
-        factory=op.CurlAtDualCell
+        factory=op.curl_at_dual_cell
     )
     model.op.register(
         belong_key, group="interp",
-        factory=op.InterpWeightedAddEdp2Plg
+        factory=op.interp_weighted_add_edp2plg
     )
     model.op.register(
         belong_key, group="interp",
-        factory=op.InterpWeightedAddEdd2Dua
+        factory=op.interp_weighted_add_edd2dua
     )
     model.op.register(
         belong_key, group="interp",
-        factory=op.InterpWeightedAddDua2Plg
+        factory=op.interp_weighted_add_dua2plg
     )
 
     # Register coriolis operators
     from terraflow.discretization.fvm.odm.trisk import coriolis
     model.op.register(
         belong_key, group="coriolis",
-        factory=coriolis.CoriolisForceAtDualEdge
+        factory=coriolis.trisk.TriSKCoriolisForceAtEdge
     )
 
     # Register flux reconstruction operators
     # Register various flux reconstruction methods at primal edges
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.CentralDifference2AtPrimalEdge
+        factory=flux_reconstruct.CentralDifference2AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF3AtPrimalEdge
+        factory=flux_reconstruct.WRF3AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF4AtPrimalEdge
+        factory=flux_reconstruct.WRF4AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.HybridWRF34AtPrimalEdge
+        factory=flux_reconstruct.HybridWRF34AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF5AtPrimalEdge
+        factory=flux_reconstruct.WRF5AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF6AtPrimalEdge
+        factory=flux_reconstruct.WRF6AtEdgeOnPrimalMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.HybridWRF56AtPrimalEdge
+        factory=flux_reconstruct.HybridWRF56AtEdgeOnPrimalMesh
     )
     # Register various flux reconstruction methods at dual edges
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.CentralDifference2AtDualEdge
+        factory=flux_reconstruct.CentralDifference2AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF3AtDualEdge
+        factory=flux_reconstruct.WRF3AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF4AtDualEdge
+        factory=flux_reconstruct.WRF4AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.HybridWRF34AtDualEdge
+        factory=flux_reconstruct.HybridWRF34AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF5AtDualEdge
+        factory=flux_reconstruct.WRF5AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.WRF6AtDualEdge
+        factory=flux_reconstruct.WRF6AtEdgeOnDualMesh
     )
     model.op.register(
         belong_key, group="flux_reconstruct",
-        factory=flux_reconstruct.HybridWRF56AtDualEdge
+        factory=flux_reconstruct.HybridWRF56AtEdgeOnDualMesh
     )

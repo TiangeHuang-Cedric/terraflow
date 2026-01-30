@@ -7,6 +7,7 @@ import equinox as eqx
 
 from terraflow.util import typing, device
 from terraflow.util.datetime import DateTimeManager
+from terraflow.layout.field import Field
 
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
@@ -33,9 +34,14 @@ def update_block_forward_backward(
 ) -> typing.PyTree:
     tend2state = tend.to_state(pass_tag=pass_tag)
     new_state = jax.tree_util.tree_map(
-        lambda s, t: s + t * dt,
+        lambda s, t: (
+            s + t * dt
+            if getattr(s, "meta", None) and getattr(s.meta, "is_prognostic", False)
+            else s
+        ),
         old_state,
-        tend2state
+        tend2state,
+        is_leaf=lambda x: isinstance(x, Field)
     )
     return eqx.tree_at(
         lambda b: b.state,
@@ -96,23 +102,22 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
     def __init__(
         self,
         equation: AbstractExplicitODE,
-        dt: datetime.timedelta,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
         forward_backward: bool = True
     ):
-        super().__init__(equation, dt, time_manager, dev)
+        super().__init__(equation, time_manager, dev)
         self.nrk = 3
-        self.dt_rk = [dt / (self.nrk - irk) for irk in range(self.nrk)]
+        self.dt_rk = [self.dt / (self.nrk - irk) for irk in range(self.nrk)]
         self.dt_rk_seconds = jnp.asarray(
             [dt_rk.total_seconds() for dt_rk in self.dt_rk],
             dtype=dev.float_type
         )
         self.forward_backward = forward_backward
 
-    def stepper(self, equation: AbstractExplicitODE) -> Callable:
+    def stepper(self) -> Callable:
         """Third-order Runge-Kutta time stepper."""
-        rhs = equation.explicit_terms
+        rhs = self.equation.explicit_terms
         nrk = self.nrk
 
         def step_fn_all(block: AbstractBlock) -> AbstractBlock:
@@ -160,18 +165,17 @@ class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
     def __init__(
         self,
         equation: AbstractExplicitODE,
-        dt: datetime.timedelta,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
         forward_backward: bool = True
     ):
-        super().__init__(equation, dt, time_manager, dev)
-        self.dt_seconds = dt.total_seconds()
+        super().__init__(equation, time_manager, dev)
+        self.dt_seconds = self.dt.total_seconds()
         self.forward_backward = forward_backward
 
-    def stepper(self, equation: AbstractExplicitODE) -> Callable:
+    def stepper(self) -> Callable:
         """Forward-Backward Euler time stepper."""
-        rhs = equation.explicit_terms
+        rhs = self.equation.explicit_terms
 
         def step_fn_all(block: AbstractBlock) -> AbstractBlock:
             block = block.reset()

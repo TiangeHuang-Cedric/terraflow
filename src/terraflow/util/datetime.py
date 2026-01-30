@@ -9,11 +9,13 @@ class DateTimeManager:
     elapsed_secondes: float
     save_interval_value: int
     save_interval_unit: str
+    dt_dyn: datetime.timedelta
 
     def __init__(
         self,
         start_time: str,
         save_interval: str,
+        dt_dyn: datetime.timedelta,
         run_time: Optional[str] = None,
         end_time: Optional[str] = None,
     ):
@@ -41,6 +43,7 @@ class DateTimeManager:
         self.elapsed_secondes = 0.0
         self.save_interval_value = save_interval_value
         self.save_interval_unit = save_interval_unit
+        self.dt_dyn = dt_dyn
 
     @property
     def start_time(self) -> datetime.datetime:

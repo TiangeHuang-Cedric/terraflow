@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from re import A
-from typing import Callable, Generic, Mapping, TypeVar, Type, overload, Tuple
+from typing import Callable, Generic, Mapping, TypeVar, Type, overload
 from typing import Optional, Union, List, Dict, Self, cast, Literal, Any
 import dataclasses
 import equinox as eqx
@@ -16,7 +15,7 @@ from terraflow.mesh import AbstractMesh
 from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import CoordinateSystem, AbstractLayout
 from terraflow.layout import AbstractFieldMetaData, StaggeredFieldMetaData
-from terraflow.layout import Field, QuantityField, ArrayField, FieldLike
+from terraflow.layout import Field, ArrayField, FieldLike
 from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
@@ -29,19 +28,16 @@ HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 LO = TypeVar("LO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
-ESAUX = TypeVar("ESAUX", bound="AbstractEquationSetAuxiliary")
+ESAUX = TypeVar("ESAUX", bound="AbstractEquationSetAuxiliaryTerms")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
-DT = TypeVar("DT", Array, ux.AbstractQuantity)
 STATE = TypeVar("STATE", bound="AbstractFields")
 STATIC = TypeVar("STATIC", bound="AbstractFields")
 TEND = TypeVar("TEND", bound="AbstractFields")
 AUX = TypeVar("AUX", bound="AbstractFields")
+AUXDS = TypeVar("AUXDS", bound="AbstractEquationTermAuxiliaryDataset")
 BLOCK = TypeVar("BLOCK", bound="AbstractBlock")
-BF = TypeVar("BF", bound="AbstractBlock")
-BQ = TypeVar("BQ", bound="AbstractBlock")
-BA = TypeVar("BA", bound="AbstractBlock")
 
 
 class DiscretizationInfo:
@@ -156,44 +152,22 @@ class DiscretizationInfo:
         )
 
 
-class AbstractEquationBase(Generic[HM, VM, LO, DM, BLOCK], ABC):
+class AbstractEquationBase(Generic[DM], ABC):
     _disc: DiscretizationInfo
-    _coord: CoordinateSystem[HM, VM, LO]
-    _para: PlanetParameterSet
     _method: DM
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet,
         method: DM,
     ):
         self._disc = disc
-        self._coord = coord
-        self._para = para
         self._method = method
         self._built = False
 
     @property
-    def coord(self) -> CoordinateSystem[HM, VM, LO]:
-        return self._coord
-
-    @property
-    def mesh(self) -> HM:
-        return self.coord.mesh
-
-    @property
-    def vert(self) -> VM:
-        return self.coord.vert
-
-    @property
-    def layout(self) -> LO:
-        return self.coord.layout
-
-    @property
-    def para(self) -> PlanetParameterSet:
-        return self._para
+    def disc(self) -> DiscretizationInfo:
+        return self._disc
 
     @property
     def method(self) -> DM:
@@ -209,13 +183,6 @@ class AbstractEquationBase(Generic[HM, VM, LO, DM, BLOCK], ABC):
         return navigate(table, id_col=id_col, id_val=id_val)
 
     @abstractmethod
-    def build_default(self) -> Self:
-        raise NotImplementedError
-
-    def has_built(self) -> bool:
-        return self._built
-
-    @abstractmethod
     def disc_info(self) -> Dict[str, str]:
         pass
 
@@ -224,19 +191,17 @@ class AbstractEquationBase(Generic[HM, VM, LO, DM, BLOCK], ABC):
 
 
 class AbstractEquationTerm(
-    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
-    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
+    AbstractEquationBase[DM],
+    Generic[DM, ESAUX],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet,
         method: DM,
         aux: ESAUX
     ):
-        super().__init__(disc, coord, para, method)
+        super().__init__(disc, method)
         self._table = "equterm"
         self.aux = aux
 
@@ -245,7 +210,7 @@ class AbstractEquationTerm(
         raise NotImplementedError
 
     @abstractmethod
-    def unwrap(self, block: BLOCK) -> Field:
+    def unwrap(self, block) -> Field:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -264,21 +229,19 @@ class AbstractEquationTerm(
 
 
 class AbstractEquationForm(
-    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
-    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
+    AbstractEquationBase[DM],
+    Generic[DM, ESAUX],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet,
         method: DM,
         aux: ESAUX
     ):
         disc_copy = disc.copy()
         disc_copy.equ = self.alias_name()
-        super().__init__(disc_copy, coord, para, method)
+        super().__init__(disc_copy, method)
         self._table = "equ"
         self.aux = aux
 
@@ -331,32 +294,38 @@ class AbstractEquationForm(
         return navigate("equterm", id_col=id_col, id_val=id_val)
 
 
-class AbstractContinuityEquForm(AbstractEquationForm[HM, VM, LO, DM, ESAUX, BLOCK], ABC):
+class AbstractContinuityEquForm(AbstractEquationForm[DM, ESAUX], ABC):
     pass
 
 
-class AbstractMomentumEquForm(AbstractEquationForm[HM, VM, LO, DM, ESAUX, BLOCK], ABC):
+class AbstractMomentumEquForm(AbstractEquationForm[DM, ESAUX], ABC):
     pass
 
 
-class AbstractThermodynamicEquForm(AbstractEquationForm[HM, VM, LO, DM, ESAUX, BLOCK], ABC):
+class AbstractThermodynamicEquForm(AbstractEquationForm[DM, ESAUX], ABC):
     pass
 
 
-class AbstractEquationSetAuxiliary(
-    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
-):
+class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet,
         method: DM,
     ):
-        super().__init__(disc, coord, para, method)
+        super().__init__(disc, method)
         self._table = "equaux"
+        self._built = False
 
+    @abstractmethod
     def __call__(self, block: BLOCK, pass_tag: str, *args, **kwargs) -> BLOCK:
+        raise NotImplementedError
+
+    @abstractmethod
+    def build_default(self) -> Self:
+        raise NotImplementedError
+
+    @abstractmethod
+    def prepare(self, block) -> BLOCK:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -373,30 +342,30 @@ class AbstractEquationSetAuxiliary(
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
 
+    def has_built(self) -> bool:
+        return self._built
+
 
 class AbstractEquationSet(
-    AbstractEquationBase[HM, VM, LO, DM, BLOCK],
+    AbstractEquationBase[DM],
     AbstractODE,
-    Generic[HM, VM, LO, DM, ESAUX, BLOCK],
+    Generic[DM, ESAUX],
     ABC
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordinateSystem[HM, VM, LO],
-        para: PlanetParameterSet,
-        method: DM
+        method: DM,
     ):
-        super().__init__(disc, coord, para, method)
+        super().__init__(disc, method)
         self._table = "equset"
         factory = self.navi2aux()
-        self.aux: ESAUX = factory(
+        aux: ESAUX = factory(
             disc=disc,
-            coord=coord,
-            para=para,
             method=method
         )
+        self.aux = aux
 
     @staticmethod
     @abstractmethod
@@ -415,6 +384,14 @@ class AbstractEquationSet(
     def ode_kind_alias_name() -> str:
         """Return the ODE kind alias name of the dynamics set. Default to empty string."""
         raise NotImplementedError
+
+    def build_default(self) -> Self:
+        self.aux.build_default()
+        return self
+
+    def prepare(self, block: BLOCK) -> BLOCK:
+        self.aux.build_default()
+        return self.aux.prepare(block)
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -438,7 +415,7 @@ class AbstractEquationSet(
         return navigate("equaux", id_col=id_col, id_val=id_val)[0]
 
     @classmethod
-    def _from_model(
+    def from_model(
         cls,
         coord: CoordinateSystem[HM, VM, LO],
         para: PlanetParameterSet,
@@ -452,7 +429,7 @@ class AbstractEquationSet(
         Args:
             coord: Coordinate system used in the model.
             para: Planet parameter set.
-            operator: Discretization operator.
+            method: Discretization method.
 
         Returns:
             An instance of the dynamics set populated with the provided model information.
@@ -460,7 +437,7 @@ class AbstractEquationSet(
         disc = DiscretizationInfo.from_model(
             coord, para, method, cls
         )
-        return cls(disc, coord, para, method, *args, **kwargs)
+        return cls(disc, method, *args, **kwargs)
 
 
 class AbstractVariableSet(eqx.Module, ABC):
@@ -920,45 +897,37 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
         return cls(variables=variables)
 
 
-class AbstractBlock(ABC, eqx.Module, Generic[STATE, STATIC, TEND, AUX]):
+class AbstractEquationTermAuxiliaryData(eqx.Module, ABC):
+    _init: bool
+
+    def has_initialized(self) -> bool:
+        return self._init
+
+    @classmethod
+    @abstractmethod
+    def empty(cls) -> Self:
+        raise NotImplementedError
+
+
+class AbstractEquationTermAuxiliaryDataset(eqx.Module, ABC):
+    @classmethod
+    @abstractmethod
+    def empty(cls) -> Self:
+        raise NotImplementedError
+
+
+class AbstractBlock(
+    ABC,
+    eqx.Module,
+    Generic[HM, VM, LO, STATE, STATIC, TEND, AUX, AUXDS]
+):
+    coord: CoordinateSystem[HM, VM, LO]
+    para: PlanetParameterSet
     state: STATE
-    static: STATIC
     tend: TEND
+    static: STATIC
     aux: AUX
-
-    def __init__(self, state: STATE, static: STATIC, tend: TEND, aux: AUX):
-        self.state = state
-        self.static = static
-        self.tend = tend
-        self.aux = aux
-
-    def copy(self) -> Self:
-        return type(self)(
-            state=self.state,
-            static=self.static,
-            tend=self.tend,
-            aux=self.aux
-        )
-
-    @staticmethod
-    @abstractmethod
-    def state_cls(*args, **kwargs) -> Type[STATE]:
-        raise NotImplementedError
-
-    @staticmethod
-    @abstractmethod
-    def static_cls(*args, **kwargs) -> Type[STATIC]:
-        raise NotImplementedError
-
-    @staticmethod
-    @abstractmethod
-    def tend_cls(*args, **kwargs) -> Type[TEND]:
-        raise NotImplementedError
-
-    @staticmethod
-    @abstractmethod
-    def aux_cls(*args, **kwargs) -> Type[AUX]:
-        raise NotImplementedError
+    equaux: AUXDS
 
     def reset(self, val: float = 0.0) -> Self:
         return eqx.tree_at(
@@ -967,6 +936,9 @@ class AbstractBlock(ABC, eqx.Module, Generic[STATE, STATIC, TEND, AUX]):
             replace=(self.tend.reset(val), self.aux.reset(val))
         )
 
+    def diagnose(self) -> Self:
+        return self
+
 
 class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
 
@@ -974,11 +946,6 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
         self._equation = equation
         self.jit = jit
         self.trajectory = trajectory
-
-    @abstractmethod
-    def to_diag(self, state, tend, aux) -> DiagnosticVariableSet[FMT]:
-        """Convert input variable set to diagnostic variable set."""
-        raise NotImplementedError
 
     @abstractmethod
     def compute(
@@ -1001,6 +968,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     @overload
     def process_field(
         self,
+        coord: CoordinateSystem[HM, VM, LO],
         field: Field,
         to_ugrid: Literal[False] = False,
         **kwargs
@@ -1010,6 +978,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     @overload
     def process_field(
         self,
+        coord: CoordinateSystem[HM, VM, LO],
         field: Field,
         to_ugrid: Literal[True],
         **kwargs
@@ -1018,6 +987,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
 
     def process_field(
         self,
+        coord: CoordinateSystem[HM, VM, LO],
         field: Field,
         to_ugrid: bool = False,
         **kwargs
@@ -1042,14 +1012,14 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
             )
             if to_ugrid:
                 ds = res.to_xarray_with_ugrid_format(**kwargs)
-                uxgrid = self.coord.mesh.to_ugrid(**kwargs).to_uxgrid()
+                uxgrid = coord.mesh.to_ugrid(**kwargs).to_uxgrid()
                 return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
             else:
                 return res
         else:
             if to_ugrid:
                 ds = field.to_xarray_with_ugrid_format(**kwargs)
-                uxgrid = self.coord.mesh.to_ugrid(**kwargs).to_uxgrid()
+                uxgrid = coord.mesh.to_ugrid(**kwargs).to_uxgrid()
                 return tuxr.UGRIDDataArray.from_xarray(ds, uxgrid)
             else:
                 return field
@@ -1073,30 +1043,6 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
             return meta
         else:
             return meta
-
-    @property
-    def coord(self) -> CoordinateSystem[HM, VM, LO]:
-        return self.equation.coord
-
-    @property
-    def mesh(self) -> HM:
-        return self.equation.coord.mesh
-
-    @property
-    def vert(self) -> VM:
-        return self.equation.coord.vert
-
-    @property
-    def layout(self) -> LO:
-        return self.equation.coord.layout
-
-    @property
-    def method(self) -> DM:
-        return self.equation.method
-
-    @property
-    def para(self) -> PlanetParameterSet:
-        return self.equation.para
 
     @property
     def equation(self) -> ES:

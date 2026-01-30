@@ -7,15 +7,12 @@ import terraflow as tf
 from terraflow.util.datetime import DateTimeManager
 import terraflow.util.history as history
 import terraflow.util.device as device
-from terraflow.discretization import DiagnosticTools
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
-
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
-
 
 mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
@@ -39,13 +36,12 @@ block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
 block = block_cls.from_testcase(coord, para, case=testcase)
 
-
 time_manager = DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-21T00:00:00",
     save_interval="6 hours",
+    dt_dyn=datetime.timedelta(seconds=300.0),
 )
-
 
 equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
@@ -58,31 +54,25 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 equation.aux.z_e.recon_scheme.central_difference()
 equation.aux.pv_e.interp.pure_upwind(3)
 
+block = equation.prepare(block)
 
-diag_tool = DiagnosticTools.from_equation(
-    equation=equation, jit=True,
-)
-
-h0 = history.UnstructuredHistory(
+history = history.UnstructuredHistoryset(
     coord=coord,
     time_manager=time_manager,
-    file_path="terraflow.nc",
-    diag_tool=diag_tool,
+    case_name="terraflow",
+    output_h1=False,
+    output_h2=False,
 ).setup(block)
-
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
-    dt=datetime.timedelta(seconds=300.0),
     time_manager=time_manager,
     dev=dev,
 )
 
-
-integrate_fn = jax.jit(solver.io_callback(
-    equation=equation,
-    history_file=h0,
-))
+integrate_fn = jax.jit(
+    solver.io_callback(history=history,)
+)
 
 logger.info("Start integrating...")
 t0 = time.perf_counter()

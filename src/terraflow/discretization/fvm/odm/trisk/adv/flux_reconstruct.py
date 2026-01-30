@@ -1,13 +1,12 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Callable, TypeVar, Generic, Tuple
+from typing import Callable, TypeVar, Generic, Tuple, TYPE_CHECKING
 from functools import partial
 import jax.numpy as jnp
 import jax
 import equinox as eqx
 
 from terraflow.util import typing, jax_tools, math
-from terraflow.planet import PlanetParameterSet
-from terraflow.operator import FiniteVolumeMethodOperator
 from terraflow.mesh.orthogonal_dual_mesh.construct import (
     AbstractMeshEntity,
     PrimalMeshEntity,
@@ -18,7 +17,12 @@ from terraflow.vert_coord.abstract import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+from terraflow.discretization.abstract import AbstractEquationTermAuxiliaryData
 
+if TYPE_CHECKING:
+    from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block as swm_Block
+    from terraflow.discretization.fvm.odm.trisk.adv.types import AdvectionAuxiliaryDataset
+    Block = swm_Block
 
 Int = typing.Int
 Float = typing.Float
@@ -28,11 +32,6 @@ Array = typing.Array
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
 
-FVM_ODM_TriSK = FiniteVolumeMethodOperator[
-    OrthogonalDualMesh,
-    VM,
-    TriSKBasedCGridStaggeringLayout
-]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
@@ -41,130 +40,159 @@ CoordSys = CoordinateSystem[
 ]
 
 
-class FluxReconstructAtPrimalEdge(FVM_ODM_TriSK):
+class FluxReconstructAuxiliaryData(AbstractEquationTermAuxiliaryData):
+    """Variables needed in WRF flux reconstruct scheme"""
+    stencil_idxes: Float[Array, "nEdge nStencil"]
+    wgt: Float[Array, "nEdge nStencil"]
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
+    @classmethod
+    def empty(cls) -> "FluxReconstructAuxiliaryData":
+        stencil_idxes = jnp.empty(0)
+        wgt = jnp.empty(0)
+        return cls(
+            _init=False,
+            stencil_idxes=stencil_idxes,
+            wgt=wgt
+        )
+
+    @classmethod
+    def from_coord(
+        cls,
+        coord: CoordinateSystem,
+        on_mesh: str,
+        polynomial_order: int,
+        **kwargs
     ):
-        super().__init__(coord, para)
+        if on_mesh == "primal":
+            fn = init_primal_bmatrix_at_dual_edge
+        elif on_mesh == "dual":
+            fn = init_dual_bmatrix_at_primal_edge
+        else:
+            raise ValueError(
+                f"Unsupported mesh type {on_mesh} for flux reconstruction auxiliary data."
+            )
+        stencil_idxes, wgt = fn(coord.mesh, polynomial_order, **kwargs)
+        return cls(
+            _init=True,
+            stencil_idxes=stencil_idxes,
+            wgt=wgt,
+        )
+
+
+class FluxReconstructAtEdgeOnPrimalMesh:
+
+    def __init__(self):
         self._built = False
 
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
         normal_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset,
         *args,
         **kwargs
     ) -> Float[Array, "nlev nEdge"]:
-        return self.scheme(x_at_primal_cell, normal_u_at_edge)
+        return self.scheme(
+            x_at_primal_cell=x_at_primal_cell,
+            normal_u_at_edge=normal_u_at_edge,
+            coord=coord,
+            aux=aux
+        )
 
-    def central_difference(self) -> "CentralDifference2AtPrimalEdge":
+    def prepare(self, block: Block) -> Block:
+        return self.scheme.prepare(block)
+
+    def central_difference(self) -> "CentralDifference2AtEdgeOnPrimalMesh":
         self.scheme_name = "central_difference"
-        self.scheme = CentralDifference2AtPrimalEdge(
-            self.coord, self.para
-        )
+        self.scheme = CentralDifference2AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
-    def wrf3(self) -> "WRF3AtPrimalEdge":
+    def wrf3(self) -> "WRF3AtEdgeOnPrimalMesh":
         self.scheme_name = "wrf3"
-        self.scheme = WRF3AtPrimalEdge(
-            self.coord, self.para
-        )
+        self.scheme = WRF3AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
-    def wrf4(self) -> "WRF4AtPrimalEdge":
+    def wrf4(self) -> "WRF4AtEdgeOnPrimalMesh":
         self.scheme_name = "wrf4"
-        self.scheme = WRF4AtPrimalEdge(
-            self.coord, self.para
-        )
+        self.scheme = WRF4AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
-    def hybrid_wrf34(self, beta: FloatType = 0.25) -> "HybridWRF34AtPrimalEdge":
+    def hybrid_wrf34(self, beta: FloatType = 0.25) -> "HybridWRF34AtEdgeOnPrimalMesh":
         self.scheme_name = "hybrid_wrf34"
-        self.scheme = HybridWRF34AtPrimalEdge(
-            self.coord, self.para, beta
-        )
+        self.scheme = HybridWRF34AtEdgeOnPrimalMesh(beta)
         self._built = True
         return self.scheme
 
-    def wrf5(self) -> "WRF5AtPrimalEdge":
+    def wrf5(self) -> "WRF5AtEdgeOnPrimalMesh":
         self.scheme_name = "wrf5"
-        self.scheme = WRF5AtPrimalEdge(
-            self.coord, self.para
-        )
+        self.scheme = WRF5AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
-    def wrf6(self) -> "WRF6AtPrimalEdge":
+    def wrf6(self) -> "WRF6AtEdgeOnPrimalMesh":
         self.scheme_name = "wrf6"
-        self.scheme = WRF6AtPrimalEdge(
-            self.coord, self.para
-        )
+        self.scheme = WRF6AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
-    def hybrid_wrf56(self, beta: FloatType = 0.25) -> "HybridWRF56AtPrimalEdge":
+    def hybrid_wrf56(self, beta: FloatType = 0.25) -> "HybridWRF56AtEdgeOnPrimalMesh":
         self.scheme_name = "hybrid_wrf56"
-        self.scheme = HybridWRF56AtPrimalEdge(
-            self.coord, self.para, beta
-        )
+        self.scheme = HybridWRF56AtEdgeOnPrimalMesh(beta)
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> "FluxReconstructAtPrimalEdge":
+    def build_default(self) -> "FluxReconstructAtEdgeOnPrimalMesh":
         if not self.has_built():
             self.central_difference()
         return self
 
 
-class FluxReconstructAtDualEdge(FVM_ODM_TriSK):
+class FluxReconstructAtEdgeOnDualMesh:
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-    ):
-        super().__init__(coord, para)
+    def __init__(self):
         self._built = False
 
     def __call__(
         self,
         x_at_dual_cell: Float[Array, "nlev nDual_cell"],
         tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset,
         *args,
         **kwargs
     ) -> Float[Array, "nlev nEdge"]:
-        return self.scheme(x_at_dual_cell, tangent_u_at_edge)
+        return self.scheme(
+            x_at_dual_cell=x_at_dual_cell,
+            tangent_u_at_edge=tangent_u_at_edge,
+            coord=coord,
+            aux=aux
+        )
 
-    def central_difference(self) -> "CentralDifference2AtDualEdge":
+    def prepare(self, block: Block) -> Block:
+        return self.scheme.prepare(block)
+
+    def central_difference(self) -> "CentralDifference2AtEdgeOnDualMesh":
         self.scheme_name = "central_difference"
-        self.scheme = CentralDifference2AtDualEdge(
-            self.coord, self.para
-        )
+        self.scheme = CentralDifference2AtEdgeOnDualMesh()
         self._built = True
         return self.scheme
 
-    def wrf3(self, use_mbs: bool = True) -> "WRF3AtDualEdge":
+    def wrf3(self, use_mbs: bool = True) -> "WRF3AtEdgeOnDualMesh":
         self.scheme_name = "wrf3"
-        self.scheme = WRF3AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
+        self.scheme = WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
-    def wrf4(self, use_mbs: bool = True) -> "WRF4AtDualEdge":
+    def wrf4(self, use_mbs: bool = True) -> "WRF4AtEdgeOnDualMesh":
         self.scheme_name = "wrf4"
-        self.scheme = WRF4AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
+        self.scheme = WRF4AtEdgeOnDualMesh(use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
@@ -172,27 +200,21 @@ class FluxReconstructAtDualEdge(FVM_ODM_TriSK):
         self,
         beta: FloatType = 0.25,
         use_mbs: bool = True
-    ) -> "HybridWRF34AtDualEdge":
+    ) -> "HybridWRF34AtEdgeOnDualMesh":
         self.scheme_name = "hybrid_wrf34"
-        self.scheme = HybridWRF34AtDualEdge(
-            self.coord, self.para, beta, use_mbs=use_mbs
-        )
+        self.scheme = HybridWRF34AtEdgeOnDualMesh(beta, use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
-    def wrf5(self, use_mbs: bool = True) -> "WRF5AtDualEdge":
+    def wrf5(self, use_mbs: bool = True) -> "WRF5AtEdgeOnDualMesh":
         self.scheme_name = "wrf5"
-        self.scheme = WRF5AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
+        self.scheme = WRF5AtEdgeOnDualMesh(use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
-    def wrf6(self, use_mbs: bool = True) -> "WRF6AtDualEdge":
+    def wrf6(self, use_mbs: bool = True) -> "WRF6AtEdgeOnDualMesh":
         self.scheme_name = "wrf6"
-        self.scheme = WRF6AtDualEdge(
-            self.coord, self.para, use_mbs=use_mbs
-        )
+        self.scheme = WRF6AtEdgeOnDualMesh(use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
@@ -200,79 +222,82 @@ class FluxReconstructAtDualEdge(FVM_ODM_TriSK):
         self,
         beta: FloatType = 0.25,
         use_mbs: bool = True
-    ) -> "HybridWRF56AtDualEdge":
+    ) -> "HybridWRF56AtEdgeOnDualMesh":
         self.scheme_name = "hybrid_wrf56"
-        self.scheme = HybridWRF56AtDualEdge(
-            self.coord, self.para, beta, use_mbs=use_mbs
-        )
+        self.scheme = HybridWRF56AtEdgeOnDualMesh(beta, use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> "FluxReconstructAtDualEdge":
+    def build_default(self) -> "FluxReconstructAtEdgeOnDualMesh":
         if not self.has_built():
             self.central_difference()
         return self
 
 
-class CentralDifference2AtPrimalEdge(FVM_ODM_TriSK):
+class CentralDifference2AtEdgeOnPrimalMeshData(AbstractEquationTermAuxiliaryData):
+    def __init__(self, *args, **kwargs):
+        pass
 
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para)
+
+class CentralDifference2AtEdgeOnPrimalMesh:
 
     def __call__(
         self,
+        *,
         x_at_primal_cell: Float[Array, "nlev nCell"],
-        *args,
-    ) -> Float[Array, "nlev nEdge"]:
-        return jax.vmap(
-            central_difference_2nd_order,
-            in_axes=(0, None),
-            out_axes=0
-        )(x_at_primal_cell, self.mesh.dual.edge.endpoints)
-
-
-class CentralDifference2AtDualEdge(FVM_ODM_TriSK):
-
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para)
-
-    def __call__(
-        self,
-        x_at_dual_cell: Float[Array, "nlev nCell"],
-        *args,
-        **kwargs,
-    ) -> Float[Array, "nlev nEdge"]:
-        return jax.vmap(
-            central_difference_2nd_order,
-            in_axes=(0, None),
-            out_axes=0
-        )(x_at_dual_cell, self.mesh.primal.edge.endpoints)
-
-
-class AbstractWRF34AtPrimalEdge(FVM_ODM_TriSK):
-
-    def __init__(
-        self,
         coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType
-    ):
-        super().__init__(coord, para)
-        stencil_idxes, edd_v_fcoe = init_primal_bmatrix_at_dual_edge(
-            coord.mesh, 2
-        )
+        **kwargs
+    ) -> Float[Array, "nlev nEdge"]:
+        return jax.vmap(
+            central_difference_2nd_order,
+            in_axes=(0, None),
+            out_axes=0
+        )(x_at_primal_cell, coord.mesh.dual.edge.endpoints)
+
+    def prepare(self, block: Block) -> Block:
+        return block
+
+
+class CentralDifference2AtEdgeOnDualMeshData(AbstractEquationTermAuxiliaryData):
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+class CentralDifference2AtEdgeOnDualMesh:
+
+    def __call__(
+        self,
+        *,
+        x_at_dual_cell: Float[Array, "nlev nCell"],
+        coord: CoordSys,
+        **kwargs
+    ) -> Float[Array, "nlev nEdge"]:
+        return jax.vmap(
+            central_difference_2nd_order,
+            in_axes=(0, None),
+            out_axes=0
+        )(x_at_dual_cell, coord.mesh.primal.edge.endpoints)
+
+    def prepare(self, block: Block) -> Block:
+        return block
+
+
+class AbstractWRF34AtEdgeOnPrimalMesh:
+
+    def __init__(self, beta: FloatType):
         self.beta = beta
-        self.stencil_2nd_idxes = stencil_idxes
-        self.edd_2nd_v_fcoe = edd_v_fcoe
 
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nlev nCell"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"]
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
     ):
+        mesh = coord.mesh
         return jax.vmap(
             wrf_3rd4th_order,
             in_axes=(0, 0, None, None, None, None, None, None),
@@ -280,64 +305,58 @@ class AbstractWRF34AtPrimalEdge(FVM_ODM_TriSK):
         )(
             x_at_primal_cell,
             normal_u_at_edge,
-            self.mesh.dual.edge.endpoints,
-            self.mesh.dual.edge.length,
-            self.mesh.aux.edpnr_eddtg,
-            self.stencil_2nd_idxes,
-            self.edd_2nd_v_fcoe,
+            mesh.dual.edge.endpoints,
+            mesh.dual.edge.length,
+            mesh.aux.edpnr_eddtg,
+            aux.edd2nd.stencil_idxes,
+            aux.edd2nd.wgt,
             self.beta
         )
 
-
-class WRF3AtPrimalEdge(AbstractWRF34AtPrimalEdge):
-
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=1.0)
-
-
-class WRF4AtPrimalEdge(AbstractWRF34AtPrimalEdge):
-
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=0.0)
-
-
-class HybridWRF34AtPrimalEdge(AbstractWRF34AtPrimalEdge):
-
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType
-    ):
-        super().__init__(coord, para, beta)
+    def prepare(self, block: Block) -> Block:
+        if not block.equaux.adv.edd2nd.has_initialized():
+            edd2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "primal", 2
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edd2nd,
+                block,
+                edd2nd
+            )
+        return block
 
 
-class AbstractWRF56AtPrimalEdge(FVM_ODM_TriSK):
+class WRF3AtEdgeOnPrimalMesh(AbstractWRF34AtEdgeOnPrimalMesh):
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType
-    ):
-        super().__init__(coord, para)
-        stencil_2nd_idxes, edd_2nd_v_fcoe = init_primal_bmatrix_at_dual_edge(
-            coord.mesh, 2
-        )
-        stencil_4th_idxes, edd_4th_v_fcoe = init_primal_bmatrix_at_dual_edge(
-            coord.mesh, 4
-        )
-        self.stencil_2nd_idxes = stencil_2nd_idxes
-        self.edd_2nd_v_fcoe = edd_2nd_v_fcoe
-        self.stencil_4th_idxes = stencil_4th_idxes
-        self.edd_4th_v_fcoe = edd_4th_v_fcoe
+    def __init__(self):
+        super().__init__(beta=1.0)
+
+
+class WRF4AtEdgeOnPrimalMesh(AbstractWRF34AtEdgeOnPrimalMesh):
+
+    def __init__(self):
+        super().__init__(beta=0.0)
+
+
+class HybridWRF34AtEdgeOnPrimalMesh(AbstractWRF34AtEdgeOnPrimalMesh):
+
+    def __init__(self, beta: FloatType):
+        super().__init__(beta=beta)
+
+
+class AbstractWRF56AtEdgeOnPrimalMesh:
+
+    def __init__(self, beta: FloatType):
         self.beta = beta
 
     def __call__(
         self,
         x_at_primal_cell: Float[Array, "nlev nCell"],
-        normal_u_at_edge: Float[Array, "nlev nEdge"]
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
     ):
+        mesh = coord.mesh
         return jax.vmap(
             wrf_5th6th_order,
             in_axes=(0, 0, None, None, None, None, None, None, None, None),
@@ -345,62 +364,74 @@ class AbstractWRF56AtPrimalEdge(FVM_ODM_TriSK):
         )(
             x_at_primal_cell,
             normal_u_at_edge,
-            self.mesh.dual.edge.endpoints,
-            self.mesh.dual.edge.length,
-            self.mesh.aux.edpnr_eddtg,
-            self.stencil_2nd_idxes,
-            self.edd_2nd_v_fcoe,
-            self.stencil_4th_idxes,
-            self.edd_4th_v_fcoe,
+            mesh.dual.edge.endpoints,
+            mesh.dual.edge.length,
+            mesh.aux.edpnr_eddtg,
+            aux.edd2nd.stencil_idxes,
+            aux.edd2nd.wgt,
+            aux.edd4th.stencil_idxes,
+            aux.edd4th.wgt,
             self.beta
         )
 
+    def prepare(self, block: Block) -> Block:
+        if not block.equaux.adv.edd2nd.has_initialized():
+            edd2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "primal", 2
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edd2nd,
+                block,
+                edd2nd
+            )
+        if not block.equaux.adv.edd4th.has_initialized():
+            edd4th = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "primal", 4
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edd4th,
+                block,
+                edd4th
+            )
+        return block
 
-class WRF5AtPrimalEdge(AbstractWRF56AtPrimalEdge):
 
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=1.0)
+class WRF5AtEdgeOnPrimalMesh(AbstractWRF56AtEdgeOnPrimalMesh):
 
-
-class WRF6AtPrimalEdge(AbstractWRF56AtPrimalEdge):
-
-    def __init__(self, coord: CoordSys, para: PlanetParameterSet):
-        super().__init__(coord, para, beta=0.0)
+    def __init__(self):
+        super().__init__(beta=1.0)
 
 
-class HybridWRF56AtPrimalEdge(AbstractWRF56AtPrimalEdge):
+class WRF6AtEdgeOnPrimalMesh(AbstractWRF56AtEdgeOnPrimalMesh):
+
+    def __init__(self):
+        super().__init__(beta=0.0)
+
+
+class HybridWRF56AtEdgeOnPrimalMesh(AbstractWRF56AtEdgeOnPrimalMesh):
+
+    def __init__(self, beta: FloatType):
+        super().__init__(beta=beta)
+
+
+class AbstractWRF34AtEdgeOnDualMesh:
 
     def __init__(
         self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType
-    ):
-        super().__init__(coord, para, beta=beta)
-
-
-class AbstractWRF34AtDualEdge(FVM_ODM_TriSK):
-
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
         beta: FloatType,
         use_mbs: bool
     ):
-        super().__init__(coord, para)
-        stencil_idxes, edp_v_fcoe = init_dual_bmatrix_at_primal_edge(
-            coord.mesh, 2, use_mbs=use_mbs
-        )
         self.beta = beta
-        self.stencil_2nd_idxes = stencil_idxes
-        self.edp_2nd_v_fcoe = edp_v_fcoe
+        self.use_mbs = use_mbs
 
     def __call__(
         self,
         x_at_dual_cell: Float[Array, "nlev nCell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"]
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
     ):
+        mesh = coord.mesh
         return jax.vmap(
             wrf_3rd4th_order,
             in_axes=(0, 0, None, None, None, None, None, None),
@@ -408,76 +439,62 @@ class AbstractWRF34AtDualEdge(FVM_ODM_TriSK):
         )(
             x_at_dual_cell,
             tangent_u_at_edge,
-            self.mesh.primal.edge.endpoints,
-            self.mesh.primal.edge.length,
-            self.mesh.aux.edp12_edptg,
-            self.stencil_2nd_idxes,
-            self.edp_2nd_v_fcoe,
+            mesh.primal.edge.endpoints,
+            mesh.primal.edge.length,
+            mesh.aux.edp12_edptg,
+            aux.edp2nd.stencil_idxes,
+            aux.edp2nd.wgt,
             self.beta
         )
 
-
-class WRF3AtDualEdge(AbstractWRF34AtDualEdge):
-
-    def __init__(
+    def prepare(
         self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=1.0, use_mbs=use_mbs)
+        block: Block,
+    ) -> Block:
+        if not block.equaux.adv.edp2nd.has_initialized():
+            edp2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "dual", 2, use_mbs=self.use_mbs
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edp2nd,
+                block,
+                edp2nd
+            )
+        return block
 
 
-class WRF4AtDualEdge(AbstractWRF34AtDualEdge):
+class WRF3AtEdgeOnDualMesh(AbstractWRF34AtEdgeOnDualMesh):
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=0.0, use_mbs=use_mbs)
+    def __init__(self, use_mbs: bool = True):
+        super().__init__(beta=1.0, use_mbs=use_mbs)
 
 
-class HybridWRF34AtDualEdge(AbstractWRF34AtDualEdge):
+class WRF4AtEdgeOnDualMesh(AbstractWRF34AtEdgeOnDualMesh):
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=beta, use_mbs=use_mbs)
+    def __init__(self, use_mbs: bool = True):
+        super().__init__(beta=0.0, use_mbs=use_mbs)
 
 
-class AbstractWRF56AtDualEdge(FVM_ODM_TriSK):
+class HybridWRF34AtEdgeOnDualMesh(AbstractWRF34AtEdgeOnDualMesh):
 
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType,
-        use_mbs: bool
-    ):
-        super().__init__(coord, para)
-        stencil_2nd_idxes, edp_2nd_v_fcoe = init_dual_bmatrix_at_primal_edge(
-            coord.mesh, 2, use_mbs=use_mbs
-        )
-        stencil_4th_idxes, edp_4th_v_fcoe = init_dual_bmatrix_at_primal_edge(
-            coord.mesh, 4, use_mbs=use_mbs
-        )
-        self.stencil_2nd_idxes = stencil_2nd_idxes
-        self.edp_2nd_v_fcoe = edp_2nd_v_fcoe
-        self.stencil_4th_idxes = stencil_4th_idxes
-        self.edp_4th_v_fcoe = edp_4th_v_fcoe
+    def __init__(self, beta: FloatType, use_mbs: bool = True):
+        super().__init__(beta=beta, use_mbs=use_mbs)
+
+
+class AbstractWRF56AtEdgeOnDualMesh:
+
+    def __init__(self, beta: FloatType, use_mbs: bool):
+        self.use_mbs = use_mbs
         self.beta = beta
 
     def __call__(
         self,
         x_at_dual_cell: Float[Array, "nlev nCell"],
-        tangent_u_at_edge: Float[Array, "nlev nEdge"]
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
     ):
+        mesh = coord.mesh
         return jax.vmap(
             wrf_5th6th_order,
             in_axes=(0, 0, None, None, None, None, None, None, None, None),
@@ -485,46 +502,51 @@ class AbstractWRF56AtDualEdge(FVM_ODM_TriSK):
         )(
             x_at_dual_cell,
             tangent_u_at_edge,
-            self.mesh.primal.edge.endpoints,
-            self.mesh.primal.edge.length,
-            self.mesh.aux.edp12_edptg,
-            self.stencil_2nd_idxes,
-            self.edp_2nd_v_fcoe,
-            self.stencil_4th_idxes,
-            self.edp_4th_v_fcoe,
+            mesh.primal.edge.endpoints,
+            mesh.primal.edge.length,
+            mesh.aux.edp12_edptg,
+            aux.edp2nd.stencil_idxes,
+            aux.edp2nd.wgt,
+            aux.edp4th.stencil_idxes,
+            aux.edp4th.wgt,
             self.beta
         )
 
+    def prepare(self, block: Block) -> Block:
+        if not block.equaux.adv.edp2nd.has_initialized():
+            edp2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "dual", 2, use_mbs=self.use_mbs
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edp2nd,
+                block,
+                edp2nd
+            )
+        if not block.equaux.adv.edp4th.has_initialized():
+            edp4th = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "dual", 4, use_mbs=self.use_mbs
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edp4th,
+                block,
+                edp4th
+            )
+        return block
 
-class WRF5AtDualEdge(AbstractWRF56AtDualEdge):
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=1.0, use_mbs=use_mbs)
+
+class WRF5AtEdgeOnDualMesh(AbstractWRF56AtEdgeOnDualMesh):
+    def __init__(self, use_mbs: bool = True):
+        super().__init__(beta=1.0, use_mbs=use_mbs)
 
 
-class WRF6AtDualEdge(AbstractWRF56AtDualEdge):
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=0.0, use_mbs=use_mbs)
+class WRF6AtEdgeOnDualMesh(AbstractWRF56AtEdgeOnDualMesh):
+    def __init__(self, use_mbs: bool = True):
+        super().__init__(beta=0.0, use_mbs=use_mbs)
 
 
-class HybridWRF56AtDualEdge(AbstractWRF56AtDualEdge):
-    def __init__(
-        self,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        beta: FloatType,
-        use_mbs: bool = True
-    ):
-        super().__init__(coord, para, beta=beta, use_mbs=use_mbs)
+class HybridWRF56AtEdgeOnDualMesh(AbstractWRF56AtEdgeOnDualMesh):
+    def __init__(self, beta: FloatType, use_mbs: bool = True):
+        super().__init__(beta=beta, use_mbs=use_mbs)
 
 
 def central_difference_2nd_order(

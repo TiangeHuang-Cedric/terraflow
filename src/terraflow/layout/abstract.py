@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, Dict, Generic
+import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.mesh import AbstractMesh
@@ -15,7 +16,7 @@ LO = TypeVar("LO", bound="AbstractLayout")
 
 
 class MeshEntityElement:
-    vtx = "vtx"
+    Vtx = "vtx"
     Edge = "edge"
     Cell = "cell"
 
@@ -53,7 +54,7 @@ class CoordinateInfo:
         self.vertical_coord = vertical_coord
 
 
-class CoordinateSystem(Generic[HM, VM, LO]):
+class CoordinateSystem(eqx.Module, Generic[HM, VM, LO]):
     _hori: HM
     _vert: VM
     _layout: LO
@@ -89,7 +90,7 @@ class CoordinateSystem(Generic[HM, VM, LO]):
         )
 
 
-class AbstractLayout(Generic[HM, VM, LO], ABC):
+class AbstractLayout(eqx.Module, Generic[HM, VM, LO], ABC):
 
     @staticmethod
     @abstractmethod

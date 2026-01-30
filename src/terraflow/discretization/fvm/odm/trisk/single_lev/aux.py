@@ -1,14 +1,22 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
 from terraflow.util import typing
-from terraflow.planet import PlanetParameterSet
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate, HybridVertCoordinate
 from terraflow.layout import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import DiscretizationInfo
-from terraflow.discretization.abstract import AbstractEquationSetAuxiliary
-from terraflow.discretization.fvm.odm.trisk import coriolis, base
-from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block
+from terraflow.discretization.abstract import (
+    AbstractEquationSetAuxiliaryTerms
+)
+from terraflow.discretization.fvm.odm.trisk import base
+from terraflow.discretization.fvm.odm.trisk.coriolis import schemes as coriolis
+
+
+if TYPE_CHECKING:
+    from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block
 
 Float = typing.Float
 Array = typing.Array
@@ -19,45 +27,44 @@ CoordSys = CoordinateSystem[
 ]
 
 
-class AuxiliaryTerms(AbstractEquationSetAuxiliary):
+class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        coord: CoordSys,
-        para: PlanetParameterSet,
         method: FiniteVolumeMethod
     ):
-        super().__init__(disc, coord, para, method)
-        self.ut = coriolis.CoriolisForceAtDualEdge(
-            coord, para
+        super().__init__(disc=disc, method=method)
+        self.coriolis = coriolis.CoriolisForceAtEdge(
+            disc=disc, method=method
         )
         self.rel_vor = base.RelativeVorticityAtDualCell(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.abs_vor = base.AbsoluteVorticityAtDualCell(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.z_e = base.GeopotentialHeightAtPrimalEdge(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.mfn_e = base.MassFluxAtPrimalEdge(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.z_vtx = base.GeopotentialHeightAtDualCell(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.pv_vtx = base.PotentialVorticityAtDualCell(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.pv_e = base.PotentialVorticityAtDualEdge(
-            disc, coord, para, method
+            disc=disc, method=method
         )
         self.ke = base.KineticEnergyAtPrimalCell(
-            disc, coord, para, method
+            disc=disc, method=method
         )
 
     def build_default(self) -> "AuxiliaryTerms":
+        self.coriolis.build_default()
         self.rel_vor.build_default()
         self.abs_vor.build_default()
         self.z_e.build_default()
@@ -67,6 +74,18 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
         self.pv_e.build_default()
         self.ke.build_default()
         return self
+
+    def prepare(self, block: Block) -> Block:
+        block = self.coriolis.prepare(block)
+        block = self.rel_vor.prepare(block)
+        block = self.abs_vor.prepare(block)
+        block = self.z_e.prepare(block)
+        block = self.mfn_e.prepare(block)
+        block = self.z_vtx.prepare(block)
+        block = self.pv_vtx.prepare(block)
+        block = self.pv_e.prepare(block)
+        block = self.ke.prepare(block)
+        return block
 
     def __call__(
         self,
@@ -79,7 +98,7 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliary):
             return block
 
         def backward_call(block: Block) -> Block:
-            block = self.ut.recon_tangent_velocity(block)
+            block = self.coriolis.recon_tangent_velocity(block)
             block = self.rel_vor(block)
             block = self.abs_vor(block)
             block = self.mfn_e(block)

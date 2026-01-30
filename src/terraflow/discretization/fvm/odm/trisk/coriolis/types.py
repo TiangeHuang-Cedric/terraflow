@@ -1,0 +1,14 @@
+from terraflow.discretization.abstract import (
+    AbstractEquationTermAuxiliaryDataset
+)
+from terraflow.discretization.fvm.odm.trisk.coriolis.trisk import TriSKCoriolisForceAtEdgeData
+
+
+class CoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryDataset):
+    trisk: TriSKCoriolisForceAtEdgeData
+
+    @classmethod
+    def empty(cls) -> "CoriolisForceAtEdgeData":
+        return cls(
+            trisk=TriSKCoriolisForceAtEdgeData.empty()
+        )

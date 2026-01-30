@@ -1485,5 +1485,6 @@ def format_terraflow2ugrid(
             "units": units,
             "long_name": meta["long_name"],
             "description": meta["description"],
+            "output": meta["output"]
         }
     )

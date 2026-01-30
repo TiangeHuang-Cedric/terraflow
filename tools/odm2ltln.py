@@ -6,9 +6,9 @@ It can also generate a weight file if required.
 Usage: python Fluida2Latlon.py -N 1 -w input.nc output.nc
 """
 import argparse
-from math import inf
 import pathlib
 import subprocess
+from loguru import logger
 
 
 def parse_commandline():
@@ -70,8 +70,21 @@ def main():
         outfile = f"{filehead}.{res}×{res}.nc"
     use_weight = args.use_weight
 
+    logger.info(
+        f"Remapping {infile} to {outfile} with resolution {res}×{res}."
+    )
+    if use_weight:
+        logger.info(
+            "Remapping will be done using generated weight."
+        )
+
+    logger.info(
+        "Starting remapping..."
+    )
+
     try:
-        cdo_remap(infile, outfile, res, use_weight, silent=True)
+        cdo_remap(infile, outfile, res, use_weight, silent=False)
+        logger.info("Remapping completed successfully.")
     except Exception:
         run([
             "ncks",
@@ -79,6 +92,9 @@ def main():
         ])
         cdo_remap("tmp.nc", outfile, res, use_weight, silent=False)
         run(["rm", "tmp.nc"])
+        logger.info(
+            "Remapping completed successfully after removing vertex coordinates."
+        )
 
 
 if __name__ == "__main__":
