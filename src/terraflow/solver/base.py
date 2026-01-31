@@ -4,6 +4,7 @@ import datetime
 import jax
 import jax.numpy as jnp
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util import typing, device
 from terraflow.util.datetime import DateTimeManager
@@ -114,6 +115,14 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
             dtype=dev.float_type
         )
         self.forward_backward = forward_backward
+        if self.forward_backward:
+            logger.success(
+                "Use Forward-Backward Third-order Runge-Kutta time integration solver."
+            )
+        else:
+            logger.success(
+                "Use Third-order Runge-Kutta time integration solver."
+            )
 
     def stepper(self) -> Callable:
         """Third-order Runge-Kutta time stepper."""
@@ -172,6 +181,14 @@ class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
         super().__init__(equation, time_manager, dev)
         self.dt_seconds = self.dt.total_seconds()
         self.forward_backward = forward_backward
+        if self.forward_backward:
+            logger.success(
+                "Use Forward-Backward Euler time integration solver."
+            )
+        else:
+            logger.success(
+                "Use Euler time integration solver."
+            )
 
     def stepper(self) -> Callable:
         """Forward-Backward Euler time stepper."""

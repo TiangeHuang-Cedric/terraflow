@@ -2,6 +2,7 @@ from typing import Optional, Self, Mapping, List, Literal, Union, overload
 import jax
 import jax.numpy as jnp
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util import typing, device
 from terraflow.util import math, history
@@ -1618,7 +1619,9 @@ class NodeEntity:
         return self._dual.centroid
 
 
-class AbstractMeshEntity:
+class AbstractMeshEntity(eqx.Module):
+    _mesh: "OrthogonalDualMesh"
+
     def __init__(self, mesh: "OrthogonalDualMesh"):
         self._mesh = mesh
 
@@ -1738,6 +1741,7 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
         edp = PrimalEdge.from_grist(grist)
         edd = DualEdge.from_grist(grist)
         aux = AuxiliaryData.from_elements(plg, dua, edp, edd)
+        logger.success("Initialized OrthogonalDualMesh from Grist mesh.")
         return cls(dev, n_polg, n_dual, n_edge, plg, dua, edp, edd, aux)
 
     def reconstruct_vector(

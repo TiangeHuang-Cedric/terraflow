@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, Dict, Generic
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util import typing
 from terraflow.mesh import AbstractMesh
@@ -63,6 +64,7 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, LO]):
         self._hori = hori
         self._vert = vert
         self._layout = layout
+        logger.success("Initialized coordinate system.")
 
     @property
     def mesh(self) -> HM:

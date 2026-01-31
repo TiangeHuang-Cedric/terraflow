@@ -779,6 +779,7 @@ def calc_4th_derivative(
     return dq_4th
 
 
+@jax.jit
 def hx_stencil_member_list_2nd_order(
     primal: PrimalMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -788,6 +789,7 @@ def hx_stencil_member_list_2nd_order(
     return stencil_num, stencil_idx
 
 
+@jax.jit
 def hx_stencil_member_list_4th_order(
     primal: PrimalMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -827,6 +829,7 @@ def hx_stencil_member_list_4th_order(
     return stencil_num, stencil_idx
 
 
+@jax.jit
 def tr_stencil_member_list_2nd_order(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -862,6 +865,7 @@ def tr_stencil_member_list_2nd_order(
     return stencil_num, stencil_idx
 
 
+@jax.jit
 def tr_stencil_member_list_2nd_order_mbs(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -894,6 +898,7 @@ def tr_stencil_member_list_2nd_order_mbs(
     return stencil_num, stencil_idx
 
 
+@jax.jit
 def tr_stencil_member_list_4th_order(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -956,6 +961,7 @@ def tr_stencil_member_list_4th_order(
     return stencil_num, stencil_idx
 
 
+@jax.jit
 def tr_stencil_member_list_4th_order_mbs(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:

@@ -8,6 +8,8 @@ from terraflow.util.datetime import DateTimeManager
 import terraflow.util.history as history
 import terraflow.util.device as device
 
+t0 = time.perf_counter()
+
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
@@ -75,8 +77,10 @@ integrate_fn = jax.jit(
 )
 
 logger.info("Start integrating...")
-t0 = time.perf_counter()
+t1 = time.perf_counter()
 final = integrate_fn(block)
 jax.block_until_ready(final)
-t1 = time.perf_counter()
-logger.success(f"Integration took {t1 - t0} seconds.")
+t2 = time.perf_counter()
+logger.success(f"Integration time cost {t2 - t1} seconds.")
+
+logger.success(f"Total time cost {t2 - t0} seconds.")

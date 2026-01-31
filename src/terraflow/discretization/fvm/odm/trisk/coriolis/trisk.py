@@ -4,7 +4,6 @@ from jax import numpy as jnp
 from jax import lax, debug
 import jax
 import equinox as eqx
-from zeroth import T
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
@@ -162,6 +161,7 @@ class TriSKCoriolisForceAtEdge(Term):
         return self
 
 
+@jax.jit
 def calc_trsk_weight(
     mesh: OrthogonalDualMesh
 ) -> Float[Array, "nPrimal_cell maxnnb maxnnb"]:
@@ -178,8 +178,8 @@ def calc_trsk_weight(
     dua = mesh._dua
     dtype = plg.kite_area.dtype
 
-    n_polg = mesh.shape["n_polg"]
-    maxnnb = plg.maxnnb
+    n_polg = mesh.primal.cell.adjacency.shape[0]
+    maxnnb = mesh.primal.cell.adjacency.shape[1]
     alpha = jnp.array(0.5, dtype=dtype)
 
     def polg_body(_, ic):
@@ -302,6 +302,7 @@ def calc_trsk_weight(
     return jnp.array(trsk_weight, dtype=dtype)
 
 
+@jax.jit
 def trisk_weighted_interpolation_operator(
     mesh: OrthogonalDualMesh
 ) -> tuple[
@@ -332,8 +333,8 @@ def trisk_weighted_interpolation_operator(
     plg = mesh._plg
     edp = mesh._edp
     edd = mesh._edd
-    n_edge = mesh.shape["n_edge"]
-    maxnnb = mesh._plg.maxnnb
+    n_edge = mesh.primal.edge.length.shape[0]
+    maxnnb = mesh.primal.cell.adjacency.shape[1]
 
     trsk_weight = calc_trsk_weight(mesh)
 

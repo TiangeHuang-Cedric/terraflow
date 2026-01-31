@@ -8,6 +8,7 @@ import unxt as ux
 import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
+from loguru import logger
 
 import terraflow.operator as op
 from terraflow.util import typing, uxarray as tuxr
@@ -391,7 +392,9 @@ class AbstractEquationSet(
 
     def prepare(self, block: BLOCK) -> BLOCK:
         self.aux.build_default()
-        return self.aux.prepare(block)
+        block = self.aux.prepare(block)
+        logger.success("Prepared auxiliary terms and data.")
+        return block
 
     def disc_info(self) -> Dict[str, str]:
         return {

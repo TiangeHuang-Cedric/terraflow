@@ -1,6 +1,8 @@
 from typing import Dict, Optional, Self
+from venv import logger
 import jax.numpy as jnp
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
@@ -68,6 +70,7 @@ class Block(
         tend = Tendency.from_coord(coord)
         aux = Auxiliary.from_coord(coord)
         equaux = EquationTermAuxDataset.empty()
+        logger.success("Initialized block from testcase.")
         return cls(
             coord=coord, para=para,
             state=state, tend=tend, static=static,

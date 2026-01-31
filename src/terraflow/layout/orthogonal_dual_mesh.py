@@ -1,5 +1,6 @@
 from typing import TypeVar
 import jax.numpy as jnp
+from loguru import logger
 
 from terraflow.util import typing
 from terraflow.vert_coord import AbstractVertCoordinate
@@ -24,6 +25,9 @@ class AbstractCGridStaggeringLayout4OrthogonalDualMesh(
 class TriSKBasedCGridStaggeringLayout(
     AbstractCGridStaggeringLayout4OrthogonalDualMesh
 ):
+    def __init__(self):
+        logger.success("Initialized TriSKBasedCGridStaggeringLayout.")
+
     @staticmethod
     def alias_name() -> str:
         return "triskC"
@@ -71,9 +75,9 @@ class TriSKBasedCGridStaggeringLayout(
                 f"{hori_loc} and basis {basis} for trisk layout"
             )
         if isinstance(coord.vert, AbstractLorenzCoordinate):
-            if vert_loc == VertLoc.FullLev:
+            if vert_loc == VertLoc.Cell:
                 vert_point = coord.vert.get_full_lev()
-            elif vert_loc == VertLoc.HalfLev:
+            elif vert_loc == VertLoc.Lev:
                 vert_point = coord.vert.get_half_lev()
             else:
                 raise ValueError(

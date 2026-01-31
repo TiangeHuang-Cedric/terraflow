@@ -1,13 +1,90 @@
-from typing import Self, Dict, Union
+from typing import Self, Dict, Union, Optional, List
 import unxt as ux
 import jax.numpy as jnp
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util import typing, device
 
 Numeric = typing.Numeric
 Array = typing.Array
 ArrayWithUnits = typing.ArrayWithUnits
+
+kb: float = 1.380649e-23        # Boltzmann constant (J K-1)
+na: float = 6.02214076e23       # Avogadro constant (mol-1)
+ru: float = kb * na             # Universal gas constant (J K-1 mol-1)
+amu: float = 1.0 / (1000 * na)  # Atomic mass unit (kg) ~ 1.6605390672e-27
+m_o2: float = 32.00e-3          # O2 molar mass (kg mol-1)
+m_n2: float = 28.01e-3          # N2 molar mass (kg mol-1)
+m_ar: float = 39.94e-3          # Ar molar mass (kg mol-1)
+m_co2: float = 44.01e-3         # CO2 molar mass (kg mol-1)
+m_h2o: float = 18.02e-3         # H2O molar mass (kg mol-1)
+
+
+class GasType:
+    name: str = ""
+    n_atom: int = 0
+    dof: float = 0.0  # Degrees of Freedom
+    m_ratio: float = 0.0  # Mass ratio (1)
+    v_ratio: float = 0.0  # Volume ratio or mole ratio (1)
+    m: float = 0.0  # Molecular mass (kg/mol)
+    r: float = 0.0  # Specific gas constant (J/(kg*K))
+    cp: float = 0.0  # Specific heat capacity at constant pressure (J/(kg*K))
+    cv: float = 0.0  # Specific heat capacity at constant volume (J/(kg*K))
+    gamma: float = 0.0  # Adiabatic index (cp / cv)
+    kappa: float = 0.0  # Poisson constant (r / cp)
+    l: float = 0.0  # Latent heat rate (J/kg)
+
+    def __init__(
+        self,
+        name: str,
+        n_atom: int,
+        m: float,
+        v_ratio: Optional[float] = None,
+        dof: Optional[float] = None
+    ):
+        self.name = name
+        self.n_atom = n_atom
+        self.m = m
+        self.r = ru / m
+        if dof is not None:
+            dof_ = dof
+        else:
+            if n_atom == 1:
+                dof_ = 3.0
+            elif n_atom == 2:
+                dof_ = 5.0
+            else:
+                raise ValueError(
+                    f"Cannot infer degrees of freedom for {name} with n_atom={n_atom}."
+                )
+        self.cv = dof_ * 0.5 * self.r
+        self.cp = self.cv + self.r
+        if v_ratio is not None:
+            self.v_ratio = v_ratio
+
+        self.gamma = self.cp / self.cv
+        self.kappa = self.r / self.cp
+
+    def from_gases(
+        self,
+        name: str,
+        gases: List[Self]
+    ):
+        self.name = name
+        # Calculate mean molecular mass
+        sum_ratio = sum(g.v_ratio for g in gases)
+        self.m = sum(g.v_ratio * g.m for g in gases) / sum_ratio
+        self.r = ru / self.m
+        # Calculate mass mixing ratio from volume mixing ratio
+        for g in gases:
+            g.m_ratio = (g.v_ratio * g.m) / self.m
+        # Calculate cp and cv
+        sum_ratio = sum(g.m_ratio for g in gases)
+        self.cv = sum(g.m_ratio * g.cv for g in gases) / sum_ratio
+        self.cp = self.cv + self.r
+        self.gamma = self.cp / self.cv
+        self.kappa = self.r / self.cp
 
 
 class PlanetParameter(eqx.Module):
@@ -196,6 +273,9 @@ class PlanetParameterSet(eqx.Module):
             raise NotImplementedError(
                 f"Component '{component}' is not implemented yet."
             )
+        logger.success(
+            f"Initialized planet parameters for {planet} - {component} in SI units."
+        )
         return cls.from_dict(parasets)
 
     def parameter_names(self) -> list[str]:
@@ -284,6 +364,18 @@ class PlanetParameterSet(eqx.Module):
     def omega(self) -> PlanetParameter:
         return self["omega"]
 
+    @property
+    def rd(self) -> PlanetParameter:
+        return self["rd"]
+
+    @property
+    def cp(self) -> PlanetParameter:
+        return self["cp"]
+
+    @property
+    def cv(self) -> PlanetParameter:
+        return self["cv"]
+
 
 def earth_atmosphere_parameters(dev: device.AbstractDevice) -> Dict[str, Union[str, Dict[str, PlanetParameter]]]:
     return {
@@ -307,6 +399,24 @@ def earth_atmosphere_parameters(dev: device.AbstractDevice) -> Dict[str, Union[s
                 description="Angular Velocity of Earth's Rotation",
                 unit="rad/s",
                 value=jnp.array(7.2921e-5, dtype=dev.float_type)
-            )
+            ),
+            "rd": PlanetParameter(
+                name="rd",
+                description="Gas Constant for Dry Air",
+                unit="J/(kg*K)",
+                value=jnp.array(287.0, dtype=dev.float_type)
+            ),
+            "cp": PlanetParameter(
+                name="cp",
+                description="Specific heat capacity under constant pressure",
+                unit="J/(kg*K)",
+                value=jnp.array(1004.5, dtype=dev.float_type)
+            ),
+            "cv": PlanetParameter(
+                name="cv",
+                description="Specific heat capacity under constant volume",
+                unit="J/(kg*K)",
+                value=jnp.array(717.5, dtype=dev.float_type)
+            ),
         }
     }

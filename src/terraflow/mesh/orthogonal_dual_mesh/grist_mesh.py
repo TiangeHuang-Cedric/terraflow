@@ -3,6 +3,9 @@ import numpy as np
 import jax.numpy as jnp
 import xarray as xr
 import equinox as eqx
+from pathlib import Path
+import textwrap
+from loguru import logger
 
 import terraflow.util.math as math
 from terraflow.mesh.orthogonal_dual_mesh.base import Point, AbstractRefMesh
@@ -16,6 +19,12 @@ IntType = typing.IntType
 FloatType = typing.FloatType
 Str = typing.Str
 Array = typing.Array
+
+logger = logger.patch(
+    lambda r: r.update(
+        message=textwrap.indent(r["message"], " " * 21).lstrip()
+    )
+)
 
 
 class GristElementMeta:
@@ -210,30 +219,6 @@ class GristPrimalCell(RefPrimalCell):
     nnb: Array
     maxnnb: IntType
 
-    # def __init__(
-    #     self, n_cell: IntType, area: Array, kite_area: Array,
-    #     nb: Array, ed: Array, nr: Array, v: Array, cc: Point,
-    #     nnb: Array, maxnnb: IntType
-    # ):
-    #     """
-    #     Initialize a PrimalCell with the given parameters.
-    #     Args:
-    #         n_cell (Int): Number of cells.
-    #         area (Array): Area of the cells.
-    #         kite_area (Array): Kite areas of the cells.
-    #         nb (Array): Neighbors of the cells.
-    #         ed (Array): Edges of the cells.
-    #         nr (Array): Normal vectors of the edges.
-    #         v (Array): Vertices of the cells.
-    #         cc (Point): Centroid of the cells.
-    #         nnb (Array): Number of neighbors for each cell.
-    #         maxnnb (Int): Maximum number of neighbors for any cell.
-    #     """
-    #     RefPrimalCell.__init__(
-    #         self, n_cell, area, kite_area, nb, ed, nr, v, cc)
-    #     self.nnb = nnb
-    #     self.maxnnb = maxnnb
-
     @classmethod
     def from_meta(cls, meta: GristMeta, dev: device.AbstractDevice = device.CPU()):
         """Initialize the primal cell from metadata."""
@@ -307,27 +292,6 @@ class GristDualCell(RefDualCell):
         nnb (Int): Number of dual cells, usually 3 for triangles.
     """
     nnb: IntType
-
-    # def __init__(
-    #     self, n_cell: IntType, area: Array, kite_area: Array,
-    #     nb: Array, ed: Array, nr: Array, v: Array, cc: Point,
-    #     nnb: IntType
-    # ):
-    #     """
-    #     Initialize a DualCell with the given parameters.
-    #     Args:
-    #         n_cell (Int): Number of cells.
-    #         area (Array): Area of the cells.
-    #         kite_area (Array): Kite areas of the cells.
-    #         nb (Array): Neighbors of the cells.
-    #         ed (Array): Edges of the cells.
-    #         nr (Array): Normal vectors of the edges.
-    #         v (Array): Vertices of the cells.
-    #         cc (Point): Centroid of the cells.
-    #         nnb (Int): Number of neighbors for each cell.
-    #     """
-    #     RefDualCell.__init__(self, n_cell, area, kite_area, nb, ed, nr, v, cc)
-    #     self.nnb = nnb
 
     @classmethod
     def from_meta(cls, meta: GristMeta, dev: device.AbstractDevice = device.CPU()):
@@ -541,5 +505,15 @@ class GristRefMesh(eqx.Module, AbstractRefMesh):
             dua,
             (geometry.spherical_tri_kite_areas(dua, edd, plg),
              geometry.correct_normal_vectors(dua, edd))
+        )
+        logger.info(
+            f"Loading GRIST mesh from: \n"
+            f"  └─grist 0d file: {Path(grist_0d_file).absolute()}\n"
+            f"  └─grist 2d file: {Path(grist_2d_file).absolute()}."
+        )
+        logger.info(
+            f"GRIST Mesh info: \n"
+            f"  └─nv={meta.nv} nt={meta.nt} ne={meta.ne} \n"
+            f"  └─maxvnb={meta.maxvnb} n_dual={meta.n_dual} glevel={meta.glevel}"
         )
         return cls(meta, plg, dua, edp, edd)

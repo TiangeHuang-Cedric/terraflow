@@ -44,6 +44,26 @@ class DateTimeManager:
         self.save_interval_value = save_interval_value
         self.save_interval_unit = save_interval_unit
         self.dt_dyn = dt_dyn
+        logger.success("Initialized date time manager. ")
+        run_time_date = self.end_time - self.start_time
+        if run_time_date.days >= 1:
+            run_time_unit = "days"
+        else:
+            run_time_unit = "hours"
+        logger.info(
+            "Start time: {}, End time: {}, Run time: {}".format(
+                self.start_time_str,
+                self.end_time_str,
+                self.run_time(unit=run_time_unit)
+            )
+        )
+        logger.info(
+            "Save interval: {} {}, Dynamic time step: {} seconds".format(
+                self.save_interval_value,
+                self.save_interval_unit,
+                self.dt_dyn.total_seconds(),
+            )
+        )
 
     @property
     def start_time(self) -> datetime.datetime:

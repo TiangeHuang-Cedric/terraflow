@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 import equinox as eqx
+from loguru import logger
 
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
@@ -34,6 +35,9 @@ class OneLayerVertCoordinate(AbstractVertCoordinate[OneLayerVerticalCoordinateSe
     """
     OneLayerVertCoordinate represents a vertical coordinate system with a single layer.
     """
+
+    def __init__(self):
+        logger.success("Initialized OneLayerVertCoordinate.")
 
     @staticmethod
     def alias_name() -> str:

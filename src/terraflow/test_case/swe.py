@@ -3,6 +3,7 @@ from jax import numpy as jnp
 import jax
 import equinox as eqx
 import quadax
+from loguru import logger
 
 from terraflow.util import typing, math
 from terraflow.planet import PlanetParameterSet
@@ -137,6 +138,7 @@ class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
         self.clon = jnp.pi * 1.5
         self.clat = jnp.pi / 6.0
         self.mountain_radius = jnp.pi / 9.0
+        logger.success("Initialized mountain zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:
         """Initialize mountain topography."""
@@ -208,6 +210,7 @@ class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
         self.K = 7.848e-6
         self.h0 = 8000.0
         self.R = 4
+        logger.success("Initialized Rossby-Haurwitz wave test case.")
 
     def init_topography(self, lon: Array, lat: Array) -> Array:
         """Initialize topography (flat for Rossby-Haurwitz wave)."""
@@ -327,6 +330,7 @@ class JetZonalFlowTestCase(ShallowWaterEquationTestCase):
         self.h0 = 1.0e4
         self.hs0 = 0.0
         self.hd = 120.0
+        logger.success("Initialized jet zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:
         """Initialize topography (flat for jet zonal flow)."""
