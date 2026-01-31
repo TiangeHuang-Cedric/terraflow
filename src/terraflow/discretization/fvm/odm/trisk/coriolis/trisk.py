@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Self, TypeVar, TYPE_CHECKING
+import functools
 from jax import numpy as jnp
 from jax import lax, debug
 import jax
@@ -59,11 +60,12 @@ class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
 
     @classmethod
     def from_coord(cls, coord: CoordSys) -> "TriSKCoriolisForceAtEdgeData":
+        dev = coord.mesh.primal.cell.area.device
         collection = trisk_weighted_interpolation_operator(coord.mesh)
-        edp_numb_on_edge = collection[0]
-        edp_edge_on_edge = collection[1]
-        edp_trsk_on_edge = collection[2]
-        edp_edpl_on_edge = collection[3]
+        edp_numb_on_edge = jax.device_put(collection[0], device=dev)
+        edp_edge_on_edge = jax.device_put(collection[1], device=dev)
+        edp_trsk_on_edge = jax.device_put(collection[2], device=dev)
+        edp_edpl_on_edge = jax.device_put(collection[3], device=dev)
         return cls(
             _init=True,
             edp_numb_on_edge=edp_numb_on_edge,
@@ -161,7 +163,7 @@ class TriSKCoriolisForceAtEdge(Term):
         return self
 
 
-@jax.jit
+@functools.partial(jax.jit, backend="cpu")
 def calc_trsk_weight(
     mesh: OrthogonalDualMesh
 ) -> Float[Array, "nPrimal_cell maxnnb maxnnb"]:
@@ -302,7 +304,7 @@ def calc_trsk_weight(
     return jnp.array(trsk_weight, dtype=dtype)
 
 
-@jax.jit
+@functools.partial(jax.jit, backend="cpu")
 def trisk_weighted_interpolation_operator(
     mesh: OrthogonalDualMesh
 ) -> tuple[

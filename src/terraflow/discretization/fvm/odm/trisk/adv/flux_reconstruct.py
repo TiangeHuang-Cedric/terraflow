@@ -58,7 +58,7 @@ class FluxReconstructAuxiliaryData(AbstractEquationTermAuxiliaryData):
     @classmethod
     def from_coord(
         cls,
-        coord: CoordinateSystem,
+        coord: CoordSys,
         on_mesh: str,
         polynomial_order: int,
         **kwargs
@@ -71,7 +71,10 @@ class FluxReconstructAuxiliaryData(AbstractEquationTermAuxiliaryData):
             raise ValueError(
                 f"Unsupported mesh type {on_mesh} for flux reconstruction auxiliary data."
             )
+        dev = coord.mesh.primal.cell.area.device
         stencil_idxes, wgt = fn(coord.mesh, polynomial_order, **kwargs)
+        stencil_idxes = jax.device_put(stencil_idxes, device=dev)
+        wgt = jax.device_put(wgt, device=dev)
         return cls(
             _init=True,
             stencil_idxes=stencil_idxes,
@@ -779,7 +782,7 @@ def calc_4th_derivative(
     return dq_4th
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def hx_stencil_member_list_2nd_order(
     primal: PrimalMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -789,7 +792,7 @@ def hx_stencil_member_list_2nd_order(
     return stencil_num, stencil_idx
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def hx_stencil_member_list_4th_order(
     primal: PrimalMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -829,7 +832,7 @@ def hx_stencil_member_list_4th_order(
     return stencil_num, stencil_idx
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def tr_stencil_member_list_2nd_order(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -865,7 +868,7 @@ def tr_stencil_member_list_2nd_order(
     return stencil_num, stencil_idx
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def tr_stencil_member_list_2nd_order_mbs(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -898,7 +901,7 @@ def tr_stencil_member_list_2nd_order_mbs(
     return stencil_num, stencil_idx
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def tr_stencil_member_list_4th_order(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -961,7 +964,7 @@ def tr_stencil_member_list_4th_order(
     return stencil_num, stencil_idx
 
 
-@jax.jit
+@partial(jax.jit, backend="cpu")
 def tr_stencil_member_list_4th_order_mbs(
     dual: DualMeshEntity
 ) -> Tuple[Int[Array, "ncell"], Int[Array, "ncell max_m"]]:
@@ -1195,7 +1198,7 @@ def calc_b_matrix_at_primal_cells(
     )
 
 
-@partial(jax.jit, static_argnums=(1, 2))
+@partial(jax.jit, static_argnums=(1, 2), backend="cpu")
 def _init_bmatrix_at_edge(
     mesh: OrthogonalDualMesh,
     recon_builder: AbstractFluxReconstructInfo,
