@@ -204,7 +204,7 @@ class AbstractEquationTerm(
     ):
         super().__init__(disc, method)
         self._table = "equterm"
-        self.aux = aux
+        self._aux = aux
 
     @abstractmethod
     def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
@@ -213,6 +213,10 @@ class AbstractEquationTerm(
     @abstractmethod
     def unwrap(self, block) -> Field:
         raise NotImplementedError
+
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -244,7 +248,7 @@ class AbstractEquationForm(
         disc_copy.equ = self.alias_name()
         super().__init__(disc_copy, method)
         self._table = "equ"
-        self.aux = aux
+        self._aux = aux
 
     @abstractmethod
     def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
@@ -259,6 +263,10 @@ class AbstractEquationForm(
     @abstractmethod
     def ode_kind_alias_name() -> str:
         raise NotImplementedError
+
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -366,7 +374,7 @@ class AbstractEquationSet(
             disc=disc,
             method=method
         )
-        self.aux = aux
+        self._aux = aux
 
     @staticmethod
     @abstractmethod
@@ -385,6 +393,10 @@ class AbstractEquationSet(
     def ode_kind_alias_name() -> str:
         """Return the ODE kind alias name of the dynamics set. Default to empty string."""
         raise NotImplementedError
+
+    @property
+    def aux(self) -> ESAUX:
+        return self._aux
 
     def build_default(self) -> Self:
         self.aux.build_default()
