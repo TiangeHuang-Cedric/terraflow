@@ -51,14 +51,15 @@ class DateTimeManager:
         else:
             run_time_unit = "hours"
         logger.info(
-            "Start time: {}, End time: {}, Run time: {}".format(
+            "Start time: {}, End time: {}, Run time: {} {}.".format(
                 self.start_time_str,
                 self.end_time_str,
-                self.run_time(unit=run_time_unit)
+                self.run_time(unit=run_time_unit),
+                run_time_unit,
             )
         )
         logger.info(
-            "Save interval: {} {}, Dynamic time step: {} seconds".format(
+            "Save interval: {} {}, Dynamic time step: {} seconds.".format(
                 self.save_interval_value,
                 self.save_interval_unit,
                 self.dt_dyn.total_seconds(),
