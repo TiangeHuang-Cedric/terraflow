@@ -22,7 +22,8 @@ ArrayWithUnits = typing.ArrayWithUnits
 
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
-LO = TypeVar("LO", bound=AbstractLayout)
+HLO = TypeVar("HLO", bound=AbstractLayout)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 FDT = TypeVar("FDT", Array, ux.AbstractQuantity)
 FMT = TypeVar("FMT", bound="AbstractFieldMetaData")
 
@@ -46,7 +47,12 @@ class AbstractFieldMetaData(eqx.Module, ABC):
     basis: str = eqx.field(static=True, default="")
     coordinates: str = eqx.field(static=True, default="")
     is_prognostic: bool = eqx.field(static=True, default=False)
+    is_static: bool = eqx.field(static=True, default=False)
     output: str = eqx.field(static=True, default="")
+
+    def is_empty(self) -> bool:
+        """Check if the metadata indicates an empty field."""
+        return self.name == "" and self.dims == () and self.units == ""
 
     @abstractmethod
     def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
@@ -65,9 +71,27 @@ class AbstractFieldMetaData(eqx.Module, ABC):
         """Create a new FieldMetaData instance from a dictionary."""
         raise NotImplementedError
 
-    def get_position(self, coord: CoordinateSystem[HM, VM, LO]) -> CoordinateInfo:
-        return coord.get_layout(
-            self.hori_location, self.vert_location, self.basis
+    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> "ArrayField[Self]":
+        """Create a zero-filled array with the same shape as the specified layout position."""
+        data = coord.zeros_like(
+            hori_loc=self.hori_location,
+            vert_loc=self.vert_location,
+            basis=self.basis
+        )
+        return ArrayField.create(
+            data=data,
+            meta=self,
+            as_quantity=False
+        )
+
+    def get_hori_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return coord.get_hori_layout(
+            loc=self.hori_location, basis=self.basis
+        )
+
+    def get_vert_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return coord.get_vert_layout(
+            loc=self.vert_location
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -83,6 +107,7 @@ class AbstractFieldMetaData(eqx.Module, ABC):
             "basis": self.basis,
             "coordinates": self.coordinates,
             "is_prognostic": self.is_prognostic,
+            "is_static": self.is_static,
             "output": self.output,
         }
 
@@ -112,6 +137,7 @@ class FieldMetaData(AbstractFieldMetaData):
             basis=self.basis,
             coordinates=self.coordinates,
             is_prognostic=self.is_prognostic,
+            is_static=self.is_static,
             output=self.output,
         )
 
@@ -129,6 +155,7 @@ class FieldMetaData(AbstractFieldMetaData):
             basis=kwargs.get("basis", ""),
             coordinates=kwargs.get("coordinates", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
+            is_static=kwargs.get("is_static", False),
             output=kwargs.get("output", ""),
         )
 
@@ -146,6 +173,7 @@ class FieldMetaData(AbstractFieldMetaData):
             basis=meta.get("basis", ""),
             coordinates=meta.get("coordinates", ""),
             is_prognostic=meta.get("is_prognostic", False),
+            is_static=meta.get("is_static", False),
             output=meta.get("output", ""),
         )
 
@@ -179,6 +207,7 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=self.staggered_kind,
             mesh_name=self.mesh_name,
             is_prognostic=self.is_prognostic,
+            is_static=self.is_static,
             output=self.output,
         )
 
@@ -198,6 +227,7 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=kwargs.get("staggered_kind", ""),
             mesh_name=kwargs.get("mesh_name", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
+            is_static=kwargs.get("is_static", False),
             output=kwargs.get("output", ""),
         )
 
@@ -217,6 +247,7 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=meta.get("staggered_kind", ""),
             mesh_name=meta.get("mesh_name", ""),
             is_prognostic=meta.get("is_prognostic", False),
+            is_static=meta.get("is_static", False),
             output=meta.get("output", ""),
         )
 
@@ -422,6 +453,50 @@ class Field(eqx.Module, Generic[FDT, FMT]):
             raise TypeError(
                 "data must be either a JAX-like array or an unxt.AbstractQuantity"
             )
+
+    @overload
+    @classmethod
+    def empty(
+        cls,
+        as_quantity: Literal[False] = False
+    ) -> "ArrayField[FMT]":
+        ...
+
+    @overload
+    @classmethod
+    def empty(
+        cls,
+        as_quantity: Literal[True]
+    ) -> "QuantityField[FMT]":
+        ...
+
+    @classmethod
+    def empty(
+        cls,
+        as_quantity: bool = False
+    ) -> Union["ArrayField[FMT]", "QuantityField[FMT]"]:
+        """Create an empty AbstractField instance with default metadata."""
+        meta = FieldMetaData.create()
+        if as_quantity:
+            quantity_data = ux.Quantity(
+                [], meta.units  # type: ignore
+            )
+            return QuantityField(data=quantity_data, meta=meta)
+        else:
+            return ArrayField(data=jnp.array([]), meta=meta)
+
+    def is_empty(self) -> bool:
+        """Check if the field is empty (i.e., has no data)."""
+        if not (isinstance(self.data, Array) or isinstance(self.data, ux.AbstractQuantity)):
+            raise TypeError(
+                "data must be either a JAX-like array or an unxt.AbstractQuantity"
+            )
+        if isinstance(self.data, Array) and self.meta.is_empty():
+            return self.data.size == 0
+        elif isinstance(self.data, ux.AbstractQuantity) and self.meta.is_empty():
+            return self.data.value.size == 0
+        else:
+            return False
 
     @overload
     @classmethod
@@ -632,12 +707,15 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         meta = self.meta.wrap_unit(usys)
         return ArrayField(data=jnp.asarray(new_data), meta=meta)
 
-    def get_position(self, coord: CoordinateSystem[HM, VM, LO]) -> CoordinateInfo:
-        return self.meta.get_position(coord)
+    def get_hori_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return self.meta.get_hori_position(coord)
+
+    def get_vert_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return self.meta.get_vert_position(coord)
 
     def to_ugrid(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
         **kwargs
     ) -> tuxr.UGRIDDataArray:
@@ -648,7 +726,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
 
     def to_uxarray(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
         **kwargs
     ) -> uxr.UxDataArray:

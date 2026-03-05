@@ -1,0 +1,201 @@
+from loguru import logger
+from jax import numpy as jnp
+import jax
+import equinox as eqx
+
+from terraflow.util import typing, math
+from terraflow.planet import PlanetParameterSet
+from terraflow.test_case.abstract import AbstractTestCase
+
+FloatType = typing.FloatType
+Float = typing.Float
+Array = typing.Array
+
+
+class BaroclinicEquationTestCase(AbstractTestCase):
+    """Base class for baroclinic dynamics test cases."""
+
+    def init_normal_velocity(
+        self,
+        lon: Array,
+        lat: Array,
+        eta: Array,
+        cartesian: Array,
+        edge_normal: Array,
+    ) -> Array:
+        """Initialize normal velocity at edges.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        u = self.init_u(lon, lat, eta)
+        v = self.init_v(lon, lat, eta)
+        velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
+        return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
+
+    def init_mgs(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize dry mass field at surface.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Dry mass surface initialization is not implemented."
+        )
+
+    def init_gzs(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize geopotential surface field.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Geopotential surface initialization is not implemented."
+        )
+
+    def init_gz(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize geopotential field.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Geopotential initialization is not implemented."
+        )
+
+    def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize zonal (u) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "U velocity initialization is not implemented."
+        )
+
+    def init_v(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize meridional (v) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "V velocity initialization is not implemented."
+        )
+
+    def init_t(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize temperature field.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Temperature initialization is not implemented."
+        )
+
+
+class SteadyStateTestCase(BaroclinicEquationTestCase):
+    alpha: float = eqx.field(default=0.0)
+    u0: float = eqx.field(default=35.0)  # m s-1
+    t0: float = eqx.field(default=288.0)  # K
+    gamma: float = eqx.field(default=0.005)  # K m-1
+    dt: float = eqx.field(default=4.8e5)  # K
+    eta0: float = eqx.field(default=0.252)
+    etat: float = eqx.field(default=0.2)  # Tropopause level
+
+    def __init__(self, para: PlanetParameterSet):
+        self._para = para
+        self.name = "Steady State"
+        self.description = "Steady state test case for baroclinic dynamics."
+        self.references = (
+            "Adapted from Jablonowski and Williamson (2006) baroclinic wave test case.",
+        )
+        self.keywords = ("baroclinic", "steady state", "atmosphere")
+        self.alpha = 0.0
+        self.u0 = 35.0  # m s-1
+        self.t0 = 288.0  # K
+        self.gamma = 0.005  # K m-1
+        self.dt = 4.8e5  # K
+        self.eta0 = 0.252
+        self.etat = 0.2  # Tropopause level
+        logger.success("Initialized steady state test case.")
+
+    def init_mgs(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize dry mass field for steady state test case."""
+        return jnp.ones_like(lon) * 1.0e5
+
+    def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize zonal (u) velocity component for steady state test case."""
+        etav = (eta - self.eta0) * jnp.pi / 2
+
+        def _wrap(etav):
+            return self.u0 * jnp.cos(etav) ** 1.5 * jnp.sin(2 * lat) ** 2
+
+        return jax.vmap(_wrap, in_axes=0, out_axes=0)(etav)
+
+    def init_v(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize meridional (v) velocity component for steady state test case."""
+        dtype = lon.dtype
+        return jnp.zeros((eta.shape[0], lat.shape[0]), dtype=dtype)
+
+    def init_t(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize temperature field for steady state test case."""
+        rd = self.para.rd.unwrap()
+        g = self.para.gravity.unwrap()
+        radius = self.para.radius.unwrap()
+        omega = self.para.omega.unwrap()
+        sin_lat = jnp.sin(lat)
+        cos_lat = jnp.cos(lat)
+
+        def _wrap(eta: Array) -> Array:
+            mask = (self.etat <= eta) & (eta <= 1.0)
+            etav = (eta - self.eta0) * jnp.pi / 2
+            t_bar = jnp.where(
+                mask,
+                self.t0 * eta ** (rd * self.gamma / g),
+                (self.t0 * eta ** (rd * self.gamma / g)
+                 + self.dt * (self.etat - eta) ** 5)
+            )
+            return t_bar + 3 / 4 * eta * jnp.pi * self.u0 / rd * jnp.sin(etav) * jnp.sqrt(jnp.cos(etav)) * (
+                (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63)
+                * 2 * self.u0 * jnp.cos(etav) ** 1.5
+                + (8 / 15 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
+                * radius * omega
+            )
+
+        return jax.vmap(_wrap, in_axes=0, out_axes=0)(eta)
+
+    def init_gz(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize geopotential field for steady state test case."""
+        rd = self.para.rd.unwrap()
+        radius = self.para.radius.unwrap()
+        omega = self.para.omega.unwrap()
+        g = self.para.gravity.unwrap()
+        sin_lat = jnp.sin(lat)
+        cos_lat = jnp.cos(lat)
+
+        def _wrap(eta: Array):
+            etav = (eta - self.eta0) * jnp.pi / 2
+            mask = (self.etat <= eta) & (eta <= 1.0)
+            gz_bar = jnp.where(
+                mask,
+                self.t0 * g / self.gamma * (1 - eta ** (rd * self.gamma / g)),
+                self.t0 * g / self.gamma * (1 - eta ** (rd * self.gamma / g)) - rd * self.dt * (
+                    (jnp.log(eta / self.etat) + 137 / 60) * self.etat ** 5 - 5 * self.etat ** 4 * eta +
+                    5 * self.etat ** 3 * eta ** 2 - 10 / 3 * self.etat ** 2 * eta ** 3 +
+                    5 / 4 * self.etat * eta ** 4 - 1 / 5 * eta ** 5
+                )
+            )
+            return gz_bar + self.u0 * jnp.cos(etav) ** 1.5 * (
+                (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63)
+                * self.u0 * jnp.cos(etav) ** 1.5
+                + (8 / 15 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
+                * radius * omega
+            )
+
+        return jax.vmap(_wrap, in_axes=0, out_axes=0)(eta)
+
+    def init_gzs(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize geopotential surface field for steady state test case."""
+        radius = self.para.radius.unwrap()
+        omega = self.para.omega.unwrap()
+        etav = (1 - self.eta0) * jnp.pi / 2
+        sin_lat = jnp.sin(lat)
+        cos_lat = jnp.cos(lat)
+        return self.u0 * jnp.cos(etav) ** 1.5 * (
+            (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63) * self.u0 * jnp.cos(etav) ** 1.5
+            + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4) * radius * omega
+        )

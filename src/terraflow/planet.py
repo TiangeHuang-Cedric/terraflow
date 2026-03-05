@@ -376,6 +376,10 @@ class PlanetParameterSet(eqx.Module):
     def cv(self) -> PlanetParameter:
         return self["cv"]
 
+    @property
+    def p0(self) -> PlanetParameter:
+        return self["p0"]
+
 
 def earth_atmosphere_parameters(dev: device.AbstractDevice) -> Dict[str, Union[str, Dict[str, PlanetParameter]]]:
     return {
@@ -417,6 +421,12 @@ def earth_atmosphere_parameters(dev: device.AbstractDevice) -> Dict[str, Union[s
                 description="Specific heat capacity under constant volume",
                 unit="J/(kg*K)",
                 value=jnp.array(717.5, dtype=dev.float_type)
+            ),
+            "p0": PlanetParameter(
+                name="p0",
+                description="Reference Pressure",
+                unit="Pa",
+                value=jnp.array(1.0e5, dtype=dev.float_type)
             ),
         }
     }

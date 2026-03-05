@@ -39,16 +39,26 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-
 mesh = tf.mesh.OrthogonalDualMesh.from_grist(
-    grist_0d_file, grist_2d_file, n_dual=3, dev=dev
+    grist_0d_file=grist_0d_file, 
+    grist_2d_file=grist_2d_file, 
+    n_dual=3, 
+    dev=dev
 )
 
 vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+hori_layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+vert_layout = tf.layout.onelayer_vert_coord.OneLayerVertCoordLayout()
+
+coord = tf.layout.CoordinateSystem(
+    hori=mesh,
+    vert=vert,
+    hori_layout=hori_layout,
+    vert_layout=vert_layout
+)
+
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
@@ -56,10 +66,6 @@ para = tf.planet.PlanetParameterSet.from_si(
 method = tf.operator.FiniteVolumeMethod()
 # %%
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
-
-block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
-
-block = block_cls.from_testcase(coord, para, case=testcase)
 
 
 # %%
@@ -72,10 +78,16 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.aux.z_e.recon_scheme.central_difference()
-equation.aux.pv_e.interp.upwind(3)
+equation.aux.dmg.recon_at_edge.central_difference()
+equation.dundt.coriolis.pv.interp.upwind(3)
 
 # %%
+equation.build_default()
+
+# %%
+block = equation.build_block_from_testcase(
+    coord=coord, para=para, case=testcase)
+
 block = equation.prepare(block)
 
 # %%
@@ -93,9 +105,9 @@ solver = tf.solver.ExRungeKutta3Solver(
 )
 
 # %%
-integrate_fn = jax.jit(solver.trajectory(
-    start_with_input=True,
-))
+integrate_fn = jax.jit(
+    solver.trajectory(start_with_input=True,)
+)
 
 # %%
 final, trajectory = integrate_fn(block)
@@ -123,17 +135,17 @@ trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
 diag_vars = diag_tools.compute(
     coord=coord,
     para=para,
-    state=final.state, 
-    static=final.static, 
+    state=final.state,
+    static=final.static,
     equaux=block.equaux,
-    to_ugrid=True, 
+    to_ugrid=True,
     use_dual=True
-    )
+)
 
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["z"].to_structured_grid(
+_, da = diag_vars["gz"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -258,7 +270,7 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
 plt.rcParams["animation.embed_limit"] = 200
 
 # Get number of time steps
-n_frames = trajectory_vars["z"].data.shape[0]
+n_frames = trajectory_vars["gz"].data.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.PlateCarree())
@@ -266,7 +278,7 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-_, da = trajectory_vars["z"].to_structured_grid(
+_, da = trajectory_vars["gz"].to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -281,7 +293,7 @@ img = ax.imshow(
     origin="lower",
     extent=extent,
     transform=ccrs.PlateCarree(),
-    cmap="plasma",
+    cmap="viridis",
     interpolation="nearest",
     animated=True,
 )
@@ -345,7 +357,13 @@ def update(frame):
 # Cartopy axes generally do not support blitting; keep blit=False
 anim = animation.FuncAnimation(
     fig, update, frames=n_frames, interval=200, blit=False)
-# anim.save("z_uv.gif", writer="pillow", dpi=120, fps=5)
+# anim.save(
+#     "gz_uv.gif",
+#     writer="pillow",
+#     dpi=120,
+#     fps=5,
+#     savefig_kwargs={"pad_inches": 0},
+# )
 plt.close(fig)
 HTML(anim.to_jshtml())
 

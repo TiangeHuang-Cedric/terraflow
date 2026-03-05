@@ -4,16 +4,20 @@ from loguru import logger
 
 from terraflow.util import typing
 from terraflow.vert_coord import AbstractVertCoordinate
-from terraflow.vert_coord import AbstractLorenzCoordinate
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.layout.abstract import AbstractCGridStaggeringLayout
-from terraflow.layout.abstract import Basis, MeshEntity, VertLoc
-from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem
-from terraflow.vert_coord.abstract import OneLayerVertCoordinate
+from terraflow.layout.abstract import (
+    AbstractLayout,
+    AbstractCGridStaggeringLayout,
+    Basis,
+    MeshEntity,
+    CoordinateInfo,
+    CoordinateSystem
+)
 
 Array = typing.Array
 
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
+VLO = TypeVar("VLO", bound="AbstractLayout")
 
 
 class AbstractCGridStaggeringLayout4OrthogonalDualMesh(
@@ -32,36 +36,53 @@ class TriSKBasedCGridStaggeringLayout(
     def alias_name() -> str:
         return "triskC"
 
+    def shape(
+        self,
+        coord: CoordinateSystem[
+            OrthogonalDualMesh,
+            VM,
+            "TriSKBasedCGridStaggeringLayout",
+            VLO
+        ],
+        loc: str,
+        basis: str,
+    ) -> tuple[int, ...]:
+        coord_info = self.get_layout(coord, loc, basis).horizontal_coord
+        if coord_info is None:
+            raise ValueError(
+                f"Horizontal coordinate information is missing for location: {loc}"
+                f" and basis: {basis}"
+            )
+        return coord_info["lon"].shape
+
     def get_layout(
         self,
         coord: CoordinateSystem[
             OrthogonalDualMesh,
             VM,
             "TriSKBasedCGridStaggeringLayout",
+            VLO
         ],
-        hori_loc: str,
-        vert_loc: str,
+        loc: str,
         basis: str,
     ) -> CoordinateInfo:
-        if hori_loc not in [MeshEntity.Cell, MeshEntity.Edge]:
+        if loc not in [MeshEntity.Cell, MeshEntity.Vtx, MeshEntity.Edge]:
             raise ValueError(
-                f"Unsupported horizontal location for trisk layout: {hori_loc}"
+                f"Unsupported horizontal location for trisk layout: {loc}"
             )
-        elif hori_loc == MeshEntity.Cell and basis != Basis.Scalar:
-            raise ValueError(
-                f"Incompatible basis {basis} for horizontal location {hori_loc}"
-            )
-        elif hori_loc == MeshEntity.Edge and basis != Basis.Normal:
-            raise ValueError(
-                f"Incompatible basis {basis} for horizontal location {hori_loc}"
-            )
-        elif hori_loc == MeshEntity.Cell and basis == Basis.Scalar:
+        elif loc == MeshEntity.Cell:
             hori_point = {
                 "cart": coord.mesh.primal.cell.centroid.cartesian,
                 "lat": coord.mesh.primal.cell.centroid.lat,
                 "lon": coord.mesh.primal.cell.centroid.lon,
             }
-        elif hori_loc == MeshEntity.Edge and basis == Basis.Normal:
+        elif loc == MeshEntity.Vtx:
+            hori_point = {
+                "cart": coord.mesh.dual.cell.centroid.cartesian,
+                "lat": coord.mesh.dual.cell.centroid.lat,
+                "lon": coord.mesh.dual.cell.centroid.lon,
+            }
+        elif loc == MeshEntity.Edge and (basis == Basis.Normal or basis == Basis.Tangent):
             hori_point = {
                 "cart": coord.mesh.dual.edge.midpoint.cartesian,
                 "lat": coord.mesh.dual.edge.midpoint.lat,
@@ -69,27 +90,17 @@ class TriSKBasedCGridStaggeringLayout(
                 "nr_orient": coord.mesh.primal.edge.normal,
                 "tg_orient": coord.mesh.primal.edge.tangent,
             }
+        elif loc == MeshEntity.Edge and basis == Basis.Scalar:
+            hori_point = {
+                "cart": coord.mesh.dual.edge.midpoint.cartesian,
+                "lat": coord.mesh.dual.edge.midpoint.lat,
+                "lon": coord.mesh.dual.edge.midpoint.lon,
+            }
         else:
             raise ValueError(
                 "Unsupported combination of horizontal location"
-                f"{hori_loc} and basis {basis} for trisk layout"
-            )
-        if isinstance(coord.vert, AbstractLorenzCoordinate):
-            if vert_loc == VertLoc.Cell:
-                vert_point = coord.vert.get_full_lev()
-            elif vert_loc == VertLoc.Lev:
-                vert_point = coord.vert.get_half_lev()
-            else:
-                raise ValueError(
-                    f"Unsupported vertical location for trisk layout: {vert_loc}"
-                )
-        elif isinstance(coord.vert, OneLayerVertCoordinate):
-            vert_point = jnp.array([])
-        else:
-            raise ValueError(
-                f"Unsupported vertical coordinate type: {type(coord.vert)}"
+                f" {loc} and basis {basis} for trisk layout"
             )
         return CoordinateInfo(
             horizontal_coord=hori_point,
-            vertical_coord=vert_point,
         )

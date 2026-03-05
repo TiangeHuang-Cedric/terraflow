@@ -16,12 +16,14 @@ Float = typing.Float
 Array = typing.Array
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
-LO = TypeVar("LO", bound=AbstractLayout)
+HLO = TypeVar("HLO", bound=AbstractLayout)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
     VM,
-    LO
+    HLO,
+    VLO,
 ]
 
 

@@ -42,35 +42,62 @@ mesh = tf.mesh.OrthogonalDualMesh.from_grist(
 
 vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+hori_layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+vert_layout = tf.layout.onelayer_vert_coord.OneLayerVertCoordLayout()
+
+coord = tf.layout.CoordinateSystem(
+    hori=mesh,
+    vert=vert,
+    hori_layout=hori_layout,
+    vert_layout=vert_layout
+)
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
+method = tf.operator.FiniteVolumeMethod()
+
 # %%
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-block_cls = tf.dynamics.ShallowWaterVariables.from_model(coord)
 
-block = block_cls.from_testcase(coord, para, case=testcase)
+# %%
+equation = tf.dynamics.ShallowWaterEquation.from_model(
+    coord=coord,
+    para=para,
+    method=method,
+    form="vector_invariant",
+    ode_kind="explicit",
+)
 
+# %%
+equation.aux.dmg.recon_at_edge.central_difference()
+equation.dundt.coriolis.pv.interp.upwind(3)
+
+# %%
+equation.build_default()
+
+# %%
+block = equation.build_block_from_testcase(
+    coord=coord, para=para, case=testcase)
+
+block = equation.prepare(block)
 
 # %% [markdown]
 # ## Plot using easygems
 
 # %%
-z = xr.DataArray(np.array(block.state.z.unwrap()).squeeze())
+gz = xr.DataArray(np.array(block.state.gz.unwrap()).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
-remap_z = tf.util.easygems.terraflow2healpix(
-    z, from_lon, from_lat, 10
+remap_gz = tf.util.easygems.terraflow2healpix(
+    gz, from_lon, from_lat, 10
 )
 
-img = tf.util.easygems.plot_healpix_grid(remap_z)
+img = tf.util.easygems.plot_healpix_grid(remap_gz)
 
 display(img)
 
@@ -109,13 +136,13 @@ ugrid_ds.uxgrid.plot(
 # #### Plot in 2d figure
 
 # %%
-ugrid_ds.uxds.z.plot(height=500, width=1000)
+ugrid_ds.uxds.gz.plot(height=500, width=1000)
 
 # %% [markdown]
 # #### Plot in 2d geomap
 
 # %%
-ugrid_ds.uxds["z"].plot(
+ugrid_ds.uxds["gz"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -136,7 +163,7 @@ fig, ax = plt.subplots(
 
 ax.set_global()
 
-raster = ugrid_ds.uxds["z"].to_raster(ax=ax, pixel_ratio=0.5,)
+raster = ugrid_ds.uxds["gz"].to_raster(ax=ax, pixel_ratio=0.5,)
 img = ax.imshow(
     raster, cmap="plasma", origin="lower", extent=ax.get_xlim() + ax.get_ylim()
 )
@@ -189,7 +216,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z"]
+data = dst["gz"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -203,9 +230,9 @@ contour = ax.contourf(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z_pc on Lat-Lon Grid")
+ax.set_title("Remapped gz on Lat-Lon Grid")
 cbar = plt.colorbar(contour, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label("Layer Geopotential Height (m)")
+cbar.set_label("Layer Geopotential (m2/s2)")
 plt.tight_layout()
 display(fig)
 
@@ -219,7 +246,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z"]
+data = dst["gz"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -233,9 +260,9 @@ contour = ax.contourf(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z on Lat-Lon Grid")
+ax.set_title("Remapped gz on Lat-Lon Grid")
 cbar = plt.colorbar(contour, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label("Layer Geopotential Height (m)")
+cbar.set_label("Layer Geopotential (m2/s2)")
 plt.tight_layout()
 display(fig)
 
@@ -249,7 +276,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["z"]
+data = dst["gz"]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -263,9 +290,9 @@ contour = ax.contourf(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z on Lat-Lon Grid")
+ax.set_title("Remapped gz on Lat-Lon Grid")
 cbar = plt.colorbar(contour, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label("Layer Geopotential Height (m)")
+cbar.set_label("Layer Geopotential (m2/s2)")
 plt.tight_layout()
 display(fig)
 
@@ -299,9 +326,9 @@ contour = ax.contour(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title("Remapped z on Lat-Lon Grid")
+ax.set_title("Remapped gz on Lat-Lon Grid")
 cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label("Layer Geopotential Height at primal cell (m)")
+cbar.set_label("Layer Geopotential (m2/s2)")
 plt.tight_layout()
 
 display(fig)
@@ -456,7 +483,7 @@ dst = ugrid_ds.to_structured_grid(
 )
 
 
-dst["z"].plot(
+dst["gz"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -475,7 +502,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["z"].plot(
+dst["gz"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -494,7 +521,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["z"].plot(
+dst["gz"].plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

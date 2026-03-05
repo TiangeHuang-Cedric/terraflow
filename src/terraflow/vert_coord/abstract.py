@@ -1,10 +1,15 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, TYPE_CHECKING
 import equinox as eqx
 from loguru import logger
 
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
+
+
+if TYPE_CHECKING:
+    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 
 
 VMST = TypeVar("VMST", bound=AbstractVertHistorySetup)
@@ -19,6 +24,10 @@ class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
     @abstractmethod
     def alias_name() -> str:
         """Return the alias name of the vertical coordinate system."""
+        raise NotImplementedError
+    
+    @abstractmethod
+    def get_layout(self) -> any:
         raise NotImplementedError
 
     @abstractmethod
@@ -50,6 +59,10 @@ class OneLayerVertCoordinate(AbstractVertCoordinate[OneLayerVerticalCoordinateSe
     @property
     def shape(self):
         return (1,)
+    
+    def get_layout(self) -> OneLayerVertCoordLayout:
+        from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+        return OneLayerVertCoordLayout()
 
     def history_builder(self, file_path: str) -> OneLayerVerticalCoordinateSetup:
         return OneLayerVerticalCoordinateSetup(file_path, self)

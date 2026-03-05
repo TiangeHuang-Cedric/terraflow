@@ -2,16 +2,16 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from typing import Callable, Generic, Mapping, TypeVar, Type, overload
 from typing import Optional, Union, List, Dict, Self, cast, Literal, Any
-import dataclasses
+from typing import get_type_hints, get_origin, get_args
+import types
 import equinox as eqx
 import unxt as ux
 import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
-from loguru import logger
 
-import terraflow.operator as op
 from terraflow.util import typing, uxarray as tuxr
+import terraflow.operator as op
 from terraflow.mesh import AbstractMesh
 from terraflow.vert_coord import AbstractVertCoordinate
 from terraflow.layout import CoordinateSystem, AbstractLayout
@@ -27,7 +27,8 @@ Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
-LO = TypeVar("LO", bound=AbstractLayout)
+HLO = TypeVar("HLO", bound=AbstractLayout)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
 ESAUX = TypeVar("ESAUX", bound="AbstractEquationSetAuxiliaryTerms")
 ES = TypeVar("ES", bound="AbstractEquationSet")
@@ -119,7 +120,7 @@ class DiscretizationInfo:
     @classmethod
     def from_model(
         cls,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         para: PlanetParameterSet,
         operator: op.AbstractDiscretizationMethod,
         equset_type: Type[ES],
@@ -147,24 +148,48 @@ class DiscretizationInfo:
             equ=equ_type.alias_name() if equ_type is not None else "",
             ode_kind=equset_type.ode_kind_alias_name(),
             method=operator.alias_name(),
-            layout=coord.layout.alias_name(),
+            layout=coord.hori_layout.alias_name(),
             horizontal_mesh=coord.mesh.alias_name(),
             vertical_coordinate=coord.vert.alias_name()
         )
 
 
 class AbstractEquationBase(Generic[DM], ABC):
+    baroclinic: bool
+    hydrostatic: bool
+    nonhydrostatic: bool
+    ideal_dry_core: bool
+    advection: bool
     _disc: DiscretizationInfo
     _method: DM
+    _built: bool
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
     ):
         self._disc = disc
         self._method = method
         self._built = False
+        self.baroclinic = baroclinic
+        self.hydrostatic = hydrostatic
+        self.nonhydrostatic = nonhydrostatic
+        self.ideal_dry_core = ideal_dry_core
+        self.advection = advection
+
+    @abstractmethod
+    def prepare(self, *args, **kwargs) -> Any:
+        raise NotImplementedError
+
+    @abstractmethod
+    def build_default(self) -> Self:
+        raise NotImplementedError
 
     @property
     def disc(self) -> DiscretizationInfo:
@@ -173,6 +198,9 @@ class AbstractEquationBase(Generic[DM], ABC):
     @property
     def method(self) -> DM:
         return self._method
+
+    def has_built(self) -> bool:
+        return self._built
 
     def _navi_between_tables(
         self,
@@ -193,18 +221,29 @@ class AbstractEquationBase(Generic[DM], ABC):
 
 class AbstractEquationTerm(
     AbstractEquationBase[DM],
-    Generic[DM, ESAUX],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        aux: ESAUX
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
     ):
-        super().__init__(disc, method)
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
         self._table = "equterm"
-        self._aux = aux
 
     @abstractmethod
     def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
@@ -213,10 +252,6 @@ class AbstractEquationTerm(
     @abstractmethod
     def unwrap(self, block) -> Field:
         raise NotImplementedError
-
-    @property
-    def aux(self) -> ESAUX:
-        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -235,20 +270,31 @@ class AbstractEquationTerm(
 
 class AbstractEquationForm(
     AbstractEquationBase[DM],
-    Generic[DM, ESAUX],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        aux: ESAUX
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
     ):
         disc_copy = disc.copy()
         disc_copy.equ = self.alias_name()
-        super().__init__(disc_copy, method)
+        super().__init__(
+            disc=disc_copy,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
         self._table = "equ"
-        self._aux = aux
 
     @abstractmethod
     def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
@@ -263,10 +309,6 @@ class AbstractEquationForm(
     @abstractmethod
     def ode_kind_alias_name() -> str:
         raise NotImplementedError
-
-    @property
-    def aux(self) -> ESAUX:
-        return self._aux
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -303,15 +345,15 @@ class AbstractEquationForm(
         return navigate("equterm", id_col=id_col, id_val=id_val)
 
 
-class AbstractContinuityEquForm(AbstractEquationForm[DM, ESAUX], ABC):
+class AbstractContinuityEquForm(AbstractEquationForm[DM], ABC):
     pass
 
 
-class AbstractMomentumEquForm(AbstractEquationForm[DM, ESAUX], ABC):
+class AbstractMomentumEquForm(AbstractEquationForm[DM], ABC):
     pass
 
 
-class AbstractThermodynamicEquForm(AbstractEquationForm[DM, ESAUX], ABC):
+class AbstractThermodynamicEquForm(AbstractEquationForm[DM], ABC):
     pass
 
 
@@ -320,21 +362,24 @@ class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
         self,
         disc: DiscretizationInfo,
         method: DM,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
     ):
-        super().__init__(disc, method)
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
         self._table = "equaux"
-        self._built = False
 
-    @abstractmethod
-    def __call__(self, block: BLOCK, pass_tag: str, *args, **kwargs) -> BLOCK:
-        raise NotImplementedError
-
-    @abstractmethod
-    def build_default(self) -> Self:
-        raise NotImplementedError
-
-    @abstractmethod
-    def prepare(self, block) -> BLOCK:
+    def __call__(self, block: BLOCK, *args, **kwargs) -> BLOCK:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -351,9 +396,6 @@ class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
 
-    def has_built(self) -> bool:
-        return self._built
-
 
 class AbstractEquationSet(
     AbstractEquationBase[DM],
@@ -366,13 +408,31 @@ class AbstractEquationSet(
         self,
         disc: DiscretizationInfo,
         method: DM,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool,
     ):
-        super().__init__(disc, method)
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
         self._table = "equset"
         factory = self.navi2aux()
         aux: ESAUX = factory(
             disc=disc,
-            method=method
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection,
         )
         self._aux = aux
 
@@ -394,19 +454,20 @@ class AbstractEquationSet(
         """Return the ODE kind alias name of the dynamics set. Default to empty string."""
         raise NotImplementedError
 
+    @abstractmethod
+    def build_block_from_testcase(
+        self,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        *,
+        case: Optional[Any] = None
+    ) -> Any:
+        """Build the initial block from a testcase."""
+        raise NotImplementedError
+
     @property
     def aux(self) -> ESAUX:
         return self._aux
-
-    def build_default(self) -> Self:
-        self.aux.build_default()
-        return self
-
-    def prepare(self, block: BLOCK) -> BLOCK:
-        self.aux.build_default()
-        block = self.aux.prepare(block)
-        logger.success("Prepared auxiliary terms and data.")
-        return block
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -432,7 +493,7 @@ class AbstractEquationSet(
     @classmethod
     def from_model(
         cls,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         para: PlanetParameterSet,
         method: DM,
         *args,
@@ -498,7 +559,7 @@ class AbstractVariableSet(eqx.Module, ABC):
 
     def to_netcdf(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         path: str,
         format="UGRID",
         use_dual: bool = False,
@@ -515,7 +576,7 @@ class AbstractVariableSet(eqx.Module, ABC):
 
     def to_ugrid(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
         **kwargs
     ) -> tuxr.UGRIDDataset:
@@ -526,7 +587,7 @@ class AbstractVariableSet(eqx.Module, ABC):
 
     def to_uxarray(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
         **kwargs
     ) -> uxr.UxDataset:
@@ -542,32 +603,74 @@ class AbstractVariableSet(eqx.Module, ABC):
 
 
 class AbstractFields(AbstractVariableSet, Generic[FMT]):
+    baroclinic: bool = eqx.field(static=True)
+    hydrostatic: bool = eqx.field(static=True)
+    nonhydrostatic: bool = eqx.field(static=True)
+    ideal_dry_core: bool = eqx.field(static=True)
+    advection: bool = eqx.field(static=True)
+    fields: Dict[str, FMT] = eqx.field(static=True)
 
     def __init__(
         self,
-        variables: Dict[str, ArrayField[FMT]]
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool,
+        **fields: ArrayField[FMT]
     ):
-        for k, v in variables.items():
+        object.__setattr__(self, "baroclinic", baroclinic)
+        object.__setattr__(self, "hydrostatic", hydrostatic)
+        object.__setattr__(self, "nonhydrostatic", nonhydrostatic)
+        object.__setattr__(self, "ideal_dry_core", ideal_dry_core)
+        object.__setattr__(self, "advection", advection)
+        exist_fields: Dict[str, FMT] = {}
+        for k, v in fields.items():
             if not isinstance(v, Field):
                 raise TypeError(f"Variable '{k}' is not a Field.")
+            if not v.is_empty():
+                exist_fields[k] = v.meta
             object.__setattr__(self, k, v)
+        object.__setattr__(self, "fields", exist_fields)
 
     @classmethod
-    def _field_names(cls) -> tuple[str, ...]:
+    def get_all_fields(cls) -> tuple[str, ...]:
+        def is_field_type(tp: Any) -> bool:
+            origin = get_origin(tp)
+            if origin is None:
+                if tp is Field:
+                    return True
+                if isinstance(tp, type) and issubclass(tp, Field):
+                    return True
+                return False
+            if origin in (Union, types.UnionType):
+                return any(is_field_type(arg) for arg in get_args(tp))
+            if origin is Literal:
+                return False
+            return isinstance(origin, type) and issubclass(origin, Field)
+
+        annotations: Dict[str, Any] = {}
+        for base in reversed(cls.__mro__):
+            if base is object:
+                continue
+            try:
+                annotations.update(get_type_hints(base, include_extras=True))
+            except Exception:
+                annotations.update(getattr(base, "__annotations__", {}))
+
         return tuple(
-            f.name
-            for f in dataclasses.fields(cls)
+            name for name, tp in annotations.items() if is_field_type(tp)
         )
 
     def __iter__(self):
-        for name in self._field_names():
+        for name in self.existing_meta().keys():
             yield getattr(self, name)
 
     def __len__(self) -> int:
-        return len(self._field_names())
+        return len(self.existing_meta().keys())
 
     def _wrap(self, **kwargs) -> Self:
-        names = self._field_names()
+        names = self.existing_meta().keys()
         new_vals = {n: kwargs.get(n, getattr(self, n)) for n in names}
         for k, v in new_vals.items():
             if not isinstance(v, Field):
@@ -605,13 +708,13 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         return self._wrap(**new_vars)
 
     def keys(self) -> List[str]:
-        return list(self._field_names())
+        return list(self.existing_meta().keys())
 
     def values(self) -> List[ArrayField[FMT]]:
-        return [getattr(self, name) for name in self._field_names()]
+        return [getattr(self, name) for name in self.existing_meta().keys()]
 
     def items(self) -> List[tuple[str, ArrayField[FMT]]]:
-        return [(name, getattr(self, name)) for name in self._field_names()]
+        return [(name, getattr(self, name)) for name in self.existing_meta().keys()]
 
     def isel(self, index: int, axis: int) -> Self:
         """Index select along a specific dimension for all variables."""
@@ -632,41 +735,50 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
 
     @staticmethod
     @abstractmethod
-    def default_meta() -> Dict[str, FMT]:
+    def default_meta(
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ) -> Dict[str, FMT]:
         """Return default variable metadata dictionary."""
         return {}
 
-    def default_fields(self) -> Dict[str, ArrayField[FMT]]:
+    @classmethod
+    def default_fields(
+        cls,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ) -> Dict[str, ArrayField[FMT]]:
         """Return default variable field dictionary."""
-        data = {key: jnp.zeros(()) for key in self.default_meta().keys()}
         return {
             key: ArrayField[FMT](
-                data=data[key],
+                data=jnp.zeros(()),
                 meta=field_meta
             )
-            for key, field_meta in self.default_meta().items()
+            for key, field_meta in cls.default_meta(
+                baroclinic=baroclinic,
+                hydrostatic=hydrostatic,
+                nonhydrostatic=nonhydrostatic,
+                ideal_dry_core=ideal_dry_core,
+                advection=advection
+            ).items()
         }
 
     def existing_values(self) -> Dict[str, ArrayField[FMT]]:
         """Return existing variables."""
-        if getattr(self, "variables", None) is None:
-            return self.default_fields()
+        if self.is_fields():
+            return dict(self.items())
         else:
-            if self.is_fields():
-                return dict(self.items())
-            else:
-                raise TypeError("Variables are not stored as Fields.")
+            raise TypeError("Variables are not stored as Fields.")
 
     def existing_meta(self) -> Dict[str, FMT]:
         """Return metadata of existing variables."""
-        if getattr(self, "variables", None) is None:
-            return self.default_meta()
-        else:
-            meta: Dict[str, FMT] = {}
-            for key, var in self.items():
-                if isinstance(var, Field):
-                    meta[key] = var.meta
-        return meta
+        return self.fields
 
     def varnames(self) -> List[str]:
         return list(self.keys())
@@ -701,16 +813,13 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
             )
 
     @classmethod
-    def wrap(cls, vars_dict: Dict[str, ArrayField[FMT]]) -> Self:
-        if not all(isinstance(v, Field) for v in vars_dict.values()):
-            raise TypeError(
-                "Incompatible variable types for wrapping, must be Fields"
-            )
-        return cls(variables=vars_dict)
-
-    @classmethod
     def from_arrays(
         cls,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool,
         array_dict: Dict[str, Array],
         meta: Dict[str, FMT]
     ) -> Self:
@@ -722,14 +831,55 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                 data=var,
                 meta=meta[key]
             )
-        return cls(variables=new_variables)
+        return cls(
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection,
+            **new_variables
+        )
+
+    @classmethod
+    def from_coord(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        equation: AbstractEquationSet,
+    ) -> Self:
+        meta = cls.default_meta(
+            baroclinic=equation.baroclinic,
+            hydrostatic=equation.hydrostatic,
+            nonhydrostatic=equation.nonhydrostatic,
+            ideal_dry_core=equation.ideal_dry_core,
+            advection=equation.advection
+        )
+        exist_fields: Dict[str, ArrayField[FMT]] = {}
+        for field_name in cls.get_all_fields():
+            if field_name not in meta:
+                exist_fields[field_name] = Field.empty()
+            else:
+                exist_fields[field_name] = meta[field_name].zeros_like(coord)
+        return cls(
+            baroclinic=equation.baroclinic,
+            hydrostatic=equation.hydrostatic,
+            nonhydrostatic=equation.nonhydrostatic,
+            ideal_dry_core=equation.ideal_dry_core,
+            advection=equation.advection,
+            **exist_fields
+        )
 
     def to_default_unit(self) -> Self:
         """Convert all parameters to default unit system.
         - If the parameter is a Field, convert to the default unit defined in metadata.
         - If the parameter is an AbstractQuantity, convert to SI units.
         """
-        default = self.default_meta()
+        default = self.default_meta(
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
         new_variables: Dict[str, ArrayField[FMT]] = {}
         for key, var in self.items():
             if isinstance(var, Field):
@@ -741,7 +891,13 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
             else:
                 raise TypeError(f"Variable '{key}' is neither a Field.")
         if self.is_fields():
-            return type(self)(variables=new_variables)
+            return type(self)(
+                baroclinic=self.baroclinic,
+                hydrostatic=self.hydrostatic,
+                nonhydrostatic=self.nonhydrostatic,
+                ideal_dry_core=self.ideal_dry_core,
+                advection=self.advection,
+                **new_variables)
         else:
             raise TypeError(
                 "Cannot convert to default unit on incompatible variable types."
@@ -757,7 +913,14 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
             else:
                 raise TypeError(f"Variable '{key}' is not a Field.")
         if self.is_fields():
-            return type(self)(variables=new_variables)
+            return type(self)(
+                baroclinic=self.baroclinic,
+                hydrostatic=self.hydrostatic,
+                nonhydrostatic=self.nonhydrostatic,
+                ideal_dry_core=self.ideal_dry_core,
+                advection=self.advection,
+                **new_variables
+            )
         else:
             raise TypeError(
                 "Cannot convert to specified unit on incompatible variable types."
@@ -773,7 +936,14 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
             else:
                 raise TypeError(f"Variable '{key}' is not a Field.")
         if self.is_fields():
-            return type(self)(variables=new_variables)
+            return type(self)(
+                baroclinic=self.baroclinic,
+                hydrostatic=self.hydrostatic,
+                nonhydrostatic=self.nonhydrostatic,
+                ideal_dry_core=self.ideal_dry_core,
+                advection=self.advection,
+                **new_variables
+            )
         else:
             raise TypeError(
                 "Cannot convert to SI units on incompatible variable types."
@@ -934,15 +1104,32 @@ class AbstractEquationTermAuxiliaryDataset(eqx.Module, ABC):
 class AbstractBlock(
     ABC,
     eqx.Module,
-    Generic[HM, VM, LO, STATE, STATIC, TEND, AUX, AUXDS]
+    Generic[HM, VM, HLO, VLO, STATE, TEND, STATIC, AUX, AUXDS]
 ):
-    coord: CoordinateSystem[HM, VM, LO]
+    baroclinic: bool
+    hydrostatic: bool
+    nonhydrostatic: bool
+    ideal_dry_core: bool
+    advection: bool
+    coord: CoordinateSystem[HM, VM, HLO, VLO]
     para: PlanetParameterSet
     state: STATE
     tend: TEND
     static: STATIC
     aux: AUX
     equaux: AUXDS
+
+    @classmethod
+    @abstractmethod
+    def from_testcase(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        equation: AbstractEquationSet,
+        *,
+        case: Any = None,
+    ) -> Self:
+        raise NotImplementedError
 
     def reset(self, val: float = 0.0) -> Self:
         return eqx.tree_at(
@@ -955,7 +1142,7 @@ class AbstractBlock(
         return self
 
 
-class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
+class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
     def __init__(self, equation: ES, jit: bool = False, trajectory: bool = False):
         self._equation = equation
@@ -983,7 +1170,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     @overload
     def process_field(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         field: Field,
         to_ugrid: Literal[False] = False,
         **kwargs
@@ -993,7 +1180,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
     @overload
     def process_field(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         field: Field,
         to_ugrid: Literal[True],
         **kwargs
@@ -1002,7 +1189,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, LO, DM, ES, FMT], ABC):
 
     def process_field(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         field: Field,
         to_ugrid: bool = False,
         **kwargs

@@ -4,9 +4,10 @@ import jax.numpy as jnp
 
 from terraflow.util import typing, device
 from terraflow.vert_coord.abstract import AbstractLorenzCoordinate
+from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
 
 if TYPE_CHECKING:
-    from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 
 Float = typing.Float
 Array = typing.Array
@@ -1013,19 +1014,19 @@ def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.018555317074060440,  # 4
         0.030669122934341430,  # 5
         0.045867476612329480,  # 6
-        0.063323482871055600,   # 7
+        0.063323482871055600,  # 7
         0.080701418220996860,  # 8
         0.094941042363643650,  # 9
-        0.111693210899829900,   # 10
-        0.131401270627975500,   # 11
-        0.154586806893348700,   # 12
-        0.181863352656364400,   # 13
-        0.174597993493080100,   # 14
-        0.166050657629966700,   # 15
-        0.155995160341262800,   # 16
-        0.144165411591529800,   # 17
-        0.130248308181762700,   # 18
-        0.113875567913055400,   # 19
+        0.111693210899829900,  # 10
+        0.131401270627975500,  # 11
+        0.154586806893348700,  # 12
+        0.181863352656364400,  # 13
+        0.174597993493080100,  # 14
+        0.166050657629966700,  # 15
+        0.155995160341262800,  # 16
+        0.144165411591529800,  # 17
+        0.130248308181762700,  # 18
+        0.113875567913055400,  # 19
         0.094613857567310330,  # 20
         0.075344450771808620,  # 21
         0.057658940553665160,  # 22
@@ -1037,7 +1038,7 @@ def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.008531088940799236,  # 28
         0.003978818189352751,  # 29
         0.000000000000000000,  # 30
-        0.000000000000000000  # 31
+        0.000000000000000000   # 31
     ]
 
     hybi = [
@@ -1071,7 +1072,7 @@ def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.938901245594024700,  # 28
         0.963559806346893300,  # 29
         0.985112190246582000,  # 30
-        1.000000000000000000  # 31
+        1.000000000000000000   # 31
     ]
     return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
 
@@ -1113,8 +1114,8 @@ def calc_full_and_half_levels(
         full_lev (Array): Full level coefficients.
         half_lev (Array): Half level coefficients.
     """
-    full_lev = hyai + hybi
-    half_lev = hyam + hybm
+    full_lev = hyam + hybm
+    half_lev = hyai + hybi
     return full_lev, half_lev
 
 
@@ -1130,6 +1131,8 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
     hybm: Float[Array, "nlev"]
     full_lev: Float[Array, "nlev"]
     half_lev: Float[Array, "nlev+1"]
+    full_dlev: Float[Array, "nlev"]
+    half_dlev: Float[Array, "nlev+1"]
 
     def __init__(
         self,
@@ -1150,11 +1153,25 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         self.hybm = hybm
         self.full_lev = full_lev
         self.half_lev = half_lev
+        full_dlev = self.half_lev[1:] - self.half_lev[:-1]
+        half_dlev = jnp.zeros_like(self.half_lev)
+        tmp = self.full_lev[0] - self.half_lev[0]
+        half_dlev = half_dlev.at[0].set(tmp)
+        tmp = self.half_lev[1:-1]-self.half_lev[:-2]
+        half_dlev = half_dlev.at[1:-1].set(tmp)
+        tmp = self.half_lev[-1] - self.full_lev[-1]
+        half_dlev = half_dlev.at[-1].set(tmp)
+        self.full_dlev = full_dlev
+        self.half_dlev = half_dlev
 
     @staticmethod
     def alias_name() -> str:
         """Return the alias name of the hybrid vertical coordinate system."""
         return "hybrid"
+    
+    def get_layout(self) -> HybridVertCoordLayout:
+        from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+        return HybridVertCoordLayout()
 
     def get_full_lev(self) -> Float[Array, "nlev"]:
         return self.full_lev
@@ -1176,6 +1193,52 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
     @property
     def n_half_lev(self) -> int:
         return self.nlev + 1
+
+    def calc_mg(
+        self,
+        mgs: Float[Array, "npoints ..."]
+    ) -> Float[Array, "nlev npoints ..."]:
+        hyam = self.hyam[:, None]
+        hybm = self.hybm[:, None]
+        mgs = mgs[None, ...]
+        p0 = self.p0
+        ptop = self.ptop
+        return hyam * (p0 - ptop) + hybm * (mgs - ptop) + ptop
+
+    def calc_mg_lev(
+        self,
+        mgs: Float[Array, "npoints ..."]
+    ) -> Float[Array, "nlev+1 npoints ..."]:
+        hyai = self.hyai[:, None]
+        hybi = self.hybi[:, None]
+        mgs = mgs[None, ...]
+        p0 = self.p0
+        ptop = self.ptop
+        return hyai * (p0 - ptop) + hybi * (mgs - ptop) + ptop
+
+    def calc_dmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."]
+    ) -> Float[Array, "nlev npoints ..."]:
+        hybm = self.hybm[:, None]
+        return hybm * dmgsdt
+
+    def calc_dmgdt_lev(
+        self,
+        dmgsdt: Float[Array, "npoints ..."]
+    ) -> Float[Array, "nlev+1 npoints ..."]:
+        hybi = self.hybi[:, None]
+        dmgsdt = dmgsdt[None, :]
+        return hybi * dmgsdt
+
+    def calc_ddmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."]
+    ) -> Float[Array, "nlev npoints ..."]:
+        hybi = self.hybi[:, None]
+        dmgsdt = dmgsdt[None, :]
+        tmp = hybi[1:, ...] - hybi[:-1, ...]
+        return tmp * dmgsdt
 
     @classmethod
     def test_l15(

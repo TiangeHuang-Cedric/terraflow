@@ -1,6 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 import equinox as eqx
 
 from terraflow.util import typing, device
@@ -8,6 +8,8 @@ from terraflow.util import typing, device
 if TYPE_CHECKING:
     from terraflow.util import uxarray as tux
     from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
+
+
 Array = typing.Array
 
 
@@ -23,6 +25,11 @@ class AbstractMesh(eqx.Module, ABC):
     @abstractmethod
     def alias_name() -> str:
         """Return the alias name of the mesh type."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_layout(self) -> Any:
+        """Return the layout associated with the mesh."""
         raise NotImplementedError
 
     @abstractmethod

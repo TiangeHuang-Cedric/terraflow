@@ -13,16 +13,14 @@ from terraflow.mesh.orthogonal_dual_mesh.construct import (
     DualMeshEntity,
     OrthogonalDualMesh
 )
-from terraflow.vert_coord.abstract import OneLayerVertCoordinate
-from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout.abstract import CoordinateSystem
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import AbstractEquationTermAuxiliaryData
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types import Block as swm_Block
+    from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
     from terraflow.discretization.fvm.odm.trisk.adv.types import AdvectionAuxiliaryDataset
-    Block = swm_Block
 
 Int = typing.Int
 Float = typing.Float
@@ -30,13 +28,15 @@ IntType = typing.IntType
 FloatType = typing.FloatType
 Array = typing.Array
 
-VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+VM = TypeVar("VM", bound=AbstractVertCoordinate)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
     VM,
-    TriSKBasedCGridStaggeringLayout
+    TriSKBasedCGridStaggeringLayout,
+    VLO
 ]
 
 

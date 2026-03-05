@@ -1,4 +1,14 @@
-from typing import Optional, Self, Mapping, List, Literal, Union, overload
+from __future__ import annotations
+from typing import (
+    TYPE_CHECKING,
+    Optional,
+    Self,
+    Mapping,
+    List,
+    Literal,
+    Union,
+    overload
+)
 import jax
 import jax.numpy as jnp
 import equinox as eqx
@@ -12,6 +22,10 @@ from terraflow.mesh.orthogonal_dual_mesh.base import Point
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalCell, RefDualCell
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalEdge, RefDualEdge
 from terraflow.mesh.orthogonal_dual_mesh.grist_mesh import GristRefMesh
+
+
+if TYPE_CHECKING:
+    from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 
 
 Float = typing.Float
@@ -1697,6 +1711,17 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
         """Retrun the alias name for this mesh type."""
         return "odm"
 
+    def get_layout(
+        self,
+        layout: str = "trisk"
+    ) -> TriSKBasedCGridStaggeringLayout:
+        """Return the layout object for this mesh type."""
+        import terraflow.layout.orthogonal_dual_mesh as odm_layout
+        if layout == "trisk":
+            return odm_layout.TriSKBasedCGridStaggeringLayout()
+        else:
+            raise ValueError(f"Unsupported layout: {layout}")
+
     @property
     def shape(self) -> dict:
         """Return the shape of the mesh as (n_polg, n_dual, n_edge)."""
@@ -1724,14 +1749,14 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
     @classmethod
     def from_grist(
         cls,
-        grisd_0d_file: str,
+        grist_0d_file: str,
         grist_2d_file: str,
         n_dual: IntType = 3,
         dev: device.AbstractDevice = device.CPU()
     ) -> Self:
         """Initialize the OrthogonalDualMesh from Grist NetCDF Files."""
         grist = GristRefMesh.from_netcdf(
-            grisd_0d_file, grist_2d_file, n_dual=n_dual, dev=dev
+            grist_0d_file, grist_2d_file, n_dual=n_dual, dev=dev
         )
         n_polg = int(grist.shape["nv"])
         n_dual = int(grist.shape["nt"])

@@ -9,10 +9,9 @@ import equinox as eqx
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.vert_coord.abstract import OneLayerVertCoordinate
-from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.layout.abstract import CoordinateSystem
 from terraflow.discretization.abstract import (
     AbstractEquationSetAuxiliaryTerms,
     DiscretizationInfo,
@@ -20,19 +19,21 @@ from terraflow.discretization.abstract import (
 )
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.odm.trisk.base import Block
+    from terraflow.discretization.fvm.odm.trisk.base import Block, Block
 
 Int = typing.Int
 Float = typing.Float
 Array = typing.Array
 
-VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
+VM = TypeVar("VM", bound=AbstractVertCoordinate)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
     VM,
-    TriSKBasedCGridStaggeringLayout
+    TriSKBasedCGridStaggeringLayout,
+    VLO
 ]
 
 Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
@@ -81,9 +82,20 @@ class TriSKCoriolisForceAtEdge(Term):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
     ):
         super().__init__(
-            disc=disc, method=method
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
         )
 
     def __call__(self, block: Block) -> Block:
@@ -94,7 +106,7 @@ class TriSKCoriolisForceAtEdge(Term):
         ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = coriolis.edp_trsk_on_edge
         lenp = coriolis.edp_edpl_on_edge
-        mfn_e = block.aux.mfn_e.unwrap()
+        mfn_e = block.aux.mfn.unwrap()
         pv_e = block.aux.pv_e.unwrap()
 
         def _wrap(

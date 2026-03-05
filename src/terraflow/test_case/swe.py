@@ -7,36 +7,15 @@ from loguru import logger
 
 from terraflow.util import typing, math
 from terraflow.planet import PlanetParameterSet
+from terraflow.test_case.abstract import AbstractTestCase
 
 FloatType = typing.FloatType
 Float = typing.Float
 Array = typing.Array
 
 
-class ShallowWaterEquationTestCase(eqx.Module):
-    """Base class for shallow water dynamics test cases.
-
-    This class uses Equinox Module which makes it compatible with JAX transformations.
-    Static fields (para, name, description, etc.) are marked to exclude them from pytree,
-    as they don't change during computation and don't need to be traced by JAX.
-    """
-    _para: PlanetParameterSet = eqx.field()
-    name: str = eqx.field(static=True)
-    description: str = eqx.field(static=True)
-    references: tuple[str, ...] = eqx.field(static=True)
-    keywords: tuple[str, ...] = eqx.field(static=True)
-
-    @property
-    def para(self) -> PlanetParameterSet:
-        return self._para
-
-    def get_info(self) -> Dict[str, Union[str, tuple[str, ...]]]:
-        return {
-            "name": self.name,
-            "description": self.description,
-            "references": self.references,
-            "keywords": self.keywords
-        }
+class ShallowWaterEquationTestCase(AbstractTestCase):
+    """Base class for shallow water dynamics test cases."""
 
     def init_normal_velocity(
         self,
@@ -63,9 +42,7 @@ class ShallowWaterEquationTestCase(eqx.Module):
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
-        h = self.init_height(lon, lat)
-        hs = self.init_topography(lon, lat)
-        return h - hs
+        return self.init_height(lon, lat)
 
     def init_topography(self, lon: Array, lat: Array) -> Array:
         """Initialize topography field.

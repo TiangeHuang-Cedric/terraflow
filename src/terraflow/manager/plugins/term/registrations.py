@@ -45,5 +45,62 @@ def register(model: Catalog) -> None:
         belong_key,
         group="div_of_mfx",
         alias="builder",
-        factory=term.DivergenceOfMassFluxAtPrimalCell
+        factory=term.TendencyOfDivergenceOfMassFlux
+    )
+
+    from terraflow.discretization.fvm.odm.trisk.hybrid_lev import term
+
+    belong_key = "earth::atm::dry_hdc::vif::continuity_equ::explicit::fvm::triskC::odm::hybrid"
+
+    model.equterm.register(
+        belong_key,
+        group="div_of_mfs",
+        alias="builder",
+        factory=term.TendencyOfDryAirMassAtSurface
+    )
+
+    belong_key = "earth::atm::dry_hdc::vif::thermodynamic_equ::explicit::fvm::triskC::odm::hybrid"
+
+    model.equterm.register(
+        belong_key,
+        group="div_of_mft",
+        alias="builder",
+        factory=term.TendencyOfPotentialTemperatureDueToDivergenceOfFlux
+    )
+
+    model.equterm.register(
+        belong_key,
+        group="vert_adv_th",
+        alias="builder",
+        factory=term.TendencyOfPotentialTemperatureDueToVerticalAdvection
+    )
+
+    belong_key = "earth::atm::dry_hdc::vif::normal_momentum_equ::explicit::fvm::triskC::odm::hybrid"
+
+    model.equterm.register(
+        belong_key,
+        group="nonlinear_coriolis",
+        alias="builder",
+        factory=term.NonlinearCoriolisTermAtDualEdge
+    )
+
+    model.equterm.register(
+        belong_key,
+        group="grad_of_kinetic_energy",
+        alias="builder",
+        factory=term.GradientOfKineticEnergyAtDualEdge
+    )
+
+    model.equterm.register(
+        belong_key,
+        group="pgf",
+        alias="builder",
+        factory=term.TendencyOfNormalVelocityDueToPressureGradientForce
+    )
+
+    model.equterm.register(
+        belong_key,
+        group="vert_adv",
+        alias="builder",
+        factory=term.TendencyOfNormalVelocityDueToVerticalAdvection
     )

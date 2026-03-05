@@ -36,7 +36,7 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
             use_dual = kwargs.get("use_dual", False)
             self.ugrid(use_dual=use_dual)
         elif self.output_type == "unstructured":
-            self.unstructured()
+            self.unstructured(**kwargs)
         elif self.output_type == "structured":
             self.structured(**kwargs)
         else:
@@ -207,21 +207,23 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         ds.close()
         self._built = True
 
-    def unstructured(self):
+    def unstructured(self, with_vtx: bool = True):
         if self.has_built():
             return
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         # Create dimensions
-        ds.createDimension("ncell", int(self.mesh.primal.cell.shape[0]))
-        ds.createDimension("nvtx", int(self.mesh.dual.cell.shape[0]))
-        ds.createDimension("nedge", int(self.mesh.primal.edge.shape[0]))
+        ds.createDimension("cell", int(self.mesh.primal.cell.shape[0]))
+        if with_vtx:
+            ds.createDimension("vtx", int(self.mesh.dual.cell.shape[0]))
+        ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
         # Create variables
-        ds.createVariable("lon_cell", "f8", ("ncell",))
-        ds.createVariable("lat_cell", "f8", ("ncell",))
-        ds.createVariable("lon_vtx", "f8", ("nvtx",))
-        ds.createVariable("lat_vtx", "f8", ("nvtx",))
-        ds.createVariable("lon_edge", "f8", ("nedge",))
-        ds.createVariable("lat_edge", "f8", ("nedge",))
+        ds.createVariable("lon_cell", "f8", ("cell",))
+        ds.createVariable("lat_cell", "f8", ("cell",))
+        if with_vtx:
+            ds.createVariable("lon_vtx", "f8", ("vtx",))
+            ds.createVariable("lat_vtx", "f8", ("vtx",))
+        ds.createVariable("lon_edge", "f8", ("edge",))
+        ds.createVariable("lat_edge", "f8", ("edge",))
         # Fill in coordinate variables
         lon_cell = ds.variables["lon_cell"]
         lon_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
@@ -231,14 +233,15 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         lat_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lat)
         lat_cell.long_name = "Latitude at cells"
         lat_cell.units = "degrees_north"
-        lon_vtx = ds.variables["lon_vtx"]
-        lon_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lon)
-        lon_vtx.long_name = "Longitude at vertices"
-        lon_vtx.units = "degrees_east"
-        lat_vtx = ds.variables["lat_vtx"]
-        lat_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lat)
-        lat_vtx.long_name = "Latitude at vertices"
-        lat_vtx.units = "degrees_north"
+        if with_vtx:
+            lon_vtx = ds.variables["lon_vtx"]
+            lon_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lon)
+            lon_vtx.long_name = "Longitude at vertices"
+            lon_vtx.units = "degrees_east"
+            lat_vtx = ds.variables["lat_vtx"]
+            lat_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lat)
+            lat_vtx.long_name = "Latitude at vertices"
+            lat_vtx.units = "degrees_north"
         lon_edge = ds.variables["lon_edge"]
         lon_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
         lon_edge.long_name = "Longitude at edges"

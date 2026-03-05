@@ -1,29 +1,51 @@
-from typing import overload, Literal, Dict, Mapping
+from typing import (
+    overload,
+    Literal,
+    Dict,
+    Mapping
+)
 import jax
 
 from terraflow.util import typing, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh import OrthogonalDualMesh
 from terraflow.vert_coord import OneLayerVertCoordinate
-from terraflow.layout import Field, StaggeredFieldMetaData, MeshEntity, Basis
+from terraflow.layout import (
+    CoordinateSystem,
+    Field,
+    StaggeredFieldMetaData,
+    MeshEntity,
+    Basis
+)
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as vars
+from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+from terraflow.dynamics.shallow_water.types import ExVifShallowWaterEquationSet4UGRID
 from terraflow.discretization.abstract import (
     AbstractDiagnosticTools,
 )
-from terraflow.dynamics.shallow_water.types import ExVifShallowWaterEquationSet4UGRID
+import terraflow.discretization.fvm.odm.trisk.dynamics_types as vars
+from terraflow.discretization.fvm.odm.trisk.adv.batch import AdvBatchType
 from terraflow.discretization.fvm.odm.trisk.single_lev.term import (
-    DivergenceOfMassFluxAtPrimalCell,
+    TendencyOfDivergenceOfMassFlux,
     NonlinearCoriolisTermAtDualEdge,
     GradientOfKineticEnergyAtDualEdge,
-    PressureGradientForceAtDualEdge,
-    AuxiliaryTerms
+    PressureGradientForceAtDualEdge
 )
+from terraflow.discretization.fvm.odm.trisk.single_lev.aux import AuxiliaryTerms
 
 Array = typing.Array
 
+
+Coordsys = CoordinateSystem[
+    OrthogonalDualMesh,
+    OneLayerVertCoordinate,
+    TriSKBasedCGridStaggeringLayout,
+    OneLayerVertCoordLayout
+]
+
+
 Equation = ExVifShallowWaterEquationSet4UGRID[
-    DivergenceOfMassFluxAtPrimalCell,
+    TendencyOfDivergenceOfMassFlux,
     NonlinearCoriolisTermAtDualEdge,
     GradientOfKineticEnergyAtDualEdge,
     PressureGradientForceAtDualEdge,
@@ -37,6 +59,7 @@ class DiagnosticsTools(
         OrthogonalDualMesh,
         OneLayerVertCoordinate,
         TriSKBasedCGridStaggeringLayout,
+        OneLayerVertCoordLayout,
         FiniteVolumeMethod,
         Equation,
         StaggeredFieldMetaData
@@ -55,8 +78,8 @@ class DiagnosticsTools(
 
     def uv_at_primal_cell(
         self,
-        coord: vars.Coordsys,
-        state: vars.State | vars.State,
+        coord: Coordsys,
+        state: vars.State,
     ) -> tuple[Field, Field]:
         uv = coord.mesh.reconstruct_vector(state.un.unwrap())
         u = Field.create(
@@ -123,7 +146,7 @@ class DiagnosticsTools(
 
     def compute(
         self,
-        coord: vars.Coordsys,
+        coord: Coordsys,
         para: vars.PlanetParameterSet,
         state: vars.State,
         static: vars.Static,
@@ -135,12 +158,18 @@ class DiagnosticsTools(
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
         block = vars.Block(
+            baroclinic=self.equation.baroclinic,
+            hydrostatic=self.equation.hydrostatic,
+            nonhydrostatic=self.equation.nonhydrostatic,
+            ideal_dry_core=self.equation.ideal_dry_core,
+            advection=self.equation.advection,
             coord=coord,
             para=para,
             state=state,
             static=static,
-            tend=vars.Tendency.from_coord(coord),
-            aux=vars.Auxiliary.from_coord(coord),
+            tend=vars.Tendency.from_coord(coord=coord, equation=self.equation),
+            aux=vars.Auxiliary.from_coord(coord=coord, equation=self.equation),
+            adv_batch_pt=AdvBatchType.empty(coord=coord),
             equaux=equaux
         )
         if self.jit:
@@ -156,14 +185,14 @@ class DiagnosticsTools(
         tend = block.tend
         aux = block.aux
         diag_vars = {}
-        diag_vars["z"] = self.process_field(
-            coord, state.z, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["gz"] = self.process_field(
+            coord, state.gz, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["un"] = self.process_field(
             coord, state.un, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["zs"] = self.process_field(
-            coord, static.zs, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["gzs"] = self.process_field(
+            coord, static.gzs, to_ugrid=to_ugrid, use_dual=use_dual
         )
         u, v = self.uv_at_primal_cell(coord, state)
         diag_vars["u"] = self.process_field(
@@ -175,20 +204,11 @@ class DiagnosticsTools(
         diag_vars["ut"] = self.process_field(
             coord=coord, field=aux.ut, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["z_e"] = self.process_field(
-            coord=coord, field=aux.z_e, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["mfn"] = self.process_field(
+            coord=coord, field=aux.mfn, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["z_vtx"] = self.process_field(
-            coord=coord, field=aux.z_vtx, to_ugrid=to_ugrid, use_dual=use_dual
-        )
-        diag_vars["mfn_e"] = self.process_field(
-            coord=coord, field=aux.mfn_e, to_ugrid=to_ugrid, use_dual=use_dual
-        )
-        diag_vars["rel_vor"] = self.process_field(
-            coord=coord, field=aux.rel_vor, to_ugrid=to_ugrid, use_dual=use_dual
-        )
-        diag_vars["abs_vor"] = self.process_field(
-            coord=coord, field=aux.abs_vor, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["vor"] = self.process_field(
+            coord=coord, field=aux.vor, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["pv_vtx"] = self.process_field(
             coord=coord, field=aux.pv_vtx, to_ugrid=to_ugrid, use_dual=use_dual
@@ -199,8 +219,20 @@ class DiagnosticsTools(
         diag_vars["ke"] = self.process_field(
             coord=coord, field=aux.ke, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["dzdt_mfn_e"] = self.process_field(
-            coord=coord, field=tend.dzdt_mfn_e, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["dmg"] = self.process_field(
+            coord=coord, field=aux.dmg, to_ugrid=to_ugrid, use_dual=use_dual
+        )
+        diag_vars["dmg_e"] = self.process_field(
+            coord=coord, field=aux.dmg_e, to_ugrid=to_ugrid, use_dual=use_dual
+        )
+        diag_vars["dmg_vtx"] = self.process_field(
+            coord=coord, field=aux.dmg_vtx, to_ugrid=to_ugrid, use_dual=use_dual
+        )
+        diag_vars["dmf"] = self.process_field(
+            coord=coord, field=aux.dmf, to_ugrid=to_ugrid, use_dual=use_dual
+        )
+        diag_vars["dgzdt_dmf"] = self.process_field(
+            coord=coord, field=tend.dgzdt_dmf, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt_coriolis"] = self.process_field(
             coord=coord, field=tend.dundt_coriolis, to_ugrid=to_ugrid, use_dual=use_dual
@@ -211,8 +243,8 @@ class DiagnosticsTools(
         diag_vars["dundt_pgf"] = self.process_field(
             coord=coord, field=tend.dundt_pgf, to_ugrid=to_ugrid, use_dual=use_dual
         )
-        diag_vars["dzdt"] = self.process_field(
-            coord=coord, field=tend.dzdt, to_ugrid=to_ugrid, use_dual=use_dual
+        diag_vars["dgzdt"] = self.process_field(
+            coord=coord, field=tend.dgzdt, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dundt"] = self.process_field(
             coord=coord, field=tend.dundt, to_ugrid=to_ugrid, use_dual=use_dual

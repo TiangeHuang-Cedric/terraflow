@@ -13,7 +13,7 @@ if TYPE_CHECKING:
         AbstractBlock,
         AbstractFields,
     )
-    import terraflow.discretization.fvm.odm.trisk.single_lev.dynamics_types as fvm_odm_trisk_1lev_vars
+    import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
 
 
 Array = typing.Array
@@ -56,10 +56,19 @@ def repeated(
     if steps == 1:
         return fn
 
-    def f_repeated(x_initial: tuple[typing.PyTree]) -> typing.PyTree:
-        def g(x, _): return (fn(x), None)
-        x_final, _ = scan_fn(g, x_initial, xs=None, length=steps)
-        return x_final
+    def f_repeated(x_initial: tuple[typing.PyTree, typing.PyTree]) -> tuple[typing.PyTree, typing.PyTree]:
+        new_x_initial, old_x_initial = x_initial
+
+        def g(x, _):
+            old_x, _ = x
+            return (fn(old_x), None)
+        (new_x_final, old_x_final), _ = scan_fn(
+            g,
+            (old_x_initial, new_x_initial),
+            xs=None,
+            length=steps
+        )
+        return new_x_final, old_x_final
     return f_repeated
 
 
@@ -79,7 +88,7 @@ def repeated_with_inout(
     def f_repeated(carry_in: tuple[typing.PyTree, typing.PyTree]) -> tuple[typing.PyTree, typing.PyTree]:
         def g(carry, _):
             old_block, new_block = carry
-            new_block = fn(old_block)
+            new_block, old_block = fn(old_block)
             return (new_block, old_block), None
         (new_block, old_block), _ = scan_fn(
             g, carry_in, xs=None, length=steps
@@ -107,8 +116,8 @@ class MultiStepWithHistory:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_1lev_vars.Block,
-    ) -> fvm_odm_trisk_1lev_vars.Block:
+        block: fvm_odm_trisk_vars.Block,
+    ) -> fvm_odm_trisk_vars.Block:
         ...
 
     @overload
@@ -123,13 +132,13 @@ class MultiStepWithHistory:
         block: AbstractBlock,
     ) -> AbstractBlock:
         """Returns a version of this MultiStep that outputs fields."""
-        old_block = block.diagnose()
         self.history.output_prepare(0)
-        new_block = self.step(old_block)
+        new_block, old_block = self.step(block)
+        old_block = old_block.diagnose()
         self.history.output(
-            old_block=old_block,
-            new_block=new_block,
-            save_idx=0
+            block=old_block,
+            save_idx=0,
+            first_call=True
         )
         final, _ = self.outer_scan_fn(
             self.repeated_step, (new_block, 1), xs=None, length=self.outer_steps
@@ -152,8 +161,8 @@ class MultiStep:
     @overload
     def __call__(
         self,
-        x: fvm_odm_trisk_1lev_vars.Block,
-    ) -> Tuple[fvm_odm_trisk_1lev_vars.Block, fvm_odm_trisk_1lev_vars.State]:
+        x: fvm_odm_trisk_vars.Block,
+    ) -> Tuple[fvm_odm_trisk_vars.Block, fvm_odm_trisk_vars.State]:
         ...
 
     @overload
@@ -198,8 +207,7 @@ def io_callback(
         new_block, old_block = repeated_step_fn((block, block))
         old_block = old_block.diagnose()
         history.output(
-            old_block=old_block,
-            new_block=new_block,
+            block=old_block,
             save_idx=save_idx
         )
         return (new_block, save_idx + 1), None
@@ -247,7 +255,7 @@ def trajectory_from_step(
         step_fn = repeated(step_fn, inner_steps, inner_scan_fn)
 
     def step(old_block, _):
-        new_block = step_fn(old_block)
+        new_block, old_block = step_fn((old_block, old_block))
         frame = old_block.state if start_with_input else new_block.state
         return new_block, post_process_fn(frame)
 

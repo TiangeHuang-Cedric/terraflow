@@ -1,6 +1,5 @@
 from typing import TypeVar, Type, Self, Generic
 from abc import ABC, abstractmethod
-import sys
 from pathlib import Path
 from loguru import logger
 import netCDF4 as nc4
@@ -19,42 +18,17 @@ from terraflow.discretization.abstract import (
     AbstractBlock,
 )
 
-logger.remove()
-
-logger.add(
-    sys.stderr,
-    level="INFO",
-    filter=lambda r: r["level"].name == "INFO",
-    format=("{time:HH:mm:ss} | "
-            "<level>{level:<7}</level> | "
-            "<blue>{message}</blue>"),
-    colorize=True,
-    backtrace=False,
-    diagnose=False,
-)
-
-logger.add(
-    sys.stderr,
-    level="SUCCESS",
-    filter=lambda r: r["level"].name == "SUCCESS",
-    format=("<green>{time:HH:mm:ss}</green> | "
-            "<level>{level:<7}</level> | "
-            "<green>{message}</green>"),
-    colorize=True,
-    backtrace=False,
-    diagnose=False,
-)
-
 
 UM = TypeVar("UM", bound=mesh.AbstractUnstructuredMesh)
 HM = TypeVar("HM", bound=mesh.AbstractMesh)
 VM = TypeVar("VM", bound=vert_coord.AbstractVertCoordinate)
-LO = TypeVar("LO", bound=layout.AbstractLayout)
+HLO = TypeVar("HLO", bound=layout.AbstractLayout)
+VLO = TypeVar("VLO", bound=layout.AbstractLayout)
 HY = TypeVar("HY", bound='AbstractHistory')
 SHY = TypeVar("SHY", bound='AbstractHistory')
 
 
-HISTORY_LIST = ["h0", "h1", "h2"]
+STRUCTURED_HISTORY_LIST = ["h0", "h1", "h2"]
 
 
 class AbstractHistoryset(ABC, Generic[HY, SHY]):
@@ -77,6 +51,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         output_h0: bool = True,
         output_h1: bool = False,
         output_h2: bool = False,
+        h0_opt: dict = {},
+        h1_opt: dict = {},
+        h2_opt: dict = {},
         **kwargs
     ) -> None:
         self._built = False
@@ -91,7 +68,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 history_name="h0",
                 case_name=case_name,
                 file_path=file_path,
-                **kwargs
+                **h0_opt,
+                **kwargs,
             )
             logger.info(f"History will output h0: {self.h0.file_path}")
         if self.output_h1:
@@ -100,7 +78,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 history_name="h1",
                 case_name=case_name,
                 file_path=file_path,
-                **kwargs
+                **h1_opt,
+                **kwargs,
             )
             logger.info(f"History will output h1: {self.h1.file_path}")
         if self.output_h2:
@@ -109,7 +88,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 history_name="h2",
                 case_name=case_name,
                 file_path=file_path,
-                **kwargs
+                **h2_opt,
+                **kwargs,
             )
             logger.info(f"History will output h2: {self.h2.file_path}")
 
@@ -145,9 +125,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def output(
         self,
-        old_block: AbstractBlock,
-        new_block: AbstractBlock,
-        save_idx: int
+        block: AbstractBlock,
+        save_idx: int,
+        first_call: bool = False
     ) -> None:
         """
         Write the fields and diagnostics to the history file.
@@ -156,6 +136,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             old_block (AbstractBlock): The block before the time step (include old state).
             new_block (AbstractBlock): The block after the time step (include new state, old tend and old aux).
             save_idx (int): The index of the current save interval.
+            first_call (bool): Whether the output function is called for the first time.
+                If True, it will write the static fields to the history file.
 
         Returns:
             None
@@ -164,8 +146,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             self.advance_forward_in_time,
             None,
             save_idx,
-            old_block,
-            new_block,
+            block,
+            first_call,
             ordered=True
         )
 
@@ -180,9 +162,10 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def advance_forward_in_time(
         self,
         save_interval_idx: int,
-        old_block: AbstractBlock,
-        new_block: AbstractBlock
+        block: AbstractBlock,
+        first_call: bool = False
     ) -> None:
+
         def _set_time_var(h: HY | SHY):
             ds = nc4.Dataset(h.file_path, mode="a")
             time_var = ds.variables["time"]
@@ -192,33 +175,37 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             ds.close()
         if self.output_h0:
             _set_time_var(self.h0)
-            self.write_h0(old_block)
+            self.write_h0(block, first_call=first_call)
             self.log_done_write("h0")
         if self.output_h1:
             _set_time_var(self.h1)
-            self.write_h1(new_block)
+            self.write_h1(block)
             self.log_done_write("h1")
         if self.output_h2:
             _set_time_var(self.h2)
-            self.write_h2(old_block, new_block)
+            self.write_h2(block)
             self.log_done_write("h2")
         return None
 
     def setup_h0(self, block: AbstractBlock) -> None:
         if self.output_h0:
-            self.h0.setup([block.state])
+            self.h0.setup([block.state, block.static, block.aux])
 
     def setup_h1(self, block: AbstractBlock) -> None:
         if self.output_h1:
-            self.h1.setup([block.tend, block.aux])
+            self.h1.setup([block.state, block.static, block.tend, block.aux])
 
     def setup_h2(self, block: AbstractBlock) -> None:
         if self.output_h2:
             h2_list = []
-            if self.output_h0:
-                h2_list = h2_list + [block.state]
-            if self.output_h1:
-                h2_list = h2_list + [block.tend, block.aux]
+            if self.output_h0 and not self.output_h1:
+                h2_list = h2_list + [block.state, block.static, block.aux]
+            if self.output_h0 and self.output_h1:
+                h2_list = h2_list + [block.state, block.tend, block.static, block.aux]
+            if not self.output_h0 and self.output_h1:
+                h2_list = h2_list + [block.state, block.tend, block.static, block.aux]
+            if not self.output_h0 and not self.output_h1:
+                h2_list = []
             if h2_list:
                 self.h2.setup(h2_list)
             else:
@@ -226,19 +213,37 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                     "output_h0 and output_h1 are both False, cannot setup h2."
                 )
 
-    def write_h0(self, old_block: AbstractBlock):
-        self.h0.write_fields(old_block.state)
+    def write_h0(self, block: AbstractBlock, first_call: bool = False):
+        if first_call:
+            self.h0.write_fields(block.static)
+        self.h0.write_fields(block.state)
+        self.h0.write_fields(block.aux)
 
-    def write_h1(self, new_block: AbstractBlock):
-        self.h1.write_fields(new_block.tend)
-        self.h1.write_fields(new_block.aux)
+    def write_h1(self, block: AbstractBlock):
+        self.h1.write_fields(block.state)
+        self.h1.write_fields(block.tend)
+        self.h1.write_fields(block.static)
+        self.h1.write_fields(block.aux)
 
-    def write_h2(self, old_block: AbstractBlock, new_block: AbstractBlock):
-        if self.output_h0:
-            self.h2.write_fields(old_block.state)
-        if self.output_h1:
-            self.h2.write_fields(new_block.tend)
-            self.h2.write_fields(new_block.aux)
+    def write_h2(self, block: AbstractBlock):
+        if self.output_h0 and not self.output_h1:
+            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.static)
+            self.h2.write_fields(block.aux)
+        if self.output_h0 and self.output_h1:
+            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.tend)
+            self.h2.write_fields(block.static)
+            self.h2.write_fields(block.aux)
+        if not self.output_h0 and self.output_h1:
+            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.tend)
+            self.h2.write_fields(block.static)
+            self.h2.write_fields(block.aux)
+        if not self.output_h0 and not self.output_h1:
+            raise ValueError(
+                "output_h0 and output_h1 are both False, cannot write h2."
+            )
 
 
 class UGRIDHistoryset(
@@ -247,7 +252,7 @@ class UGRIDHistoryset(
 
     def __init__(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         time_manager: DateTimeManager,
         case_name: str = "terraflow",
         file_path: str = "",
@@ -265,7 +270,9 @@ class UGRIDHistoryset(
             output_h0=output_h0,
             output_h1=output_h1,
             output_h2=output_h2,
-            use_dual=use_dual,
+            h0_opt={"use_dual": use_dual},
+            h1_opt={"use_dual": use_dual},
+            h2_opt={},
             **kwargs
         )
 
@@ -284,7 +291,7 @@ class UnstructuredHistoryset(
 
     def __init__(
         self,
-        coord: CoordinateSystem[UM, VM, LO],
+        coord: CoordinateSystem[UM, VM, HLO, VLO],
         time_manager: DateTimeManager,
         case_name: str = "terraflow",
         file_path: str = "",
@@ -301,7 +308,10 @@ class UnstructuredHistoryset(
             output_h0=output_h0,
             output_h1=output_h1,
             output_h2=output_h2,
-            **kwargs
+            h0_opt={"with_vtx": False},
+            h1_opt={"with_vtx": True},
+            h2_opt={},
+            **kwargs,
         )
 
     @staticmethod
@@ -356,7 +366,10 @@ class AbstractHistory(ABC):
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
             data = np.asarray(field.unwrap())
-            ds.variables[field_name][idx, ...] = data
+            if field.meta.is_static:
+                ds.variables[field_name][...] = data
+            else:
+                ds.variables[field_name][idx, ...] = data
         ds.close()
         return None
 
@@ -377,7 +390,7 @@ class UGRIDHistory(AbstractHistory):
 
     def __init__(
         self,
-        coord: CoordinateSystem[HM, VM, LO],
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
@@ -429,7 +442,9 @@ class UGRIDHistory(AbstractHistory):
             dsxr = tuxr.format_terraflow2ugrid(
                 field.data, field.meta.to_dict(), use_dual=self.use_dual
             )
-            var_dims = tuple(("time",) + tuple(str(dim) for dim in dsxr.dims))
+            var_dims = tuple(str(dim) for dim in dsxr.dims)
+            if not field.meta.is_static:
+                var_dims = tuple(("time",) + var_dims)
             var_dtype = "f8"
             v = ds.createVariable(field_name, var_dtype, var_dims)
             v.mesh = dsxr.attrs.get("mesh", "")
@@ -453,11 +468,12 @@ class UnstructuredHistory(AbstractHistory):
 
     def __init__(
         self,
-        coord: CoordinateSystem[UM, VM, LO],
+        coord: CoordinateSystem[UM, VM, HLO, VLO],
         time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
         file_path: str,
+        with_vtx: bool,
     ) -> None:
         super().__init__(
             history_name=history_name,
@@ -476,6 +492,7 @@ class UnstructuredHistory(AbstractHistory):
             output_type="unstructured"
         )
         self.vert = coord.vert.history_builder(self.file_path)
+        self.with_vtx = with_vtx
 
     def setup(self, fields_list: list[AbstractFields]) -> Self:
         if self.has_built():
@@ -485,7 +502,7 @@ class UnstructuredHistory(AbstractHistory):
         if not self.time.has_built():
             self.time.setup()
         if not self.mesh.has_built():
-            self.mesh.setup()
+            self.mesh.setup(with_vtx=self.with_vtx)
         if not self.vert.has_built():
             self.vert.setup()
         if self.attr.has_built() and self.time.has_built() and \
@@ -500,7 +517,9 @@ class UnstructuredHistory(AbstractHistory):
         for field_name, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            var_dims = tuple(("time",) + field.meta.dims)
+            var_dims = field.meta.dims
+            if not field.meta.is_static:
+                var_dims = tuple(("time",) + field.meta.dims)
             var_dtype = "f8"
             v = ds.createVariable(field_name, var_dtype, var_dims)
             v.hori_location = field.meta.hori_location
@@ -533,7 +552,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
 
     def __init__(
         self,
-        coord: CoordinateSystem[UM, VM, LO],
+        coord: CoordinateSystem[UM, VM, HLO, VLO],
         time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
@@ -617,10 +636,13 @@ class Unstructured2StructuredHistory(AbstractHistory):
         for field_name in fields_remapped.keys():
             field = fields_remapped.variables[field_name]
             output = field.attrs.get("output", None)
-            if output not in HISTORY_LIST or output == "":
+            if output not in STRUCTURED_HISTORY_LIST or output == "":
                 continue
             data = fields_remapped.variables[field_name].data
-            ds.variables[str(field_name)][idx, ...] = np.array(data)
+            if field.attrs.get("is_static", False):
+                ds.variables[str(field_name)][...] = np.array(data)
+            else:
+                ds.variables[str(field_name)][idx, ...] = np.array(data)
         ds.close()
         return None
 
@@ -639,15 +661,23 @@ class Unstructured2StructuredHistory(AbstractHistory):
         )[1]
         for var_name, da in remapped_ds.data_vars.items():
             output = da.attrs.get("output", None)
-            if output not in HISTORY_LIST or output == "":
+            if output not in STRUCTURED_HISTORY_LIST or output == "":
                 print(
                     f"Skip variable {var_name} for history {self.history_name}.")
                 continue
             var_dtype = "f8"
+            is_static = da.attrs.get("is_static", False)
+            var_dims = ("lat", "lon")
+            if not is_static:
+                var_dims = tuple(("time",) + var_dims)
             v = ds.createVariable(
-                str(var_name), var_dtype, ("time", "lat", "lon"))
-            for attr_name, attr_value in da.attrs.items():
-                v.setncattr(attr_name, attr_value)
+                str(var_name), var_dtype, var_dims
+            )
+            v.setncattr("mesh", da.attrs.get("mesh", ""))
+            v.setncattr("location", da.attrs.get("location", ""))
+            v.setncattr("units", da.attrs.get("units", ""))
+            v.setncattr("long_name", da.attrs.get("long_name", ""))
+            v.setncattr("description", da.attrs.get("description", ""))
             v.setncattr(
                 "coordinates",
                 " ".join([str(k) for k in da.coords.keys()])

@@ -39,9 +39,16 @@ mesh = tf.mesh.OrthogonalDualMesh.from_grist(
 
 vert = tf.vert_coord.OneLayerVertCoordinate()
 
-layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
+hori_layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
 
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert, layout=layout)
+vert_layout = tf.layout.onelayer_vert_coord.OneLayerVertCoordLayout()
+
+coord = tf.layout.CoordinateSystem(
+    hori=mesh,
+    vert=vert,
+    hori_layout=hori_layout,
+    vert_layout=vert_layout
+)
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
@@ -49,8 +56,6 @@ para = tf.planet.PlanetParameterSet.from_si(
 
 method = tf.operator.FiniteVolumeMethod()
 # %%
-
-
 # matplotlib backend so we can use cartopy projections
 hv.extension("matplotlib")
 cell = 800  # face index to inspect
