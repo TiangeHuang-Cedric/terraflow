@@ -686,6 +686,8 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         new_vars: Dict[str, ArrayField[FMT]] = {}
         for key in self.keys():
             var = object.__getattribute__(self, key)
+            if var.meta.is_prognostic:
+                continue
             if isinstance(var.data, jnp.ndarray):
                 new_vars[key] = Field.create(
                     data=jnp.full_like(var.data, val),
@@ -1119,6 +1121,10 @@ class AbstractBlock(
     aux: AUX
     equaux: AUXDS
 
+    @abstractmethod
+    def update_from_new_block(self, new_block: Any) -> Self:
+        raise NotImplementedError
+
     @classmethod
     @abstractmethod
     def from_testcase(
@@ -1131,12 +1137,9 @@ class AbstractBlock(
     ) -> Self:
         raise NotImplementedError
 
+    @abstractmethod
     def reset(self, val: float = 0.0) -> Self:
-        return eqx.tree_at(
-            lambda b: (b.tend, b.aux),
-            self,
-            replace=(self.tend.reset(val), self.aux.reset(val))
-        )
+        raise NotImplementedError
 
     def diagnose(self) -> Self:
         return self

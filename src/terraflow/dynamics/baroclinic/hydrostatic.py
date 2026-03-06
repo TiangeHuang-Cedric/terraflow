@@ -74,17 +74,14 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self.dmgsdt = self.init_continuity_equation(
             disc=disc,
             method=method,
-            aux=self.aux
         )
         self.dptdt = self.init_thermodynamic_equation(
             disc=disc,
             method=method,
-            aux=self.aux
         )
         self.dundt = self.init_momentum_equation(
             disc=disc,
             method=method,
-            aux=self.aux
         )
 
     @staticmethod
@@ -181,7 +178,6 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> types.ExContinuityEqu[
         types.DMFS,
         DM,
@@ -199,7 +195,6 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> types.ExThermodynamicEqu[
         types.DMFT, types.VAT,
         DM,
@@ -217,7 +212,6 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> types.ExNormalMomentumEqu4UGRID[
         types.NCT, types.GKE, types.VAM, types.PGF,
         DM,

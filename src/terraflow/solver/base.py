@@ -8,7 +8,6 @@ from loguru import logger
 
 from terraflow.util import typing, device
 from terraflow.util.datetime import DateTimeManager
-from terraflow.layout.field import Field
 
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
@@ -33,7 +32,7 @@ def update_state_forward_backward(
     dt: float | Array,
     pass_tag: str
 ) -> typing.PyTree:
-    old_prog = old_state.to_prognostic()
+    old_prog = old_state.to_prognostic(pass_tag=pass_tag)
     tend2prog = tend.to_prognostic(pass_tag=pass_tag)
     new_prog = jax.tree_util.tree_map(
         lambda op, tp: op + tp * dt,
@@ -41,26 +40,31 @@ def update_state_forward_backward(
         tend2prog,
         is_leaf=lambda x: isinstance(x, Array)
     )
-    return new_state.wrap_from_prognostic(new_prog)
+    return new_state.wrap_from_prognostic(
+        old_prog=old_state.to_prognostic(pass_tag=all_pass),
+        new_prog=new_prog,
+        pass_tag=pass_tag
+    )
 
 
 def step_all(
     space_operators: Callable,
     old_block: AbstractBlock,
-    old_state: typing.PyTree,
+    new_block: AbstractBlock,
     dt: float | Array
 ) -> tuple[AbstractBlock, AbstractBlock]:
-    old_block = space_operators(old_block, pass_tag=all_pass)
+    new_block = space_operators(new_block, pass_tag=all_pass)
+    old_block = old_block.update_from_new_block(new_block)
     new_state = update_state_forward_backward(
-        old_state=old_state,
-        new_state=old_block.state,
-        tend=old_block.tend,
+        old_state=old_block.state,
+        new_state=new_block.state,
+        tend=new_block.tend,
         dt=dt,
         pass_tag=all_pass
     )
     new_block = eqx.tree_at(
         lambda b: b.state,
-        old_block,
+        new_block,
         new_state
     )
     new_block = new_block.reset()
@@ -70,20 +74,20 @@ def step_all(
 def step_forward_backward(
     space_operators: Callable,
     old_block: AbstractBlock,
-    old_state: typing.PyTree,
+    new_block: AbstractBlock,
     dt: float | Array
 ) -> tuple[AbstractBlock, AbstractBlock]:
-    old_block = space_operators(old_block, pass_tag=forward_pass)
+    star_block = space_operators(new_block, pass_tag=forward_pass)
     star_state = update_state_forward_backward(
-        old_state=old_state,
-        new_state=old_block.state,
-        tend=old_block.tend,
+        old_state=old_block.state,
+        new_state=star_block.state,
+        tend=star_block.tend,
         dt=dt,
         pass_tag=forward_pass
     )
     star_block = eqx.tree_at(
         lambda b: b.state,
-        old_block,
+        star_block,
         star_state
     )
     star_block = space_operators(star_block, pass_tag=backward_pass)
@@ -99,22 +103,8 @@ def step_forward_backward(
         star_block,
         new_state
     )
+    old_block = old_block.update_from_new_block(new_block)
     new_block = new_block.reset()
-    old_state = jax.tree_util.tree_map(
-        lambda os, ns: (
-            os
-            if getattr(os, "meta", None) and getattr(os.meta, "is_prognostic", False)
-            else ns
-        ),
-        old_block.state,
-        new_block.state,
-        is_leaf=lambda x: isinstance(x, Field)
-    )
-    old_block = eqx.tree_at(
-        lambda b: b.state,
-        star_block,
-        old_state
-    )
     return new_block, old_block
 
 
@@ -152,30 +142,47 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
     def stepper(self) -> Callable:
         """Third-order Runge-Kutta time stepper."""
         rhs = self.equation.explicit_terms
-        nrk = self.nrk
 
         def step_fn_all(old_block: AbstractBlock) -> tuple[AbstractBlock, AbstractBlock]:
-            new_block = old_block.reset()
-            old_state = new_block.state
-            for irk in range(nrk):
-                new_block, old_block = step_all(
-                    space_operators=rhs,
-                    old_block=new_block,
-                    old_state=old_state,
-                    dt=self.dt_rk_seconds[irk]
-                )
+            star_block, old_block = step_all(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=old_block.reset(),
+                dt=self.dt_rk_seconds[0]
+            )
+            dstar_block, _ = step_all(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=star_block,
+                dt=self.dt_rk_seconds[1]
+            )
+            new_block, _ = step_all(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=dstar_block,
+                dt=self.dt_rk_seconds[2]
+            )
             return new_block, old_block
 
         def step_fn_fb(old_block: AbstractBlock) -> tuple[AbstractBlock, AbstractBlock]:
-            new_block = old_block.reset()
-            old_state = new_block.state
-            for irk in range(nrk):
-                new_block, old_block = step_forward_backward(
-                    space_operators=rhs,
-                    old_block=new_block,
-                    old_state=old_state,
-                    dt=self.dt_rk_seconds[irk]
-                )
+            star_block, old_block = step_forward_backward(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=old_block.reset(),
+                dt=self.dt_rk_seconds[0]
+            )
+            dstar_block, _ = step_forward_backward(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=star_block,
+                dt=self.dt_rk_seconds[1]
+            )
+            new_block, _ = step_forward_backward(
+                space_operators=rhs,
+                old_block=old_block,
+                new_block=dstar_block,
+                dt=self.dt_rk_seconds[2]
+            )
             return new_block, old_block
 
         return step_fn_fb if self.forward_backward else step_fn_all
@@ -220,20 +227,18 @@ class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
         rhs = self.equation.explicit_terms
 
         def step_fn_all(old_block: AbstractBlock) -> tuple[AbstractBlock, AbstractBlock]:
-            new_block = old_block.reset()
             return step_all(
                 space_operators=rhs,
-                old_block=new_block,
-                old_state=new_block.state,
+                old_block=old_block,
+                new_block=old_block.reset(),
                 dt=self.dt_seconds
             )
 
         def step_fn_fb(old_block: AbstractBlock) -> tuple[AbstractBlock, AbstractBlock]:
-            new_block = old_block.reset()
             return step_forward_backward(
                 space_operators=rhs,
-                old_block=new_block,
-                old_state=new_block.state,
+                old_block=old_block,
+                new_block=old_block.reset(),
                 dt=self.dt_seconds
             )
 

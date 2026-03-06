@@ -120,11 +120,14 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
         )
         dtype = self.mesh.dev.float_type
         arch = self.mesh.dev()
-        if vert_shape[0] == 0 and vert_loc != VertLoc.Sfc:
-            vert_shape = (1,)
-            shape = vert_shape + hori_shape
+        if vert_shape[0] == 0:
+            if vert_loc != VertLoc.Sfc:
+                vert_shape = (1,)
+                shape = vert_shape + hori_shape
+            else:
+                shape = hori_shape
         else:
-            shape = hori_shape
+            shape = vert_shape + hori_shape
         return jnp.zeros(shape, dtype=dtype, device=arch)
 
     def get_hori_layout(

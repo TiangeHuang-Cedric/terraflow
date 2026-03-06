@@ -55,7 +55,6 @@ class AbstractBaroclinicEquationSet(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> disc_types.AbstractContinuityEquForm:
         raise NotImplementedError
 
@@ -64,7 +63,6 @@ class AbstractBaroclinicEquationSet(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> disc_types.AbstractMomentumEquForm:
         raise NotImplementedError
 
@@ -73,7 +71,6 @@ class AbstractBaroclinicEquationSet(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        aux: ESAUX
     ) -> disc_types.AbstractThermodynamicEquForm:
         raise NotImplementedError
 

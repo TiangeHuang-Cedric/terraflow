@@ -1,7 +1,7 @@
 from typing import Self, Optional, TypeVar, Dict
 from loguru import logger
 import equinox as eqx
-import jax.numpy as jnp
+import jax
 
 from terraflow.util import typing, formula
 from terraflow.planet import PlanetParameterSet
@@ -14,7 +14,7 @@ from terraflow.layout.abstract import (
     MeshEntity,
     VertLoc,
 )
-from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
+from terraflow.layout.field import Field, ArrayField, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
@@ -205,6 +205,41 @@ class Block(AbstractBlock[
             (uv["u"], uv["v"])
         )
         return self
+
+    def reset(self, val: float = 0.0) -> Self:
+        return eqx.tree_at(
+            lambda b: (b.state, b.tend, b.aux),
+            self,
+            replace=(
+                self.state.reset(val),
+                self.tend.reset(val),
+                self.aux.reset(val),
+            )
+        )
+
+    def update_from_new_block(self, new_block: Self) -> Self:
+        old_state = self.state
+        new_state = new_block.state
+        updated_old_state = jax.tree_util.tree_map(
+            lambda os, ns: (
+                os
+                if getattr(os, "meta", None) and getattr(os.meta, "is_prognostic", False)
+                else ns
+            ),
+            old_state,
+            new_state,
+            is_leaf=lambda x: isinstance(x, Field)
+        )
+        return eqx.tree_at(
+            lambda b: (b.state, b.tend, b.aux, b.adv_batch_pt),
+            self,
+            (
+                updated_old_state,
+                new_block.tend,
+                new_block.aux,
+                new_block.adv_batch_pt
+            )
+        )
 
 
 def init_z_in_barotropic_case(
@@ -650,31 +685,60 @@ class State(AbstractFields[StaggeredFieldMetaData]):
             advection=advection
         )
 
-    def to_prognostic(self) -> dict[str, Array]:
+    def to_prognostic(self, pass_tag: str) -> dict[str, Array]:
         if self.baroclinic:
-            return {
-                "mgs": self.mgs.data,
-                "pt": self.pt.data,
-                "un": self.un.data
-            }
+            return dict(
+                mgs=self.mgs.data,
+                pt=self.pt.data,
+                un=self.un.data
+            )
         else:
-            return {
-                "gz": self.gz.data,
-                "un": self.un.data
-            }
+            if pass_tag == "all_pass":
+                return dict(
+                    gz=self.gz.data,
+                    un=self.un.data
+                )
+            elif pass_tag == "forward_pass":
+                return dict(
+                    gz=self.gz.data,
+                )
+            elif pass_tag == "backward_pass":
+                return dict(
+                    un=self.un.data
+                )
+            else:
+                raise ValueError(f"Invalid pass_tag: {pass_tag}")
 
-    def wrap_from_prognostic(self, prog_fields: dict[str, Array]) -> Self:
+    def wrap_from_prognostic(
+        self,
+        old_prog: dict[str, Array],
+        new_prog: dict[str, Array],
+        pass_tag: str
+    ) -> Self:
         if self.baroclinic:
+            prog = (
+                new_prog["mgs"],
+                new_prog["pt"],
+                new_prog["un"]
+            )
             return eqx.tree_at(
                 lambda s: (s.mgs.data, s.pt.data, s.un.data),
                 self,
-                (prog_fields["mgs"], prog_fields["pt"], prog_fields["un"])
+                prog
             )
         else:
+            if pass_tag == "all_pass":
+                prog = (new_prog["gz"], new_prog["un"])
+            elif pass_tag == "forward_pass":
+                prog = (new_prog["gz"], old_prog["un"])
+            elif pass_tag == "backward_pass":
+                prog = (old_prog["gz"], new_prog["un"])
+            else:
+                raise ValueError(f"Invalid pass_tag: {pass_tag}")
             return eqx.tree_at(
                 lambda s: (s.gz.data, s.un.data),
                 self,
-                (prog_fields["gz"], prog_fields["un"])
+                prog
             )
 
 
@@ -920,25 +984,13 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
             elif pass_tag == "forward_pass":
                 return dict(
                     gz=self.dgzdt.data,
-                    un=self.zeros_like(self.dundt).data
                 )
             elif pass_tag == "backward_pass":
                 return dict(
-                    gz=self.zeros_like(self.dgzdt).data,
                     un=self.dundt.data
                 )
             else:
                 raise ValueError(f"Invalid pass_tag: {pass_tag}")
-
-    def zeros_like(
-        self,
-        data: ArrayField[StaggeredFieldMetaData],
-    ) -> ArrayField[StaggeredFieldMetaData]:
-        return ArrayField[StaggeredFieldMetaData].create(
-            data=jnp.zeros_like(data.data),
-            meta=data.meta,
-            as_quantity=False
-        )
 
 
 def default_static_meta(

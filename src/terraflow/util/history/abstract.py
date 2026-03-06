@@ -682,12 +682,20 @@ class Unstructured2StructuredHistory(AbstractHistory):
         for var_name, da in remapped_ds.data_vars.items():
             output = da.attrs.get("output", None)
             if output not in STRUCTURED_HISTORY_LIST or output == "":
-                print(
-                    f"Skip variable {var_name} for history {self.history_name}.")
+                logger.info(
+                    f"Skip variable {var_name} for history {self.history_name}."
+                )
                 continue
             var_dtype = "f8"
             is_static = da.attrs.get("is_static", False)
-            var_dims = ("lat", "lon")
+            if len(da.dims) == 2:
+                var_dims = ("lat", "lon")
+            elif len(da.dims) == 3:
+                var_dims = (str(da.dims[0]), "lat", "lon")
+            else:
+                raise ValueError(
+                    f"Variable {var_name} has unsupported number of dimensions: {len(da.dims)}."
+                )
             if not is_static:
                 var_dims = tuple(("time",) + var_dims)
             v = ds.createVariable(
