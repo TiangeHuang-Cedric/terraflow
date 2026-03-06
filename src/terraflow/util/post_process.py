@@ -5,7 +5,6 @@ import pathlib
 import subprocess
 from abc import ABC, abstractmethod
 from loguru import logger
-from numpy import isin
 
 from terraflow.util import history
 
@@ -37,7 +36,7 @@ class AbstractPostProcessor(ABC):
                 "Remapping is skipped. To enable remapping, set remap=True."
             )
             return
-        for infile in history.get_all_histories():
+        for infile in history.get_all_histories(with_h2=False):
             filehead = pathlib.Path(infile).with_suffix("")
             outfile = f"{filehead}.{res}×{res}.nc"
             post_processor.remap_netcdf(infile, outfile, res, *args, **kwargs)

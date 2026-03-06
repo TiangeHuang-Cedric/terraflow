@@ -112,13 +112,13 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def structured_history_type() -> Type[SHY]:
         raise NotImplementedError
 
-    def get_all_histories(self) -> list[str]:
+    def get_all_histories(self, with_h2: bool = False) -> list[str]:
         histories = []
         if self.output_h0:
             histories.append(self.h0.file_path)
         if self.output_h1:
             histories.append(self.h1.file_path)
-        if self.output_h2:
+        if self.output_h2 and with_h2:
             histories.append(self.h2.file_path)
         return histories
 
