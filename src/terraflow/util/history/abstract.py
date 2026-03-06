@@ -112,6 +112,16 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def structured_history_type() -> Type[SHY]:
         raise NotImplementedError
 
+    def get_all_histories(self) -> list[str]:
+        histories = []
+        if self.output_h0:
+            histories.append(self.h0.file_path)
+        if self.output_h1:
+            histories.append(self.h1.file_path)
+        if self.output_h2:
+            histories.append(self.h2.file_path)
+        return histories
+
     def has_built(self) -> bool:
         return self._built
 
@@ -201,9 +211,19 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             if self.output_h0 and not self.output_h1:
                 h2_list = h2_list + [block.state, block.static, block.aux]
             if self.output_h0 and self.output_h1:
-                h2_list = h2_list + [block.state, block.tend, block.static, block.aux]
+                h2_list = h2_list + [
+                    block.state,
+                    block.tend,
+                    block.static,
+                    block.aux
+                ]
             if not self.output_h0 and self.output_h1:
-                h2_list = h2_list + [block.state, block.tend, block.static, block.aux]
+                h2_list = h2_list + [
+                    block.state,
+                    block.tend,
+                    block.static,
+                    block.aux
+                ]
             if not self.output_h0 and not self.output_h1:
                 h2_list = []
             if h2_list:

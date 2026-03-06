@@ -7,8 +7,8 @@ Usage: python Fluida2Latlon.py -N 1 -w input.nc output.nc
 """
 import argparse
 import pathlib
-import subprocess
 from loguru import logger
+from terraflow.util.post_process import CDOPostProcesser as cdo
 
 
 def parse_commandline():
@@ -41,29 +41,12 @@ def parse_commandline():
     return parser.parse_args()
 
 
-def run(cmd, silent=False):
-    stdout = subprocess.DEVNULL if silent else None
-    stderr = subprocess.DEVNULL if silent else None
-    subprocess.run(cmd, check=True, stdout=stdout, stderr=stderr)
-
-
-def cdo_remap(infile, outfile, res, use_weight, silent=False):
-    if use_weight:
-        run(["cdo", f"gendis,global_{res}",
-            infile, "weight.nc"], silent=silent)
-        run(["cdo", f"remap,global_{res},weight.nc",
-            infile, outfile], silent=silent)
-        pathlib.Path("weight.nc").unlink(missing_ok=True)
-        pathlib.Path("tmp.nc").unlink(missing_ok=True)
-    else:
-        run(["cdo", f"remapdis,global_{res}", infile, outfile], silent=silent)
-
-
 def main():
     args = parse_commandline()
     infile = args.inputfile
     filehead = pathlib.Path(infile).with_suffix("")
-    res = args.Number
+    res = float(args.Number)
+    res = int(res) if res.is_integer() else res
     if args.outputfile is not None:
         outfile = args.outputfile
     else:
@@ -83,15 +66,27 @@ def main():
     )
 
     try:
-        cdo_remap(infile, outfile, res, use_weight, silent=False)
+        cdo.remap_netcdf(
+            infile=infile,
+            outfile=outfile,
+            res=res,
+            use_weight=use_weight,
+            silent=False
+        )
         logger.info("Remapping completed successfully.")
     except Exception:
-        run([
+        cdo.run([
             "ncks",
             "-O", "-x", "-v", "lon_vtx,lat_vtx", infile, "tmp.nc"
         ])
-        cdo_remap("tmp.nc", outfile, res, use_weight, silent=False)
-        run(["rm", "tmp.nc"])
+        cdo.remap_netcdf(
+            infile="tmp.nc",
+            outfile=outfile,
+            res=res,
+            use_weight=use_weight,
+            silent=False
+        )
+        cdo.run(["rm", "tmp.nc"])
         logger.info(
             "Remapping completed successfully after removing vertex coordinates."
         )
