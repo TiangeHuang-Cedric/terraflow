@@ -553,7 +553,7 @@ class AbstractVariableSet(eqx.Module, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def reset(self, val: float = 0.0) -> Self:
+    def reset(self) -> Self:
         """Reset all variables to a specific value."""
         raise NotImplementedError
 
@@ -682,7 +682,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
             )
         return self
 
-    def reset(self, val: float = 0.0) -> Self:
+    def reset(self) -> Self:
         new_vars: Dict[str, ArrayField[FMT]] = {}
         for key in self.keys():
             var = object.__getattribute__(self, key)
@@ -690,12 +690,12 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                 continue
             if isinstance(var.data, jnp.ndarray):
                 new_vars[key] = Field.create(
-                    data=jnp.full_like(var.data, val),
+                    data=jnp.zeros_like(var.data),
                     meta=var.meta,
                     as_quantity=var.is_quantity()
                 )
             elif isinstance(var.data, ux.AbstractQuantity):
-                new_array = jnp.full_like(var.data.value, val)
+                new_array = jnp.zeros_like(var.data.value)
                 new_vars[key] = Field.create(
                     data=ux.Quantity(
                         new_array, var.data.unit  # type: ignore
@@ -1012,12 +1012,12 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
             new_vars[key] = Field(data=new_var, meta=var.meta)
         return self._wrap(new_vars)
 
-    def reset(self, val: float = 0.0) -> Self:
+    def reset(self) -> Self:
         new_vars: Dict[str, ArrayField[FMT]] = {}
         for key, var in self.items():
             if isinstance(var.data, jnp.ndarray):
                 new_vars[key] = Field(
-                    data=jnp.full_like(var.data, val),
+                    data=jnp.zeros_like(var.data),
                     meta=var.meta
                 )
             else:
@@ -1138,7 +1138,7 @@ class AbstractBlock(
         raise NotImplementedError
 
     @abstractmethod
-    def reset(self, val: float = 0.0) -> Self:
+    def reset(self) -> Self:
         raise NotImplementedError
 
     def diagnose(self) -> Self:

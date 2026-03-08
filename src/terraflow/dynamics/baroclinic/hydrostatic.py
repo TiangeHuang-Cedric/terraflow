@@ -226,6 +226,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         )
 
     def prepare(self, block: BLOCK) -> BLOCK:
+        block = self.aux.prepare(block)
         block = self.dmgsdt.prepare(block)
         block = self.dptdt.prepare(block)
         block = self.dundt.prepare(block)

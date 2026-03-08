@@ -8,7 +8,6 @@ from loguru import logger
 
 from terraflow.util import typing, device
 from terraflow.util.datetime import DateTimeManager
-
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
 
@@ -120,9 +119,15 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         equation: AbstractExplicitODE,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
+        with_jit: bool = True,
         forward_backward: bool = True
     ):
-        super().__init__(equation, time_manager, dev)
+        super().__init__(
+            equation=equation,
+            time_manager=time_manager,
+            dev=dev,
+            with_jit=with_jit
+        )
         self.nrk = 3
         self.dt_rk = [self.dt / (self.nrk - irk) for irk in range(self.nrk)]
         self.dt_rk_seconds = jnp.asarray(
@@ -208,10 +213,19 @@ class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
         equation: AbstractExplicitODE,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
+        with_jit: bool = True,
         forward_backward: bool = True
     ):
-        super().__init__(equation, time_manager, dev)
-        self.dt_seconds = self.dt.total_seconds()
+        super().__init__(
+            equation=equation,
+            time_manager=time_manager,
+            dev=dev,
+            with_jit=with_jit
+        )
+        self.dt_seconds = jnp.asarray(
+            self.dt.total_seconds(),
+            dtype=dev.float_type
+        )
         self.forward_backward = forward_backward
         if self.forward_backward:
             logger.success(

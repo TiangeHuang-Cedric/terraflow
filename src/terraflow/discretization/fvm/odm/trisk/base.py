@@ -43,6 +43,50 @@ CoordSys = CoordinateSystem[
 Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
 
 
+class DivergenceOfMassFluxAtCell(AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+
+    def __call__(self, block: Block) -> Block:
+        mfn = block.aux.mfn.unwrap()
+        dmf = op.div_at_primal_cell(
+            x_at_edge=mfn,
+            coord=block.coord,
+            para=block.para
+        )
+        return eqx.tree_at(
+            lambda b: b.aux.dmf.data,
+            block,
+            replace=dmf
+        )
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
+    def prepare(self, block: Block) -> Block:
+        return block
+
+
 class RelativeVorticityAtDualCell(Term):
 
     def __init__(

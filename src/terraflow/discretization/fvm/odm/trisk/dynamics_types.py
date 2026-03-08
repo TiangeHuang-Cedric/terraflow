@@ -112,10 +112,11 @@ class Block(AbstractBlock[
             )
             mg = coord.vert.calc_mg(mgs)
             mg_lev = coord.vert.calc_mg_lev(mgs)
-            un = init_un_in_baroclinic_case(
+            t = init_t_in_baroclinic_case(
                 coord=coord, equation=equation, test=case
             )
-            gzs = init_gzs_in_baroclinic_case(
+            pt = formula.dry_potential_temperature(t=t, p=mg, para=para)
+            un = init_un_in_baroclinic_case(
                 coord=coord, equation=equation, test=case
             )
             gz = init_gz_in_baroclinic_case(
@@ -124,10 +125,10 @@ class Block(AbstractBlock[
             gz_lev = init_gz_lev_in_case(
                 coord=coord, equation=equation, test=case
             )
-            t = init_t_in_baroclinic_case(
+            gzs = init_gzs_in_baroclinic_case(
                 coord=coord, equation=equation, test=case
             )
-            pt = formula.dry_potential_temperature(t=t, p=mg, para=para)
+            ref_ps = mgs
             state = eqx.tree_at(
                 lambda s: (
                     s.mgs.data, s.gz.data,
@@ -137,9 +138,9 @@ class Block(AbstractBlock[
                 (mgs, gz, gz_lev, un, pt)
             )
             static = eqx.tree_at(
-                lambda s: s.gzs.data,
+                lambda s: (s.gzs.data, s.ref_ps.data),
                 static,
-                gzs
+                (gzs, ref_ps)
             )
             aux = eqx.tree_at(
                 lambda a: (a.mg.data, a.mg_lev.data, a.t.data),
@@ -206,14 +207,15 @@ class Block(AbstractBlock[
         )
         return self
 
-    def reset(self, val: float = 0.0) -> Self:
+    def reset(self) -> Self:
         return eqx.tree_at(
             lambda b: (b.state, b.tend, b.aux),
             self,
             replace=(
-                self.state.reset(val),
-                self.tend.reset(val),
-                self.aux.reset(val),
+                self.state.reset(),
+                self.tend.reset(),
+                self.aux.reset(),
+                # TODO: reset adv_batch_pt if necessary
             )
         )
 
@@ -1117,6 +1119,21 @@ def default_auxiliary_meta(
         is_prognostic=False,
         output="h1"
     )
+    meta["coriolis"] = StaggeredFieldMetaData(
+        name="coriolis",
+        dims=(NLEV, NEDGE,) if baroclinic else (NEDGE,),
+        long_name="Nonlinear Coriolis force at dual edge",
+        description="Nonlinear Coriolis force at dual edge",
+        units="m/s2",
+        hori_location=MeshEntity.Edge,
+        vert_location=VertLoc.Cell if baroclinic else "",
+        basis=Basis.Normal,
+        coordinates="lon_edge lat_edge",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output=""
+    )
     meta["vor"] = StaggeredFieldMetaData(
         name="vor",
         dims=(NLEV, NVTX,) if baroclinic else (NVTX,),
@@ -1404,6 +1421,7 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
     u: FDT
     v: FDT
     ut: FDT
+    coriolis: FDT
     vor: FDT
     pv_vtx: FDT
     pv_e: FDT

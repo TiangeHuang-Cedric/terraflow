@@ -149,10 +149,10 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
                 (self.t0 * eta ** (rd * self.gamma / g)
                  + self.dt * (self.etat - eta) ** 5)
             )
-            return t_bar + 3 / 4 * eta * jnp.pi * self.u0 / rd * jnp.sin(etav) * jnp.sqrt(jnp.cos(etav)) * (
+            return t_bar + 3.0 / 4.0 * eta * jnp.pi * self.u0 / rd * jnp.sin(etav) * jnp.sqrt(jnp.cos(etav)) * (
                 (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63)
                 * 2 * self.u0 * jnp.cos(etav) ** 1.5
-                + (8 / 15 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
+                + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
                 * radius * omega
             )
 
@@ -196,6 +196,8 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
         sin_lat = jnp.sin(lat)
         cos_lat = jnp.cos(lat)
         return self.u0 * jnp.cos(etav) ** 1.5 * (
-            (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63) * self.u0 * jnp.cos(etav) ** 1.5
-            + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4) * radius * omega
+            (-2 * sin_lat ** 6 * (cos_lat ** 2 + 1 / 3) + 10 / 63)
+            * self.u0 * jnp.cos(etav) ** 1.5
+            + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
+            * radius * omega
         )

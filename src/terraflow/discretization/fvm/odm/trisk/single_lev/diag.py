@@ -173,12 +173,9 @@ class DiagnosticsTools(
             equaux=equaux
         )
         if self.jit:
-            aux_jit = jax.jit(self.equation.aux)
             explicit_terms_jit = jax.jit(self.equation.explicit_terms)
-            block = aux_jit(block)
             block = explicit_terms_jit(block)
         else:
-            block = self.equation.aux(block)
             block = self.equation.explicit_terms(block)
         state = block.state
         static = block.static

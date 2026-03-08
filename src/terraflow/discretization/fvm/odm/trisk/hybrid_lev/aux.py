@@ -9,7 +9,7 @@ from terraflow.discretization.abstract import (
     DiscretizationInfo,
     AbstractEquationSetAuxiliaryTerms,
 )
-from terraflow.discretization.fvm.odm.trisk import adv, base
+from terraflow.discretization.fvm.odm.trisk import adv, base, coriolis
 from terraflow.discretization.fvm.odm.trisk.adv import flux_reconstruct as fr
 from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
 from terraflow.discretization.fvm.odm.trisk.hybrid_lev import operator as hybrid_op
@@ -126,16 +126,11 @@ class DryAirWeight(Term):
     def __call__(self, block: Block) -> Block:
         mgs = block.state.mgs.unwrap()
         mg_lev = block.coord.vert.calc_mg_lev(mgs)
-        block = eqx.tree_at(
-            lambda b: b.aux.mg_lev.data,
-            block,
-            mg_lev
-        )
         mg = 0.5 * (mg_lev[:-1, :] + mg_lev[1:, :])
         return eqx.tree_at(
-            lambda b: b.aux.mg.data,
+            lambda b: (b.aux.mg_lev.data, b.aux.mg.data,),
             block,
-            mg
+            (mg_lev, mg)
         )
 
     def build_default(self) -> Self:
@@ -271,21 +266,20 @@ class Geopotential(Term):
         t = block.aux.t.unwrap()
         rd = para.rd.unwrap()
         tmp = rd * t * jnp.log(ph_lev[1:, :] / ph_lev[:-1, :])
-        gz_lev = gzs + jnp.cumsum(tmp, axis=0)
-        gz_lev = jnp.concatenate(
-            [gz_lev, jnp.zeros_like(gz_lev[-1, :]).reshape(1, -1)],
+        gz_lev = gzs + jnp.cumsum(
+            jnp.flip(tmp, axis=0),
             axis=0
         )
-        block = eqx.tree_at(
-            lambda b: b.state.gz_lev.data,
-            block,
-            gz_lev
+        gz_lev = jnp.concatenate(
+            [gzs.reshape(1, -1), gz_lev],
+            axis=0
         )
+        gz_lev = jnp.flip(gz_lev, axis=0)
         gz = 0.5 * (gz_lev[:-1, :] + gz_lev[1:, :])
         return eqx.tree_at(
-            lambda b: b.state.gz.data,
+            lambda b: (b.state.gz_lev.data, b.state.gz.data),
             block,
-            gz
+            (gz_lev, gz)
         )
 
     def build_default(self) -> Self:
@@ -434,12 +428,11 @@ class PotentialTemperatureHorizontalAdvection(Term):
             coord=coord,
             aux=aux
         )
-        block = eqx.tree_at(
+        return eqx.tree_at(
             lambda b: b.aux.adv_batch_pt,
             block,
             batch
         )
-        return block
 
     def prepare(self, block: Block) -> Block:
         return self.adv_scheme.prepare(block)
@@ -485,12 +478,11 @@ class PotentialTemperatureVerticalAdvection(Term):
         pt = block.state.pt.unwrap()
         batch = block.adv_batch_pt
         batch = self.adv_scheme(q=pt, batch=batch)
-        block = eqx.tree_at(
+        return eqx.tree_at(
             lambda b: b.adv_batch_pt,
             block,
             batch
         )
-        return block
 
     def prepare(self, block: Block) -> Block:
         return self.adv_scheme.prepare(block)
@@ -554,6 +546,15 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
             ideal_dry_core=self.ideal_dry_core,
             advection=self.advection
         )
+        self.dmf = base.DivergenceOfMassFluxAtCell(
+            disc=disc,
+            method=method,
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
         self.ph = HydrostaticPressure(
             disc=disc,
             method=method,
@@ -586,6 +587,42 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
             ideal_dry_core=self.ideal_dry_core,
             advection=self.advection
         )
+        self.coriolis = coriolis.CoriolisForceAtEdge(
+            disc=disc,
+            method=method,
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+        self.vor = base.RelativeVorticityAtDualCell(
+            disc=disc,
+            method=method,
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+        self.pv = base.PotentialVorticity(
+            disc=disc,
+            method=method,
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+        self.ke = base.KineticEnergyAtPrimalCell(
+            disc=disc,
+            method=method,
+            baroclinic=self.baroclinic,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
         self.rhod = DensityOfDryAir(
             disc=disc,
             method=method,
@@ -600,10 +637,15 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
             self.mg.build_default()
             self.dmg.build_default()
             self.mf.build_default()
+            self.dmf.build_default()
             self.ph.build_default()
             self.p.build_default()
             self.t.build_default()
             self.gz.build_default()
+            self.vor.build_default()
+            self.coriolis.build_default()
+            self.pv.build_default()
+            self.ke.build_default()
             self.rhod.build_default()
             self._built = True
         return self
@@ -612,10 +654,15 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
         block = self.mg.prepare(block)
         block = self.dmg.prepare(block)
         block = self.mf.prepare(block)
+        block = self.dmf.prepare(block)
         block = self.ph.prepare(block)
         block = self.p.prepare(block)
         block = self.t.prepare(block)
         block = self.gz.prepare(block)
+        block = self.vor.prepare(block)
+        block = self.coriolis.prepare(block)
+        block = self.pv.prepare(block)
+        block = self.ke.prepare(block)
         block = self.rhod.prepare(block)
         return block
 
@@ -627,9 +674,15 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
         block = self.mg(block)
         block = self.dmg(block)
         block = self.mf(block)
+        block = self.dmf(block)
         block = self.ph(block)
         block = self.p(block)
         block = self.t(block)
         block = self.gz(block)
+        block = self.coriolis.recon_ut(block)
+        block = self.vor(block)
+        block = self.pv(block)
+        block = self.coriolis(block)
+        block = self.ke(block)
         block = self.rhod(block)
         return block

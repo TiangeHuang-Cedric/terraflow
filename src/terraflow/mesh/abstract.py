@@ -8,6 +8,7 @@ from terraflow.util import typing, device
 if TYPE_CHECKING:
     from terraflow.util import uxarray as tux
     from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
+    import numpy as np
 
 
 Array = typing.Array
@@ -42,7 +43,9 @@ class AbstractMesh(eqx.Module, ABC):
         self,
         file_path: str,
         output_type: str,
-        *args,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
+        * args,
         **kwargs
     ) -> AbstractMeshHistorySetup:
         """Get history builder for the mesh."""

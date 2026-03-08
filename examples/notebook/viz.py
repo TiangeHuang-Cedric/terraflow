@@ -74,7 +74,7 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 
 # %%
 equation.aux.dmg.recon_at_edge.central_difference()
-equation.dundt.coriolis.pv.interp.upwind(3)
+equation.aux.pv.interp.upwind(3)
 
 # %%
 equation.build_default()

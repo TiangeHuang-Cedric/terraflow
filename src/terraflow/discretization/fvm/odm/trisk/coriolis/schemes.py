@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Self, TypeVar, TYPE_CHECKING
+from typing import Self, TYPE_CHECKING
 
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.fvm.odm.trisk import coriolis
@@ -40,8 +40,8 @@ class CoriolisForceAtEdge(Term):
     def __call__(self, block: Block) -> Block:
         return self.scheme(block)
 
-    def recon_tangent_velocity(self, block: Block) -> Block:
-        return self.scheme.recon_tangent_velocity(block)
+    def recon_ut(self, block: Block) -> Block:
+        return self.scheme.recon_ut(block)
 
     def trisk(self) -> coriolis.trisk.TriSKCoriolisForceAtEdge:
         self.scheme = coriolis.trisk.TriSKCoriolisForceAtEdge(

@@ -8,11 +8,13 @@ from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
 
 if TYPE_CHECKING:
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+    import numpy as np
 
 Float = typing.Float
 Array = typing.Array
 
 PTOP = 2.194e2
+LOCAL_PTOP = 0.0
 HYBRID_COORD_P0 = 1.0e5
 
 
@@ -1168,7 +1170,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
     def alias_name() -> str:
         """Return the alias name of the hybrid vertical coordinate system."""
         return "hybrid"
-    
+
     def get_layout(self) -> HybridVertCoordLayout:
         from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
         return HybridVertCoordLayout()
@@ -1179,8 +1181,18 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
     def get_half_lev(self) -> Float[Array, "nlev+1"]:
         return self.half_lev
 
-    def history_builder(self, file_path: str) -> HybridVerticalCoordinateSetup:
-        return HybridVerticalCoordinateSetup(file_path, self)
+    def history_builder(
+        self,
+        file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64]
+    ) -> HybridVerticalCoordinateSetup:
+        return HybridVerticalCoordinateSetup(
+            file_path=file_path,
+            vert=self,
+            float_type=float_type,
+            int_type=int_type
+        )
 
     @property
     def nlev(self) -> int:
@@ -1202,7 +1214,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         hybm = self.hybm[:, None]
         mgs = mgs[None, ...]
         p0 = self.p0
-        ptop = self.ptop
+        ptop = LOCAL_PTOP
         return hyam * (p0 - ptop) + hybm * (mgs - ptop) + ptop
 
     def calc_mg_lev(
@@ -1213,7 +1225,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         hybi = self.hybi[:, None]
         mgs = mgs[None, ...]
         p0 = self.p0
-        ptop = self.ptop
+        ptop = LOCAL_PTOP
         return hyai * (p0 - ptop) + hybi * (mgs - ptop) + ptop
 
     def calc_dmgdt(

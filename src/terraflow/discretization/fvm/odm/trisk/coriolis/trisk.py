@@ -130,12 +130,12 @@ class TriSKCoriolisForceAtEdge(Term):
             mfn_e, pv_e
         )
         return eqx.tree_at(
-            lambda b: b.tend.dundt_coriolis.data,
+            lambda b: b.aux.coriolis.data,
             block,
             replace=res
         )
 
-    def recon_tangent_velocity(
+    def recon_ut(
         self,
         block: Block
     ) -> Block:

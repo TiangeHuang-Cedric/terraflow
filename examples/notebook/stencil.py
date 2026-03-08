@@ -22,14 +22,12 @@ import holoviews as hv
 import terraflow as tf
 import jax.numpy as jnp
 
-import terraflow.util.device as device
-
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
-dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
 

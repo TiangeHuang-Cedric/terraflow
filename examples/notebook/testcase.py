@@ -21,14 +21,11 @@ from matplotlib import animation
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
+import datetime
 import numpy as np
 import jax
-import datetime
-
 import jax.numpy as jnp
 
-import terraflow.util.device as device
-from terraflow.util.datetime import DateTimeManager
 import terraflow as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
@@ -36,7 +33,7 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
-dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
 mesh = tf.mesh.OrthogonalDualMesh.from_grist(
@@ -79,7 +76,7 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 
 # %%
 equation.aux.dmg.recon_at_edge.central_difference()
-equation.dundt.coriolis.pv.interp.upwind(3)
+equation.aux.pv.interp.pure_upwind(3)
 
 # %%
 equation.build_default()
@@ -91,7 +88,7 @@ block = equation.build_block_from_testcase(
 block = equation.prepare(block)
 
 # %%
-time_manager = DateTimeManager(
+time_manager = tf.util.datetime.DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-21T00:00:00",
     save_interval="6 hours",
@@ -105,9 +102,7 @@ solver = tf.solver.ExRungeKutta3Solver(
 )
 
 # %%
-integrate_fn = jax.jit(
-    solver.trajectory(start_with_input=True,)
-)
+integrate_fn = solver.trajectory(start_with_input=True)
 
 # %%
 final, trajectory = integrate_fn(block)
@@ -135,8 +130,8 @@ trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
 diag_vars = diag_tools.compute(
     coord=coord,
     para=para,
-    state=final.state,
-    static=final.static,
+    state=final,
+    static=block.static,
     equaux=block.equaux,
     to_ugrid=True,
     use_dual=True
@@ -260,7 +255,7 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
     coord=coord,
     para=para,
     trajectory=trajectory,
-    static=final.static,
+    static=block.static,
     equaux=block.equaux,
     to_ugrid=True
 )

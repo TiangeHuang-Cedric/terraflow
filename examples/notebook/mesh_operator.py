@@ -16,19 +16,17 @@
 # %%
 import jax.numpy as jnp
 
-import terraflow.util.device as device
+import terraflow as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
-dev = device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-import terraflow.mesh as tmsh
-
-mesh = tmsh.OrthogonalDualMesh.from_grist(grist_0d_file, grist_2d_file, n_dual=3, dev=dev)
+mesh = tf.mesh.OrthogonalDualMesh.from_grist(grist_0d_file, grist_2d_file, n_dual=3, dev=dev)
 
 # %%
 mesh.primal.cell.get_adjacency(with_padding=True)

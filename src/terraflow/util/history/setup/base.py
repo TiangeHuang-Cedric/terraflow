@@ -2,14 +2,38 @@ from abc import ABC, abstractmethod
 from typing import Optional
 import netCDF4 as nc4
 import datetime
+import numpy as np
+
+FLOAT_NP2NC = {
+    np.float32: "f4",
+    np.float64: "f8"
+}
+
+INT_NP2NC = {
+    np.int32: "i4",
+    np.int64: "i8"
+}
 
 
 class AbstractHistorySetup(ABC):
     file_path: str
+    float_type: type[np.float32] | type[np.float64]
+    int_type: type[np.int32] | type[np.int64]
+    nc_float_type: str
+    nc_int_type: str
     _built: bool
 
-    def __init__(self, file_path: str):
+    def __init__(
+        self,
+        file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64]
+    ):
         self.file_path = file_path
+        self.float_type = float_type
+        self.int_type = int_type
+        self.nc_float_type = FLOAT_NP2NC[self.float_type]
+        self.nc_int_type = INT_NP2NC[self.int_type]
         self._built = False
 
     def has_built(self) -> bool:
@@ -21,24 +45,28 @@ class AbstractHistorySetup(ABC):
 
 
 class GlobalAttributesSetup(AbstractHistorySetup):
-    file_path: str
     title: str
     source: str
     history: str
     Conventions: str
     institution: str
-    _built: bool
 
     def __init__(
         self,
         file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
         title: str = "TerraFlow Structured Grid History File",
         source: str = "TerraFlow",
         history: Optional[str] = None,
         Conventions: str = "CF-1.8",
         institution: str = "TerraFlow Development Project",
     ):
-        super().__init__(file_path=file_path)
+        super().__init__(
+            file_path=file_path,
+            float_type=float_type,
+            int_type=int_type,
+        )
         self.title = title
         self.source = source
         if history is None:
@@ -66,8 +94,19 @@ class TimeSetup(AbstractHistorySetup):
     start_time_str: str
     _built: bool
 
-    def __init__(self, file_path: str, start_time_str: str, save_interval_unit: str):
-        super().__init__(file_path=file_path)
+    def __init__(
+        self,
+        file_path: str,
+        start_time_str: str,
+        save_interval_unit: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
+    ):
+        super().__init__(
+            file_path=file_path,
+            float_type=float_type,
+            int_type=int_type
+        )
         self.save_interval_unit = save_interval_unit
         self.start_time_str = start_time_str
 
@@ -76,7 +115,7 @@ class TimeSetup(AbstractHistorySetup):
             return
         ds = nc4.Dataset(self.file_path, 'a')
         ds.createDimension("time", None)
-        time = ds.createVariable("time", "f8", ("time",))
+        time = ds.createVariable("time", self.nc_float_type, ("time",))
         time.long_name = "Time"
         time.units = f"{self.save_interval_unit} since {self.start_time_str}"
         ds.close()

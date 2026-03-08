@@ -19,13 +19,24 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
     file_path: str
     mesh: OrthogonalDualMesh
 
-    def __init__(self, file_path: str, mesh: OrthogonalDualMesh, output_type: str):
+    def __init__(
+        self,
+        file_path: str,
+        mesh: OrthogonalDualMesh,
+        output_type: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64]
+    ):
         if output_type not in ["ugrid", "unstructured", "structured"]:
             raise ValueError(
                 f"Unsupported output_type value: {output_type}. "
                 "Supported values are 'ugrid', 'unstructured', and 'structured'."
             )
-        super().__init__(file_path=file_path)
+        super().__init__(
+            file_path=file_path,
+            float_type=float_type,
+            int_type=int_type
+        )
         self.mesh = mesh
         self.output_type = output_type
 
@@ -76,54 +87,56 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         )
         ds.createDimension("two", int(2))
         # Create variables
-        mesh = ds.createVariable(mesh_name, "i4", ())
-        face_lon = ds.createVariable("face_lon", "f8", ("n_face",))
-        face_lat = ds.createVariable("face_lat", "f8", ("n_face",))
-        node_lon = ds.createVariable("node_lon", "f8", ("n_node",))
-        node_lat = ds.createVariable("node_lat", "f8", ("n_node",))
-        edge_lon = ds.createVariable("edge_lon", "f8", ("n_edge",))
-        edge_lat = ds.createVariable("edge_lat", "f8", ("n_edge",))
-        face_x = ds.createVariable("face_x", "f8", ("n_face",))
-        face_y = ds.createVariable("face_y", "f8", ("n_face",))
-        face_z = ds.createVariable("face_z", "f8", ("n_face",))
-        node_x = ds.createVariable("node_x", "f8", ("n_node",))
-        node_y = ds.createVariable("node_y", "f8", ("n_node",))
-        node_z = ds.createVariable("node_z", "f8", ("n_node",))
-        edge_x = ds.createVariable("edge_x", "f8", ("n_edge",))
-        edge_y = ds.createVariable("edge_y", "f8", ("n_edge",))
-        edge_z = ds.createVariable("edge_z", "f8", ("n_edge",))
+        int_type = self.nc_int_type
+        float_type = self.nc_float_type
+        mesh = ds.createVariable(mesh_name, int_type, ())
+        face_lon = ds.createVariable("face_lon", float_type, ("n_face",))
+        face_lat = ds.createVariable("face_lat", float_type, ("n_face",))
+        node_lon = ds.createVariable("node_lon", float_type, ("n_node",))
+        node_lat = ds.createVariable("node_lat", float_type, ("n_node",))
+        edge_lon = ds.createVariable("edge_lon", float_type, ("n_edge",))
+        edge_lat = ds.createVariable("edge_lat", float_type, ("n_edge",))
+        face_x = ds.createVariable("face_x", float_type, ("n_face",))
+        face_y = ds.createVariable("face_y", float_type, ("n_face",))
+        face_z = ds.createVariable("face_z", float_type, ("n_face",))
+        node_x = ds.createVariable("node_x", float_type, ("n_node",))
+        node_y = ds.createVariable("node_y", float_type, ("n_node",))
+        node_z = ds.createVariable("node_z", float_type, ("n_node",))
+        edge_x = ds.createVariable("edge_x", float_type, ("n_edge",))
+        edge_y = ds.createVariable("edge_y", float_type, ("n_edge",))
+        edge_z = ds.createVariable("edge_z", float_type, ("n_edge",))
         n_nodes_per_face = ds.createVariable(
             "n_nodes_per_face",
-            "i4",
+            int_type,
             ("n_face",)
         )
         face_node_connectivity = ds.createVariable(
             "face_node_connectivity",
-            "i4",
+            int_type,
             ("n_face", "n_max_face_nodes"),
             fill_value=-1
         )
         face_edge_connectivity = ds.createVariable(
             "face_edge_connectivity",
-            "i4",
+            int_type,
             ("n_face", "n_max_face_edges"),
             fill_value=-1
         )
         face_face_connectivity = ds.createVariable(
             "face_face_connectivity",
-            "i4",
+            int_type,
             ("n_face", "n_max_face_faces"),
             fill_value=-1
         )
         edge_node_connectivity = ds.createVariable(
             "edge_node_connectivity",
-            "i4",
+            int_type,
             ("n_edge", "two"),
             fill_value=-1
         )
         edge_face_connectivity = ds.createVariable(
             "edge_face_connectivity",
-            "i4",
+            int_type,
             ("n_edge", "two"),
             fill_value=-1
         )
@@ -217,13 +230,14 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
             ds.createDimension("vtx", int(self.mesh.dual.cell.shape[0]))
         ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
         # Create variables
-        ds.createVariable("lon_cell", "f8", ("cell",))
-        ds.createVariable("lat_cell", "f8", ("cell",))
+        float_type = self.nc_float_type
+        ds.createVariable("lon_cell", float_type, ("cell",))
+        ds.createVariable("lat_cell", float_type, ("cell",))
         if with_vtx:
-            ds.createVariable("lon_vtx", "f8", ("vtx",))
-            ds.createVariable("lat_vtx", "f8", ("vtx",))
-        ds.createVariable("lon_edge", "f8", ("edge",))
-        ds.createVariable("lat_edge", "f8", ("edge",))
+            ds.createVariable("lon_vtx", float_type, ("vtx",))
+            ds.createVariable("lat_vtx", float_type, ("vtx",))
+        ds.createVariable("lon_edge", float_type, ("edge",))
+        ds.createVariable("lat_edge", float_type, ("edge",))
         # Fill in coordinate variables
         lon_cell = ds.variables["lon_cell"]
         lon_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
@@ -290,8 +304,9 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         ds.createDimension("lon", lon_data.shape[1])
         ds.createDimension("lat", lat_data.shape[0])
         # Create variables
-        lon = ds.createVariable("lon", "f8", ("lon",))
-        lat = ds.createVariable("lat", "f8", ("lat",))
+        float_type = self.nc_float_type
+        lon = ds.createVariable("lon", float_type, ("lon",))
+        lat = ds.createVariable("lat", float_type, ("lat",))
         lon[:] = lon_data[1, :]
         lon.long_name = "Longitude"
         lon.units = "degrees_east"

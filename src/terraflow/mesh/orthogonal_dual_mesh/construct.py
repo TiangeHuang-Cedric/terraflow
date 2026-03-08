@@ -1,4 +1,5 @@
 from __future__ import annotations
+from re import I
 from typing import (
     TYPE_CHECKING,
     Optional,
@@ -26,6 +27,7 @@ from terraflow.mesh.orthogonal_dual_mesh.grist_mesh import GristRefMesh
 
 if TYPE_CHECKING:
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+    import numpy as np
 
 
 Float = typing.Float
@@ -1813,11 +1815,17 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
     def history_builder(
         self,
         file_path: str,
-        output_type: str
+        output_type: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
     ) -> history.setup.mesh.OrthogonalDualMeshHistorySetup:
         """Get history builder for the mesh."""
         return history.setup.mesh.OrthogonalDualMeshHistorySetup(
-            file_path, self, output_type
+            file_path=file_path,
+            mesh=self,
+            output_type=output_type,
+            float_type=float_type,
+            int_type=int_type
         )
 
 

@@ -1,12 +1,14 @@
-from typing import TypeVar, Type, Self, Generic
+from typing import TypeVar, Type, Self, Generic, Optional
 from abc import ABC, abstractmethod
 from pathlib import Path
 from loguru import logger
 import netCDF4 as nc4
 import numpy as np
+import jax.numpy as jnp
 import jax.experimental
 
 from terraflow.util import uxarray as tuxr
+from terraflow.util.device import AbstractDevice
 import terraflow.util.history.setup as st
 from terraflow.util.datetime import DateTimeManager
 from terraflow import mesh
@@ -31,6 +33,27 @@ SHY = TypeVar("SHY", bound='AbstractHistory')
 STRUCTURED_HISTORY_LIST = ["h0", "h1", "h2"]
 
 
+FLOAT_JNP2NP = {
+    jnp.float32: np.float32,
+    jnp.float64: np.float64,
+}
+
+INT_JNP2NP = {
+    jnp.int32: np.int32,
+    jnp.int64: np.int64,
+}
+
+FLOAT_NP2NC = {
+    np.float32: "f4",
+    np.float64: "f8"
+}
+
+INT_NP2NC = {
+    np.int32: "i4",
+    np.int64: "i8"
+}
+
+
 class AbstractHistoryset(ABC, Generic[HY, SHY]):
     h0: HY
     h1: HY
@@ -40,6 +63,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     output_h2: bool
     time_manager: DateTimeManager
     case_name: str
+    float_type: type[np.float32] | type[np.float64]
+    int_type: type[np.int32] | type[np.int64]
     _built: bool
 
     @abstractmethod
@@ -54,6 +79,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         h0_opt: dict = {},
         h1_opt: dict = {},
         h2_opt: dict = {},
+        dev: Optional[AbstractDevice] = None,
+        float_type: Optional[type[np.float32] | type[np.float64]] = None,
+        int_type: Optional[type[np.int32] | type[np.int64]] = None,
         **kwargs
     ) -> None:
         self._built = False
@@ -62,12 +90,34 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         self.output_h0 = output_h0
         self.output_h1 = output_h1
         self.output_h2 = output_h2
+        if dev is not None:
+            if float_type is None and int_type is None:
+                self.float_type = FLOAT_JNP2NP[dev.float_type]
+                self.int_type = INT_JNP2NP[dev.int_type]
+            else:
+                raise ValueError(
+                    "Specifying both dev and type parameters caused confusion errors"
+                )
+        if float_type is None:
+            self.float_type = np.float64
+        elif float_type in FLOAT_JNP2NP.values():
+            self.float_type = float_type
+        else:
+            raise ValueError(f"Unsupported float type: {float_type}")
+        if int_type is None:
+            self.int_type = np.int64
+        elif int_type in INT_JNP2NP.values():
+            self.int_type = int_type
+        else:
+            raise ValueError(f"Unsupported int type: {int_type}")
         if self.output_h0:
             self.h0 = self.history_type()(
                 time_manager=time_manager,
                 history_name="h0",
                 case_name=case_name,
                 file_path=file_path,
+                float_type=self.float_type,
+                int_type=self.int_type,
                 **h0_opt,
                 **kwargs,
             )
@@ -78,6 +128,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 history_name="h1",
                 case_name=case_name,
                 file_path=file_path,
+                float_type=self.float_type,
+                int_type=self.int_type,
                 **h1_opt,
                 **kwargs,
             )
@@ -88,6 +140,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 history_name="h2",
                 case_name=case_name,
                 file_path=file_path,
+                float_type=self.float_type,
+                int_type=self.int_type,
                 **h2_opt,
                 **kwargs,
             )
@@ -280,6 +334,9 @@ class UGRIDHistoryset(
         output_h1: bool = False,
         output_h2: bool = False,
         use_dual: bool = False,
+        dev: Optional[AbstractDevice] = None,
+        float_type: Optional[type[np.float32] | type[np.float64]] = None,
+        int_type: Optional[type[np.int32] | type[np.int64]] = None,
         **kwargs
     ) -> None:
         super().__init__(
@@ -293,6 +350,9 @@ class UGRIDHistoryset(
             h0_opt={"use_dual": use_dual},
             h1_opt={"use_dual": use_dual},
             h2_opt={},
+            dev=dev,
+            float_type=float_type,
+            int_type=int_type,
             **kwargs
         )
 
@@ -318,6 +378,9 @@ class UnstructuredHistoryset(
         output_h0: bool = True,
         output_h1: bool = False,
         output_h2: bool = False,
+        dev: Optional[AbstractDevice] = None,
+        float_type: Optional[type[np.float32] | type[np.float64]] = None,
+        int_type: Optional[type[np.int32] | type[np.int64]] = None,
         **kwargs
     ) -> None:
         super().__init__(
@@ -331,6 +394,9 @@ class UnstructuredHistoryset(
             h0_opt={"with_vtx": False},
             h1_opt={"with_vtx": True},
             h2_opt={},
+            dev=dev,
+            float_type=float_type,
+            int_type=int_type,
             **kwargs,
         )
 
@@ -346,6 +412,10 @@ class UnstructuredHistoryset(
 class AbstractHistory(ABC):
     file_path: str
     time_manager: DateTimeManager
+    float_type: type[np.float32] | type[np.float64]
+    int_type: type[np.int32] | type[np.int64]
+    nc_float_type: str
+    nc_int_type: str
     _built: bool
 
     @abstractmethod
@@ -355,18 +425,24 @@ class AbstractHistory(ABC):
         history_name: str,
         case_name: str,
         file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64]
     ) -> None:
         self.time_manager = time_manager
-        self._built = False
         self.history_name = history_name
         self.case_name = case_name
         self.file_path = str(
             Path(file_path) /
             f"{case_name}.{history_name}.nc"
         )
+        self.float_type = float_type
+        self.int_type = int_type
+        self.nc_float_type = FLOAT_NP2NC[self.float_type]
+        self.nc_int_type = INT_NP2NC[self.int_type]
         ds = nc4.Dataset(self.file_path, mode="w", format="NETCDF4")
         ds.sync()
         ds.close()
+        self._built = False
 
     @abstractmethod
     def setup(self, *args, **kwargs) -> Self:
@@ -385,7 +461,7 @@ class AbstractHistory(ABC):
             field = getattr(fields, field_name)
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            data = np.asarray(field.unwrap())
+            data = np.asarray(field.unwrap(), dtype=self.float_type)
             if field.meta.is_static:
                 ds.variables[field_name][...] = data
             else:
@@ -399,14 +475,11 @@ class AbstractHistory(ABC):
 
 
 class UGRIDHistory(AbstractHistory):
-    file_path: str
-    time_manager: DateTimeManager
     use_dual: bool
     attr: st.base.GlobalAttributesSetup
     time: st.base.TimeSetup
     mesh: st.mesh.AbstractMeshHistorySetup
     vert: st.vert.AbstractVertHistorySetup
-    _built: bool
 
     def __init__(
         self,
@@ -415,6 +488,8 @@ class UGRIDHistory(AbstractHistory):
         history_name: str,
         case_name: str,
         file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
         use_dual: bool = False,
     ) -> None:
         super().__init__(
@@ -422,19 +497,33 @@ class UGRIDHistory(AbstractHistory):
             time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
+            float_type=float_type,
+            int_type=int_type
         )
         self.use_dual = use_dual
-        self.attr = st.base.GlobalAttributesSetup(self.file_path)
+        self.attr = st.base.GlobalAttributesSetup(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
         self.time = st.base.TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
+            float_type=self.float_type,
+            int_type=self.int_type
         )
         self.mesh = coord.mesh.history_builder(
-            self.file_path,
-            output_type="ugrid"
+            file_path=self.file_path,
+            output_type="ugrid",
+            float_type=self.float_type,
+            int_type=self.int_type
         )
-        self.vert = coord.vert.history_builder(self.file_path)
+        self.vert = coord.vert.history_builder(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
 
     def setup(self, fields_list: list[AbstractFields]) -> Self:
         if self.has_built():
@@ -456,6 +545,7 @@ class UGRIDHistory(AbstractHistory):
 
     def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
+        var_dtype = self.nc_float_type
         for field_name, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
@@ -465,7 +555,6 @@ class UGRIDHistory(AbstractHistory):
             var_dims = tuple(str(dim) for dim in dsxr.dims)
             if not field.meta.is_static:
                 var_dims = tuple(("time",) + var_dims)
-            var_dtype = "f8"
             v = ds.createVariable(field_name, var_dtype, var_dims)
             v.mesh = dsxr.attrs.get("mesh", "")
             v.location = dsxr.attrs.get("location", "")
@@ -494,24 +583,40 @@ class UnstructuredHistory(AbstractHistory):
         case_name: str,
         file_path: str,
         with_vtx: bool,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
     ) -> None:
         super().__init__(
             history_name=history_name,
             time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
+            float_type=float_type,
+            int_type=int_type
         )
-        self.attr = st.base.GlobalAttributesSetup(self.file_path)
+        self.attr = st.base.GlobalAttributesSetup(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
         self.time = st.base.TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
+            float_type=self.float_type,
+            int_type=self.int_type
         )
         self.mesh = coord.mesh.history_builder(
-            self.file_path,
-            output_type="unstructured"
+            file_path=self.file_path,
+            output_type="unstructured",
+            float_type=self.float_type,
+            int_type=self.int_type
         )
-        self.vert = coord.vert.history_builder(self.file_path)
+        self.vert = coord.vert.history_builder(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
         self.with_vtx = with_vtx
 
     def setup(self, fields_list: list[AbstractFields]) -> Self:
@@ -534,13 +639,13 @@ class UnstructuredHistory(AbstractHistory):
 
     def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
+        var_dtype = self.nc_float_type
         for field_name, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
             var_dims = field.meta.dims
             if not field.meta.is_static:
                 var_dims = tuple(("time",) + field.meta.dims)
-            var_dtype = "f8"
             v = ds.createVariable(field_name, var_dtype, var_dims)
             v.hori_location = field.meta.hori_location
             v.vert_location = field.meta.vert_location
@@ -577,6 +682,8 @@ class Unstructured2StructuredHistory(AbstractHistory):
         history_name: str,
         case_name: str,
         file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64],
         remap_method: str = "nearest_neighbor",
         remap_to: str = "faces",
         lon_west: float = -180,
@@ -591,18 +698,32 @@ class Unstructured2StructuredHistory(AbstractHistory):
             time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
+            float_type=float_type,
+            int_type=int_type
         )
-        self.attr = st.base.GlobalAttributesSetup(self.file_path)
+        self.attr = st.base.GlobalAttributesSetup(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
         self.time = st.base.TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
+            float_type=self.float_type,
+            int_type=self.int_type
         )
         self.mesh = coord.mesh.history_builder(
             file_path=self.file_path,
-            output_type="structured"
+            output_type="structured",
+                        float_type=self.float_type,
+            int_type=self.int_type
         )
-        self.vert = coord.vert.history_builder(self.file_path)
+        self.vert = coord.vert.history_builder(
+            file_path=self.file_path,
+            float_type=self.float_type,
+            int_type=self.int_type
+        )
         self.coord = coord
         self.remap_method = remap_method
         self.remap_to = remap_to
@@ -653,6 +774,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
             south_north_resolution=self.south_north_resolution,
             with_reshaped_ds=True
         )
+        var_dtype = self.float_type
         for field_name in fields_remapped.keys():
             field = fields_remapped.variables[field_name]
             output = field.attrs.get("output", None)
@@ -660,9 +782,15 @@ class Unstructured2StructuredHistory(AbstractHistory):
                 continue
             data = fields_remapped.variables[field_name].data
             if field.attrs.get("is_static", False):
-                ds.variables[str(field_name)][...] = np.array(data)
+                ds.variables[str(field_name)][...] = np.array(
+                    data,
+                    dtype=var_dtype
+                )
             else:
-                ds.variables[str(field_name)][idx, ...] = np.array(data)
+                ds.variables[str(field_name)][idx, ...] = np.array(
+                    data,
+                    dtype=var_dtype
+                )
         ds.close()
         return None
 
@@ -679,6 +807,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
             south_north_resolution=self.south_north_resolution,
             with_reshaped_ds=True
         )[1]
+        var_dtype = self.nc_float_type
         for var_name, da in remapped_ds.data_vars.items():
             output = da.attrs.get("output", None)
             if output not in STRUCTURED_HISTORY_LIST or output == "":
@@ -686,7 +815,6 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     f"Skip variable {var_name} for history {self.history_name}."
                 )
                 continue
-            var_dtype = "f8"
             is_static = da.attrs.get("is_static", False)
             if len(da.dims) == 2:
                 var_dims = ("lat", "lon")

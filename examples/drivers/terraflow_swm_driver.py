@@ -32,13 +32,6 @@ method = tf.operator.FiniteVolumeMethod()
 
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="0001-01-01T00:00:00",
-    end_time="0001-01-21T00:00:00",
-    save_interval="6 hours",
-    dt_dyn=datetime.timedelta(seconds=300.0),
-)
-
 equation = tf.dynamics.ShallowWaterEquation.from_model(
     coord=coord,
     para=para,
@@ -48,7 +41,7 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 equation.aux.dmg.recon_at_edge.central_difference()
-equation.dundt.coriolis.pv.interp.pure_upwind(3)
+equation.aux.pv.interp.pure_upwind(3)
 
 equation.build_default()
 
@@ -57,6 +50,13 @@ block = equation.build_block_from_testcase(
 )
 
 block = equation.prepare(block)
+
+time_manager = tf.util.datetime.DateTimeManager(
+    start_time="0001-01-01T00:00:00",
+    end_time="0001-01-21T00:00:00",
+    save_interval="6 hours",
+    dt_dyn=datetime.timedelta(seconds=300.0),
+)
 
 history = tf.util.history.UnstructuredHistoryset(
     coord=coord,
@@ -72,7 +72,7 @@ solver = tf.solver.ExRungeKutta3Solver(
     dev=dev,
 )
 
-integrate_fn = jax.jit(solver.io_callback(history=history,))
+integrate_fn = solver.io_callback(history=history)
 
 logger.info("Start integrating...")
 t1 = time.perf_counter()

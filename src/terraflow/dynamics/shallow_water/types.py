@@ -457,6 +457,7 @@ class ExVifShallowWaterEquationSet4UGRID(
 
     def build_default(self) -> Self:
         if not self.has_built():
+            self.aux.build_default()
             self.dgzdt.build_default()
             self.dundt.build_default()
             self._built = True
@@ -470,7 +471,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         return block
 
     def explicit_terms(self, block: BLOCK, pass_tag: str = "all_pass") -> BLOCK:
-        block = self.aux(block)
+        block = self.aux(block, pass_tag=pass_tag)
         if pass_tag == "all_pass":
             block = self.dgzdt(block)
             block = self.dundt(block)
