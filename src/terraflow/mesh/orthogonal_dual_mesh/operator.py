@@ -5,7 +5,7 @@ import jax
 from terraflow.util import typing
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.vert_coord.abstract import OneLayerVertCoordinate
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import AbstractLayout
 from terraflow.layout.abstract import CoordinateSystem

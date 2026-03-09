@@ -15,7 +15,7 @@ class AbstractPostProcessor(ABC):
     @classmethod
     def remap_history(
         cls,
-        history: history.AbstractHistoryset,
+        history: history.abstract.AbstractHistoryset,
         res: float | int = 1.0,
         remap: bool = True,
         *args,
@@ -75,7 +75,7 @@ class CDOPostProcesser(AbstractPostProcessor):
     @classmethod
     def remap_history(
         cls,
-        history: history.AbstractHistoryset,
+        history: history.abstract.AbstractHistoryset,
         res: float | int = 1.0,
         remap: bool = True,
         use_weight: bool = True,

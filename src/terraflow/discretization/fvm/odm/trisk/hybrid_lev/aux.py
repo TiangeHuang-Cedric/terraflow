@@ -412,7 +412,7 @@ class PotentialTemperatureHorizontalAdvection(Term):
             ideal_dry_core=ideal_dry_core,
             advection=advection
         )
-        self.adv_scheme = adv.HorizontalAdvectionScheme()
+        self.adv_scheme = adv.schemes.HorizontalAdvectionScheme()
 
     def __call__(
         self,
@@ -469,7 +469,7 @@ class PotentialTemperatureVerticalAdvection(Term):
             ideal_dry_core=ideal_dry_core,
             advection=advection
         )
-        self.adv_scheme = adv.VerticalAdvectionScheme()
+        self.adv_scheme = adv.schemes.VerticalAdvectionScheme()
 
     def __call__(
         self,
@@ -587,7 +587,7 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms):
             ideal_dry_core=self.ideal_dry_core,
             advection=self.advection
         )
-        self.coriolis = coriolis.CoriolisForceAtEdge(
+        self.coriolis = coriolis.schemes.CoriolisForceAtEdge(
             disc=disc,
             method=method,
             baroclinic=self.baroclinic,

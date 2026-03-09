@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
@@ -19,7 +19,7 @@ from terraflow.discretization.fvm.odm.trisk.adv.flux_reconstruct import (
 )
 import cartopy.crs as ccrs
 import holoviews as hv
-import terraflow as tf
+import terraflow.core as tf
 import jax.numpy as jnp
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
@@ -37,15 +37,11 @@ mesh = tf.mesh.OrthogonalDualMesh.from_grist(
 
 vert = tf.vert_coord.OneLayerVertCoordinate()
 
-hori_layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
-
-vert_layout = tf.layout.onelayer_vert_coord.OneLayerVertCoordLayout()
-
 coord = tf.layout.CoordinateSystem(
     hori=mesh,
     vert=vert,
-    hori_layout=hori_layout,
-    vert_layout=vert_layout
+    hori_layout=mesh.get_layout(),
+    vert_layout=vert.get_layout()
 )
 
 para = tf.planet.PlanetParameterSet.from_si(

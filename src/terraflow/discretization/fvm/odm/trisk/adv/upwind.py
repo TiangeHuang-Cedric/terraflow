@@ -1,12 +1,12 @@
 from __future__ import annotations
-from typing import TypeVar, TYPE_CHECKING
+from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout import CoordinateSystem
+from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.fvm.odm.trisk.adv import types, batch, flux_reconstruct as fr

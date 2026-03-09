@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
@@ -18,13 +18,11 @@ from matplotlib.colors import BoundaryNorm
 from matplotlib import pyplot as plt
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
-import matplotlib.pyplot as plt
-import datetime
 import numpy as np
 import jax
 import jax.numpy as jnp
 
-import terraflow as tf
+import terraflow.core as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
@@ -43,15 +41,11 @@ mesh = tf.mesh.OrthogonalDualMesh.from_grist(
 
 vert = tf.vert_coord.OneLayerVertCoordinate()
 
-hori_layout = tf.layout.orthogonal_dual_mesh.TriSKBasedCGridStaggeringLayout()
-
-vert_layout = tf.layout.onelayer_vert_coord.OneLayerVertCoordLayout()
-
 coord = tf.layout.CoordinateSystem(
     hori=mesh,
     vert=vert,
-    hori_layout=hori_layout,
-    vert_layout=vert_layout
+    hori_layout=mesh.get_layout(),
+    vert_layout=vert.get_layout()
 )
 
 para = tf.planet.PlanetParameterSet.from_si(
@@ -90,7 +84,7 @@ time_manager = tf.util.datetime.DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-21T00:00:00",
     save_interval="6 hours",
-    dt_dyn=datetime.timedelta(seconds=300.0),
+    dt_dyn="300 seconds",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(

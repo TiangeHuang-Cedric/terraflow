@@ -22,8 +22,8 @@ import terraflow.discretization.abstract as disc_types
 
 if TYPE_CHECKING:
     from terraflow.operator import FiniteVolumeMethod
-    from terraflow.mesh import OrthogonalDualMesh
-    from terraflow.vert_coord import HybridVertCoordinate
+    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     import terraflow.discretization.fvm.odm.trisk.hybrid_lev.aux as fvm_odm_trisk_aux
@@ -132,7 +132,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         case: Optional[BaroclinicEquationTestCase] = None
     ) -> disc_types.AbstractBlock:
         from terraflow.operator import FiniteVolumeMethod
-        from terraflow.mesh.orthogonal_dual_mesh import OrthogonalDualMesh
+        from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
         from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
         from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
         from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
@@ -236,7 +236,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         block = self.aux(block, pass_tag=pass_tag)
         if pass_tag == "all_pass":
             block = self.dmgsdt(block)
-            # block = self.dptdt(block)
+            block = self.dptdt(block)
             block = self.dundt(block)
         elif pass_tag == "forward_pass":
             block = self.dmgsdt(block)

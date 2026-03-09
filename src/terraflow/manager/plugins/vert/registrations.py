@@ -18,5 +18,6 @@ def register(model: Catalog) -> None:
 
     # Register vertical coordinate
     model.vert.register(
-        kind="one_layer", factory=vert.OneLayerVertCoordinate
+        kind="one_layer",
+        factory=vert.onelayer_coord.OneLayerVertCoordinate
     )

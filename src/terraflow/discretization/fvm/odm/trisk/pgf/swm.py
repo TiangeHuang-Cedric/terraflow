@@ -4,9 +4,9 @@ import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as mesh_op
-from terraflow.vert_coord import HybridVertCoordinate
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.discretization.abstract import (
     DiscretizationInfo,
     AbstractEquationSetAuxiliaryTerms,
@@ -14,7 +14,7 @@ from terraflow.discretization.abstract import (
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
-from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 
 if TYPE_CHECKING:
     from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
@@ -27,9 +27,9 @@ FDT = ArrayField[StaggeredFieldMetaData]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
-    HybridVertCoordinate,
+    OneLayerVertCoordinate,
     TriSKBasedCGridStaggeringLayout,
-    HybridVertCoordLayout
+    OneLayerVertCoordLayout
 ]
 
 Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]

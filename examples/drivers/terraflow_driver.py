@@ -1,9 +1,8 @@
 from loguru import logger
 import time
-import datetime
 import jax
 import jax.numpy as jnp
-import terraflow as tf
+import terraflow.core as tf
 
 t0 = time.perf_counter()
 
@@ -54,8 +53,8 @@ block = equation.prepare(block)
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="0001-01-01T00:00:00",
     end_time="0001-01-01T00:05:00",
-    save_interval="6 hours",
-    dt_dyn=datetime.timedelta(seconds=300.0),
+    save_interval="300 seconds",
+    dt_dyn="300 seconds",
 )
 
 history = tf.util.history.UnstructuredHistoryset(
@@ -64,6 +63,7 @@ history = tf.util.history.UnstructuredHistoryset(
     case_name="terraflow",
     output_h1=True,
     output_h2=False,
+    dev=dev,
 ).setup(block)
 
 solver = tf.solver.ExRungeKutta3Solver(

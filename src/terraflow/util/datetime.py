@@ -15,12 +15,14 @@ class DateTimeManager:
         self,
         start_time: str,
         save_interval: str,
-        dt_dyn: datetime.timedelta,
+        dt_dyn: str,
         run_time: Optional[str] = None,
         end_time: Optional[str] = None,
     ):
         save_interval_value = int(save_interval.split()[0])
         save_interval_unit = save_interval.split()[1]
+        dt_dyn_value = float(dt_dyn.split()[0])
+        dt_dyn_unit = dt_dyn.split()[1]
         self.start_time_str = start_time
         if end_time is None:
             if run_time is None:
@@ -43,7 +45,7 @@ class DateTimeManager:
         self.elapsed_secondes = 0.0
         self.save_interval_value = save_interval_value
         self.save_interval_unit = save_interval_unit
-        self.dt_dyn = dt_dyn
+        self.dt_dyn = datetime.timedelta(**{dt_dyn_unit: dt_dyn_value})
         logger.success("Initialized date time manager. ")
         run_time_date = self.end_time - self.start_time
         if run_time_date.days >= 1:

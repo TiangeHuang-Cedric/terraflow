@@ -18,7 +18,7 @@ from loguru import logger
 from terraflow.util import typing, device
 from terraflow.util import math, history
 from terraflow.util.uxarray import UGRIDGrid, AttributeConvention
-from terraflow.mesh import AbstractUnstructuredMesh
+from terraflow.mesh.abstract import AbstractUnstructuredMesh
 from terraflow.mesh.orthogonal_dual_mesh.base import Point
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalCell, RefDualCell
 from terraflow.mesh.orthogonal_dual_mesh.base import RefPrimalEdge, RefDualEdge

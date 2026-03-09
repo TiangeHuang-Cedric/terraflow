@@ -123,7 +123,7 @@ class MultiStepWithHistory:
         self,
         step_fn: Callable,
         inner_step_fn: Callable,
-        history: hy.AbstractHistoryset,
+        history: hy.abstract.AbstractHistoryset,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
@@ -278,7 +278,7 @@ def io_callback(
     with_jit: bool = True,
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
-    history: hy.AbstractHistoryset
+    history: hy.abstract.AbstractHistoryset
 ) -> MultiStepWithHistory | pjit.JitWrapped:
     if inner_steps != 1:
         repeated_step_fn = repeated_with_inout(
@@ -565,7 +565,7 @@ class AbstractSolver(Generic[ODE], ABC):
 
     def io_callback(
         self,
-        history: hy.AbstractHistoryset,
+        history: hy.abstract.AbstractHistoryset,
         *,
         outer_scan_fn: Callable = jax.lax.scan,
         inner_scan_fn: Callable = jax.lax.scan,
@@ -599,6 +599,7 @@ class AbstractSolver(Generic[ODE], ABC):
             stepper,
             outer_steps,
             inner_steps,
+            with_jit=self.with_jit,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
             history=history
@@ -643,6 +644,7 @@ class AbstractSolver(Generic[ODE], ABC):
             stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
+            with_jit=self.with_jit,
             start_with_input=start_with_input,
             post_process_fn=post_process_fn,
             outer_scan_fn=outer_scan_fn,
@@ -682,6 +684,7 @@ class AbstractSolver(Generic[ODE], ABC):
             stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
+            with_jit=self.with_jit,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
         )

@@ -4,10 +4,10 @@ import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as op
-from terraflow.vert_coord import OneLayerVertCoordinate
-from terraflow.layout import CoordinateSystem
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.discretization.abstract import (
@@ -123,7 +123,7 @@ class AuxiliaryTerms(AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]):
             ideal_dry_core=self.ideal_dry_core,
             advection=self.advection
         )
-        self.coriolis = coriolis.CoriolisForceAtEdge(
+        self.coriolis = coriolis.schemes.CoriolisForceAtEdge(
             disc=disc,
             method=method,
             baroclinic=self.baroclinic,

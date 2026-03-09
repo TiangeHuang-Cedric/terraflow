@@ -431,7 +431,11 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         if isinstance(self.data, Array):
             return self._wrap(jnp.take(self.data, indices=index, axis=axis))
         elif isinstance(self.data, ux.AbstractQuantity):
-            new_data = jnp.take(self.data.value, indices=index, axis=axis)
+            new_data = jnp.take(
+                jnp.asarray(self.data.value),
+                indices=index,
+                axis=axis
+            )
             quantity_data = ux.Quantity(
                 new_data, self.data.unit)  # type: ignore
             return self._wrap(quantity_data)
@@ -445,7 +449,10 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         if isinstance(self.data, Array):
             return self._wrap(jnp.reshape(self.data, new_shape))
         elif isinstance(self.data, ux.AbstractQuantity):
-            new_data = jnp.reshape(self.data.value, new_shape)
+            new_data = jnp.reshape(
+                jnp.asarray(self.data.value),
+                new_shape
+            )
             quantity_data = ux.Quantity(
                 new_data, self.data.unit)  # type: ignore
             return self._wrap(quantity_data)
@@ -539,7 +546,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         else:
             if isinstance(data, ux.AbstractQuantity):
                 array_data = data.to(meta.units).value
-                return ArrayField(data=array_data, meta=meta)
+                return ArrayField(data=jnp.asarray(array_data), meta=meta)
             else:
                 return ArrayField(data=jnp.asarray(data), meta=meta)
 
@@ -632,7 +639,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
 
     def to(self, unit: str) -> Self:
         """Convert the parameter value to the specified unit and return it."""
-        if isinstance(self.data, ux.Quantity):
+        if isinstance(self.data, ux.AbstractQuantity):
             new_data = self.data.to(unit)
             return self.update(new_data, unit)
         else:
@@ -644,7 +651,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
 
     def decompose(self, usys: ux.AbstractUnitSystem) -> Self:
         """Decompose the parameter value and return it."""
-        if isinstance(self.data, ux.Quantity):
+        if isinstance(self.data, ux.AbstractQuantity):
             new_data = self.data.decompose(usys)  # type: ignore
             return self.update(new_data, usys)
         else:
@@ -690,7 +697,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         usys: ux.AbstractUnitSystem = ux.unitsystems.si
     ) -> "ArrayField[FMT]":
         """Convert the parameter value to its numeric value in the specified unit system."""
-        if isinstance(self.data, ux.Quantity):
+        if isinstance(self.data, ux.AbstractQuantity):
             new_data = self.data.decompose(
                 usys  # type: ignore[arg-type]
             ).value

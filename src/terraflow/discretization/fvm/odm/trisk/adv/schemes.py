@@ -1,10 +1,10 @@
 from __future__ import annotations
-from typing import Self, TypeVar, TYPE_CHECKING
+from typing import Self, TYPE_CHECKING
 
 from terraflow.util import typing
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout import CoordinateSystem
+from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.operator import FiniteVolumeMethod

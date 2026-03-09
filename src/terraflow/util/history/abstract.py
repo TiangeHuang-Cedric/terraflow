@@ -1,4 +1,12 @@
-from typing import TypeVar, Type, Self, Generic, Optional
+from __future__ import annotations
+from typing import (
+    TypeVar,
+    Type,
+    Self,
+    Generic,
+    Optional,
+    TYPE_CHECKING
+)
 from abc import ABC, abstractmethod
 from pathlib import Path
 from loguru import logger
@@ -11,21 +19,21 @@ from terraflow.util import uxarray as tuxr
 from terraflow.util.device import AbstractDevice
 import terraflow.util.history.setup as st
 from terraflow.util.datetime import DateTimeManager
-from terraflow import mesh
-from terraflow import vert_coord
-from terraflow import layout
-from terraflow.layout.abstract import CoordinateSystem
-from terraflow.discretization.abstract import (
-    AbstractFields,
-    AbstractBlock,
-)
+from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 
+if TYPE_CHECKING:
+    from terraflow.discretization.abstract import (
+        AbstractFields,
+        AbstractBlock,
+    )
 
-UM = TypeVar("UM", bound=mesh.AbstractUnstructuredMesh)
-HM = TypeVar("HM", bound=mesh.AbstractMesh)
-VM = TypeVar("VM", bound=vert_coord.AbstractVertCoordinate)
-HLO = TypeVar("HLO", bound=layout.AbstractLayout)
-VLO = TypeVar("VLO", bound=layout.AbstractLayout)
+UM = TypeVar("UM", bound=AbstractUnstructuredMesh)
+HM = TypeVar("HM", bound=AbstractMesh)
+VM = TypeVar("VM", bound=AbstractVertCoordinate)
+HLO = TypeVar("HLO", bound=AbstractLayout)
+VLO = TypeVar("VLO", bound=AbstractLayout)
 HY = TypeVar("HY", bound='AbstractHistory')
 SHY = TypeVar("SHY", bound='AbstractHistory')
 

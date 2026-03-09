@@ -18,22 +18,23 @@ from terraflow.util import typing
 from terraflow.test_case.swe import ShallowWaterEquationTestCase
 from terraflow.planet import PlanetParameterSet
 from terraflow.operator import AbstractDiscretizationMethod
-from terraflow.mesh import AbstractMesh, AbstractUnstructuredMesh
-from terraflow.vert_coord import AbstractVertCoordinate
-from terraflow.layout import AbstractLayout, CoordinateSystem
+from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 from terraflow.solver.abstract import AbstractExplicitODE
 import terraflow.discretization.abstract as disc_types
 
 if TYPE_CHECKING:
     from terraflow.operator import FiniteVolumeMethod
-    from terraflow.mesh import OrthogonalDualMesh
-    from terraflow.vert_coord import OneLayerVertCoordinate
+    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
     import terraflow.discretization.fvm.odm.trisk.single_lev.aux as fvm_odm_trisk_1lev_aux
     import terraflow.discretization.fvm.odm.trisk.single_lev.term as fvm_odm_trisk_1lev_builder
 
+    Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
@@ -42,9 +43,9 @@ VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 UHM = TypeVar("UHM", bound=AbstractUnstructuredMesh)
 BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
-ESAUX = TypeVar("ESAUX", bound=disc_types.AbstractEquationSetAuxiliaryTerms)
-
-Array = typing.Array
+ESAUX = TypeVar(
+    "ESAUX", bound=disc_types.AbstractEquationSetAuxiliaryTerms
+)
 
 
 class AbstractShallowWaterEquationSet(
@@ -406,8 +407,8 @@ class ExVifShallowWaterEquationSet4UGRID(
         case: Optional[ShallowWaterEquationTestCase] = None
     ) -> disc_types.AbstractBlock:
         from terraflow.operator import FiniteVolumeMethod
-        from terraflow.mesh.orthogonal_dual_mesh import OrthogonalDualMesh
-        from terraflow.vert_coord import OneLayerVertCoordinate
+        from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+        from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
         from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
         from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
         if (

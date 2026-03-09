@@ -5,11 +5,12 @@ import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as op
 from terraflow.discretization.fvm.odm.trisk.adv import flux_reconstruct as fr
-from terraflow.vert_coord import OneLayerVertCoordinate, HybridVertCoordinate
-from terraflow.layout import CoordinateSystem
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout

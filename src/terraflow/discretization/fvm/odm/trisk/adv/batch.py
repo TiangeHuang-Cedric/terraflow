@@ -1,12 +1,10 @@
-import stat
 from typing import Optional
 import equinox as eqx
-from matplotlib.pyplot import cla
 
 from terraflow.util import typing
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout import CoordinateSystem, MeshEntity, VertLoc, Basis
+from terraflow.layout.abstract import CoordinateSystem, MeshEntity, VertLoc, Basis
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.layout.field import Field, ArrayField, StaggeredFieldMetaData

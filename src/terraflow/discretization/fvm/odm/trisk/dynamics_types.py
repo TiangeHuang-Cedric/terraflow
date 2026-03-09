@@ -5,9 +5,9 @@ import jax
 
 from terraflow.util import typing, formula
 from terraflow.planet import PlanetParameterSet
-from terraflow.mesh import OrthogonalDualMesh
-from terraflow.vert_coord import OneLayerVertCoordinate
-from terraflow.vert_coord import HybridVertCoordinate
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import (
     CoordinateSystem,
     Basis,
@@ -64,11 +64,11 @@ class Block(AbstractBlock[
     HybridVertCoordLayout,
     "State", "Tendency", "Static", "Auxiliary", "EquationTermAuxDataset"
 ]):
-    baroclinic: bool
-    hydrostatic: bool
-    nonhydrostatic: bool
-    ideal_dry_core: bool
-    advection: bool
+    baroclinic: bool = eqx.field(static=True)
+    hydrostatic: bool = eqx.field(static=True)
+    nonhydrostatic: bool = eqx.field(static=True)
+    ideal_dry_core: bool = eqx.field(static=True)
+    advection: bool = eqx.field(static=True)
     coord: CoordSys
     para: PlanetParameterSet
     state: "State"

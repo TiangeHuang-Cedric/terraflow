@@ -1,8 +1,26 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from typing import Callable, Generic, Mapping, TypeVar, Type, overload
-from typing import Optional, Union, List, Dict, Self, cast, Literal, Any
-from typing import get_type_hints, get_origin, get_args
+from typing import (
+    Callable,
+    Generic,
+    Mapping,
+    TypeVar,
+    Type,
+    overload,
+    Optional,
+    Union,
+    List,
+    Dict,
+    Self,
+    cast,
+    Literal,
+    Any,
+    get_type_hints,
+    get_origin,
+    get_args,
+    TYPE_CHECKING
+)
 import types
 import equinox as eqx
 import unxt as ux
@@ -12,18 +30,22 @@ import uxarray as uxr
 
 from terraflow.util import typing, uxarray as tuxr
 import terraflow.operator as op
-from terraflow.mesh import AbstractMesh
-from terraflow.vert_coord import AbstractVertCoordinate
-from terraflow.layout import CoordinateSystem, AbstractLayout
-from terraflow.layout import AbstractFieldMetaData, StaggeredFieldMetaData
-from terraflow.layout import Field, ArrayField, FieldLike
+from terraflow.mesh.abstract import AbstractMesh
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
+from terraflow.layout.field import (
+    AbstractFieldMetaData,
+    StaggeredFieldMetaData,
+    Field,
+    ArrayField,
+    FieldLike
+)
 from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
 
 Numeric = typing.Numeric
 Array = typing.Array
-
 
 HM = TypeVar("HM", bound=AbstractMesh)
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
@@ -695,7 +717,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                     as_quantity=var.is_quantity()
                 )
             elif isinstance(var.data, ux.AbstractQuantity):
-                new_array = jnp.zeros_like(var.data.value)
+                new_array = jnp.zeros_like(jnp.asarray(var.data.value))
                 new_vars[key] = Field.create(
                     data=ux.Quantity(
                         new_array, var.data.unit  # type: ignore
@@ -1108,11 +1130,11 @@ class AbstractBlock(
     eqx.Module,
     Generic[HM, VM, HLO, VLO, STATE, TEND, STATIC, AUX, AUXDS]
 ):
-    baroclinic: bool
-    hydrostatic: bool
-    nonhydrostatic: bool
-    ideal_dry_core: bool
-    advection: bool
+    baroclinic: bool = eqx.field(static=True)
+    hydrostatic: bool = eqx.field(static=True)
+    nonhydrostatic: bool = eqx.field(static=True)
+    ideal_dry_core: bool = eqx.field(static=True)
+    advection: bool = eqx.field(static=True)
     coord: CoordinateSystem[HM, VM, HLO, VLO]
     para: PlanetParameterSet
     state: STATE
@@ -1257,3 +1279,76 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
                 "Please using 'set_equation' method to specify the dynamics first."
             )
         return self._equation
+
+
+if TYPE_CHECKING:
+    from terraflow.discretization import fvm
+    from terraflow.dynamics.shallow_water.types import ExVif_SWE_ODM_TriSKCGrid_FVM
+
+
+DIAG = TypeVar("DIAG", bound=AbstractDiagnosticTools)
+
+
+class DiagnosticToolsBuilder(Generic[DIAG]):
+
+    @classmethod
+    def select(
+        cls,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        equation: AbstractEquationSet,
+    ) -> Callable[..., DIAG]:
+        disc = DiscretizationInfo.from_model(
+            coord=coord,
+            para=para,
+            operator=equation.method,
+            equset_type=type(equation)
+        )
+        diag_factory = navigate(
+            "diag",
+            id_col="unique_id",
+            id_val=disc.id(),
+            attr="factory"
+        )[0]
+        return cast(Callable[..., DIAG], diag_factory)
+
+    @overload
+    @classmethod
+    def from_equation(
+        cls,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        equation: ExVif_SWE_ODM_TriSKCGrid_FVM,
+        jit: bool = False,
+        trajectory: bool = False,
+        **kwargs,
+    ) -> "fvm.odm.trisk.single_lev.diag.DiagnosticsTools":
+        ...
+
+    @overload
+    @classmethod
+    def from_equation(
+        cls,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        equation: AbstractEquationSet,
+        jit: bool = False,
+        trajectory: bool = False,
+        **kwargs,
+    ) -> AbstractDiagnosticTools:
+        ...
+
+    @classmethod
+    def from_equation(
+        cls,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        equation: AbstractEquationSet,
+        jit: bool = False,
+        trajectory: bool = False,
+        **kwargs,
+    ) -> AbstractDiagnosticTools:
+        diag_factory = cls.select(
+            coord=coord, para=para, equation=equation
+        )
+        return diag_factory(equation, jit=jit, trajectory=trajectory, **kwargs)

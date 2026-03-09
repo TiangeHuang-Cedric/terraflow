@@ -8,15 +8,14 @@ import jax
 
 from terraflow.util import typing, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.mesh import OrthogonalDualMesh
-from terraflow.vert_coord import OneLayerVertCoordinate
-from terraflow.layout import (
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+from terraflow.layout.abstract import (
     CoordinateSystem,
-    Field,
-    StaggeredFieldMetaData,
     MeshEntity,
     Basis
 )
+from terraflow.layout.field import Field, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.dynamics.shallow_water.types import ExVifShallowWaterEquationSet4UGRID

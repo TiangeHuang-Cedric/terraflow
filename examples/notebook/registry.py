@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
@@ -18,10 +18,10 @@ import importlib.metadata as m
 m.entry_points(group="terraflow.registrations")
 
 # %%
-import terraflow
+import terraflow.core as tf
 
 # Use Catalog to load from entry points
-catalog = terraflow.load_info(source="entry_points")
+catalog = tf.manager.load_info(source="entry_points")
 
 # View both mesh and op tables
 print("=== Mesh Table ===")
@@ -32,9 +32,7 @@ print(catalog.view("op"))
 catalog.load_source()
 
 # %%
-import terraflow
-
-m = terraflow.load_info()
+m = tf.manager.load_info()
 
 m.load_source()
 

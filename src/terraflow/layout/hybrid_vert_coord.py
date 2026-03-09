@@ -3,12 +3,12 @@ import jax.numpy as jnp
 from loguru import logger
 
 from terraflow.util import typing
-from terraflow.vert_coord import AbstractVertCoordinate
-from terraflow.mesh import AbstractMesh
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
+from terraflow.mesh.abstract import AbstractMesh
 from terraflow.layout.abstract import AbstractLayout
 from terraflow.layout.abstract import VertLoc
 from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem
-from terraflow.vert_coord import HybridVertCoordinate
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 
 Array = typing.Array
 

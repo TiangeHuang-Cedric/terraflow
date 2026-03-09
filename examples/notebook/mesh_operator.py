@@ -6,7 +6,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.18.1
+#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python
@@ -16,7 +16,7 @@
 # %%
 import jax.numpy as jnp
 
-import terraflow as tf
+import terraflow.core as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"

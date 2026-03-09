@@ -1,9 +1,8 @@
 from typing import TypeVar
-import jax.numpy as jnp
 from loguru import logger
 
 from terraflow.util import typing
-from terraflow.vert_coord import AbstractVertCoordinate
+from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.layout.abstract import (
     AbstractLayout,

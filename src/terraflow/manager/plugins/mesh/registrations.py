@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import TYPE_CHECKING
 from typing_extensions import TypeAlias
 
@@ -18,5 +17,7 @@ def register(model: Catalog) -> None:
 
     # Register mesh
     model.mesh.register(
-        kind="unstructured", alias="odm", factory=mesh.OrthogonalDualMesh
+        kind="unstructured",
+        alias="odm",
+        factory=mesh.orthogonal_dual_mesh.construct.OrthogonalDualMesh
     )

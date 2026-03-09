@@ -4,18 +4,14 @@ import jax.numpy as jnp
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.mesh.orthogonal_dual_mesh import OrthogonalDualMesh
+from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh.operator import (
     div_at_primal_cell,
     grad_at_dual_edge
 )
-from terraflow.vert_coord import HybridVertCoordinate
-from terraflow.layout import (
-    CoordinateSystem,
-    Field,
-    ArrayField,
-    StaggeredFieldMetaData
-)
+from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+from terraflow.layout.abstract import CoordinateSystem
+from terraflow.layout.field import Field, ArrayField, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.dynamics.baroclinic import types
@@ -291,7 +287,7 @@ class TendencyOfNormalVelocityDueToPressureGradientForce(
             ideal_dry_core=ideal_dry_core,
             advection=advection
         )
-        self.pgf_scheme = pgf.PressureGradientForce(
+        self.pgf_scheme = pgf.schemes.PressureGradientForce(
             disc=disc,
             method=method,
             baroclinic=self.baroclinic,
