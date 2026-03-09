@@ -24,10 +24,12 @@ import terraflow.core as tf
 catalog = tf.manager.load_info(source="entry_points")
 
 # View both mesh and op tables
-print("=== Mesh Table ===")
-print(catalog.view("mesh"))
-print("\n=== Op Table ===")
-print(catalog.view("op"))
+print("=== Term Table ===")
+print(catalog.view("equterm"))
+print("\n=== Equ Aux Table ===")
+print(catalog.view("equaux"))
+print("\n=== Diag Table ===")
+print(catalog.view("diag"))
 
 catalog.load_source()
 
@@ -36,14 +38,14 @@ m = tf.manager.load_info()
 
 m.load_source()
 
-m.view("equset")["unique_id"].to_list()
+m.view("equterm")["unique_id"].to_list()
 
 # %%
 import polars as pl
 
-df = m.view("op")
+df = m.view("equterm")
 
-df = df.filter(pl.col("group_id") == "fvm::triskC::odm::1level::div")
+df = df.filter(pl.col("group_id") == "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::odm::1level::nonlinear_coriolis")
 
 df["factory"].to_list()
 

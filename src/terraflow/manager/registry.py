@@ -10,73 +10,38 @@ import os
 import importlib.metadata as metadata
 import polars as pl
 
-from terraflow.manager.plugins.method.ext import MethodDataFrame, MethodDataFrameExt
-from terraflow.manager.plugins.layout.ext import LayoutDataFrame, LayoutDataFrameExt
-from terraflow.manager.plugins.mesh.ext import MeshDataFrame, MeshDataFrameExt
-from terraflow.manager.plugins.vert.ext import VertCoordDataFrame, VertCoordDataFrameExt
-from terraflow.manager.plugins.equset.ext import EquationSetDataFrame, EquationSetDataFrameExt
-from terraflow.manager.plugins.equ.ext import EquationDataFrame, EquationDataFrameExt
 from terraflow.manager.plugins.term.ext import EquationTermDataFrame, EquationTermDataFrameExt
 from terraflow.manager.plugins.equaux.ext import EquationAuxiliaryDataFrame, EquationAuxiliaryDataFrameExt
 from terraflow.manager.plugins.diag.ext import DiagnosticMethodsDataFrame, DiagnosticMethodsDataFrameExt
-from terraflow.manager.plugins.op.ext import OperatorDataFrame, OperatorDataFrameExt
 
 from terraflow.util.tools import camel_to_snake
 
 DataFrame = Union[
-    MethodDataFrame,
-    LayoutDataFrame,
-    MeshDataFrame,
-    VertCoordDataFrame,
-    EquationSetDataFrame,
-    EquationDataFrame,
     EquationTermDataFrame,
     EquationAuxiliaryDataFrame,
     DiagnosticMethodsDataFrame,
-    OperatorDataFrame
 ]
 
 DataFrameExt = Union[
-    MethodDataFrameExt,
-    LayoutDataFrameExt,
-    MeshDataFrameExt,
-    VertCoordDataFrameExt,
-    EquationSetDataFrameExt,
-    EquationDataFrameExt,
     EquationTermDataFrameExt,
     EquationAuxiliaryDataFrameExt,
     DiagnosticMethodsDataFrameExt,
-    OperatorDataFrameExt
 ]
 
 
 def tables_set() -> Dict[str, Type[DataFrame]]:
     return {
-        "method": MethodDataFrame,
-        "layout": LayoutDataFrame,
-        "mesh": MeshDataFrame,
-        "vert": VertCoordDataFrame,
-        "equset": EquationSetDataFrame,
-        "equ": EquationDataFrame,
         "equterm": EquationTermDataFrame,
         "equaux": EquationAuxiliaryDataFrame,
         "diag": DiagnosticMethodsDataFrame,
-        "op": OperatorDataFrame,
     }
 
 
 def tables_ext_set() -> Dict[str, Type[DataFrameExt]]:
     return {
-        "method": MethodDataFrameExt,
-        "layout": LayoutDataFrameExt,
-        "mesh": MeshDataFrameExt,
-        "vert": VertCoordDataFrameExt,
-        "equset": EquationSetDataFrameExt,
-        "equ": EquationDataFrameExt,
         "equterm": EquationTermDataFrameExt,
         "equaux": EquationAuxiliaryDataFrameExt,
         "diag": DiagnosticMethodsDataFrameExt,
-        "op": OperatorDataFrameExt,
     }
 
 
@@ -119,16 +84,9 @@ class Catalog:
         self._db_loaded: bool = False
 
         # Create table-specific registrars as properties
-        self.method = TableRegistrar(self, "method")
-        self.layout = TableRegistrar(self, "layout")
-        self.mesh = TableRegistrar(self, "mesh")
-        self.vert = TableRegistrar(self, "vert")
-        self.equset = TableRegistrar(self, "equset")
-        self.equ = TableRegistrar(self, "equ")
         self.equterm = TableRegistrar(self, "equterm")
         self.equaux = TableRegistrar(self, "equaux")
         self.diag = TableRegistrar(self, "diag")
-        self.op = TableRegistrar(self, "op")
 
     def __getitem__(self, name: str) -> DataFrame:
         return self.table(name)
@@ -666,16 +624,9 @@ def prepare_metadata(
     """
     # Create bind instance to generate metadata
     bind_class_map = {
-        "method": MethodBind,
-        "layout": LayoutBind,
-        "mesh": MeshBind,
-        "vert": VertBind,
-        "equset": EquationSetBind,
-        "equ": EquationBind,
         "equterm": EquationTermBind,
         "equaux": EquationAuxiliaryBind,
         "diag": DiagBind,
-        "op": OperatorBind,
     }
 
     bind_class = bind_class_map.get(table, AbstractBind)
@@ -948,36 +899,6 @@ class AbstractBind(ABC):
         return meta_local
 
 
-class MethodBind(AbstractBind):
-    """Bind decorator for numerical method definitions."""
-    pass
-
-
-class LayoutBind(AbstractBind):
-    """Bind decorator for layout definitions."""
-    pass
-
-
-class MeshBind(AbstractBind):
-    """Bind decorator for mesh definitions."""
-    pass
-
-
-class VertBind(AbstractBind):
-    """Bind decorator for vertical coordinate definitions."""
-    pass
-
-
-class EquationSetBind(AbstractBind):
-    """Bind decorator for discretization sets."""
-    pass
-
-
-class EquationBind(AbstractBind):
-    """Bind decorator for equations."""
-    pass
-
-
 class EquationTermBind(AbstractBind):
     """Bind decorator for discretization terms."""
     pass
@@ -989,10 +910,5 @@ class EquationAuxiliaryBind(AbstractBind):
 
 
 class DiagBind(AbstractBind):
-    """Bind decorator for diagnostic methods definition"""
-    pass
-
-
-class OperatorBind(AbstractBind):
-    """Bind decorator specialized for operators."""
+    """Bind decorator for diagnostic methods definition."""
     pass
