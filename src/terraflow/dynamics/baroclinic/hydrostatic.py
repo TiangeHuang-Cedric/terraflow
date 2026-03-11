@@ -26,9 +26,8 @@ if TYPE_CHECKING:
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    import terraflow.discretization.fvm.odm.trisk.hybrid_lev.aux as fvm_odm_trisk_aux
+    import terraflow.discretization.fvm.odm.trisk.hybrid_lev.term as fvm_odm_trisk_terms
     import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
-    import terraflow.discretization.fvm.odm.trisk.hybrid_lev.term as fvm_odm_trisk_hybridlev_builder
 
 
 HM = TypeVar("HM", bound=AbstractUnstructuredMesh)
@@ -38,32 +37,15 @@ HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
-ESAUX = TypeVar("ESAUX", bound=disc_types.AbstractEquationSetAuxiliaryTerms)
+PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
+SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
 
 
 class ExVifDryHydrostaticEquationSet4UGRID(
-    types.AbstractDryHydrostaticEquationSet[DM, ESAUX],
+    types.AbstractDryHydrostaticEquationSet[DM, SOP],
     AbstractExplicitODE,
-    Generic[
-        types.DMFS,
-        types.DMFT, types.VAT,
-        types.NCT, types.GKE, types.VAM, types.PGF,
-        ESAUX,
-        DM
-    ],
+    Generic[DM, SOP],
 ):
-    dmgsdt: types.ExContinuityEqu[
-        types.DMFS,
-        DM,
-    ]
-    dptdt: types.ExThermodynamicEqu[
-        types.DMFT, types.VAT,
-        DM,
-    ]
-    dundt: types.ExNormalMomentumEqu4UGRID[
-        types.NCT, types.GKE, types.VAM, types.PGF,
-        DM,
-    ]
 
     def __init__(
         self,
@@ -71,18 +53,6 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         method: DM,
     ):
         super().__init__(disc=disc, method=method)
-        self.dmgsdt = self.init_continuity_equation(
-            disc=disc,
-            method=method,
-        )
-        self.dptdt = self.init_thermodynamic_equation(
-            disc=disc,
-            method=method,
-        )
-        self.dundt = self.init_momentum_equation(
-            disc=disc,
-            method=method,
-        )
 
     @staticmethod
     def alias_name() -> str:
@@ -167,85 +137,20 @@ class ExVifDryHydrostaticEquationSet4UGRID(
 
     def build_default(self) -> Self:
         if not self.has_built():
-            self.aux.build_default()
-            self.dmgsdt.build_default()
-            self.dptdt.build_default()
-            self.dundt.build_default()
+            self.space_operators.build_default()
             self._built = True
         return self
 
-    def init_continuity_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> types.ExContinuityEqu[
-        types.DMFS,
-        DM,
-    ]:
-        return types.ExContinuityEqu(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        return self.space_operators.prepare_block(block)
+
+    def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        return self.space_operators(
+            block,
+            *args,
+            **kwargs,
+            explicit=True
         )
-
-    def init_thermodynamic_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> types.ExThermodynamicEqu[
-        types.DMFT, types.VAT,
-        DM,
-    ]:
-        return types.ExThermodynamicEqu(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
-
-    def init_momentum_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> types.ExNormalMomentumEqu4UGRID[
-        types.NCT, types.GKE, types.VAM, types.PGF,
-        DM,
-    ]:
-        return types.ExNormalMomentumEqu4UGRID(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
-
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.aux.prepare(block)
-        block = self.dmgsdt.prepare(block)
-        block = self.dptdt.prepare(block)
-        block = self.dundt.prepare(block)
-        return block
-
-    def explicit_terms(self, block: BLOCK, pass_tag: str = "all_pass") -> BLOCK:
-        block = self.aux(block, pass_tag=pass_tag)
-        if pass_tag == "all_pass":
-            block = self.dmgsdt(block)
-            block = self.dptdt(block)
-            block = self.dundt(block)
-        elif pass_tag == "forward_pass":
-            block = self.dmgsdt(block)
-            block = self.dptdt(block)
-        elif pass_tag == "backward_pass":
-            block = self.dundt(block)
-        else:
-            raise ValueError(f"Unknown pass_tag: {pass_tag}")
-        return block
 
 
 class DryHydrostaticEquationBuilder:
@@ -311,13 +216,6 @@ class DryHydrostaticEquationBuilder:
 
 if TYPE_CHECKING:
     ExVif_DHDC_ODM_TriSKCGrid_FVM = ExVifDryHydrostaticEquationSet4UGRID[
-        fvm_odm_trisk_hybridlev_builder.TendencyOfDryAirMassAtSurface,
-        fvm_odm_trisk_hybridlev_builder.TendencyOfPotentialTemperatureDueToDivergenceOfFlux,
-        fvm_odm_trisk_hybridlev_builder.TendencyOfPotentialTemperatureDueToVerticalAdvection,
-        fvm_odm_trisk_hybridlev_builder.NonlinearCoriolisTermAtDualEdge,
-        fvm_odm_trisk_hybridlev_builder.GradientOfKineticEnergyAtDualEdge,
-        fvm_odm_trisk_hybridlev_builder.TendencyOfNormalVelocityDueToVerticalAdvection,
-        fvm_odm_trisk_hybridlev_builder.TendencyOfNormalVelocityDueToPressureGradientForce,
-        fvm_odm_trisk_aux.AuxiliaryTerms,
         FiniteVolumeMethod,
+        fvm_odm_trisk_terms.ExSpaceOperators,
     ]

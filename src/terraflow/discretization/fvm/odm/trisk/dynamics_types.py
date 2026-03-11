@@ -1,4 +1,4 @@
-from typing import Self, Optional, TypeVar, Dict
+from typing import Self, Optional, TypeVar, Dict, Generic
 from loguru import logger
 import equinox as eqx
 import jax
@@ -57,19 +57,22 @@ NEDGE = "edge"
 NVTX = "vtx"
 
 
-class Block(AbstractBlock[
-    OrthogonalDualMesh,
-    HybridVertCoordinate,
-    TriSKBasedCGridStaggeringLayout,
-    HybridVertCoordLayout,
-    "State", "Tendency", "Static", "Auxiliary", "EquationTermAuxDataset"
-]):
+class Block(
+    AbstractBlock[
+        OrthogonalDualMesh,
+        VM,
+        TriSKBasedCGridStaggeringLayout,
+        VLO,
+        "State", "Tendency", "Static", "Auxiliary", "EquationTermAuxDataset"
+    ],
+    Generic[VM, VLO]
+):
     baroclinic: bool = eqx.field(static=True)
     hydrostatic: bool = eqx.field(static=True)
     nonhydrostatic: bool = eqx.field(static=True)
     ideal_dry_core: bool = eqx.field(static=True)
     advection: bool = eqx.field(static=True)
-    coord: CoordSys
+    _coord: CoordSys
     para: PlanetParameterSet
     state: "State"
     tend: "Tendency"
@@ -186,7 +189,7 @@ class Block(AbstractBlock[
             nonhydrostatic=equation.nonhydrostatic,
             ideal_dry_core=equation.ideal_dry_core,
             advection=equation.advection,
-            coord=coord,
+            _coord=coord,
             para=para,
             state=state,
             tend=tend,
@@ -752,22 +755,22 @@ def default_tendency_meta(
     advection: bool,
 ) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
-    meta["dgzdt"] = StaggeredFieldMetaData(
-        name="dgzdt",
-        dims=(NLEV, NCELL,) if baroclinic else (NCELL,),
-        long_name="Tendency of geopotential",
-        description="Tendency of geopotential calculated from state variables",
-        units="m2 / s3",
-        hori_location=MeshEntity.Cell,
-        vert_location=VertLoc.Cell if baroclinic else "",
-        basis=Basis.Scalar,
-        coordinates="lon_cell lat_cell",
-        staggered_kind="C",
-        mesh_name="primal",
-        is_prognostic=False,
-        output="h1"
-    )
     if not baroclinic:
+        meta["dgzdt"] = StaggeredFieldMetaData(
+            name="dgzdt",
+            dims=(NCELL,),
+            long_name="Tendency of geopotential",
+            description="Tendency of geopotential calculated from state variables",
+            units="m2 / s3",
+            hori_location=MeshEntity.Cell,
+            vert_location="",
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
+            staggered_kind="C",
+            mesh_name="primal",
+            is_prognostic=False,
+            output="h1"
+        )
         meta["dgzdt_dmf"] = StaggeredFieldMetaData(
             name="dgzdt_dmf",
             dims=(NCELL,),
@@ -789,6 +792,21 @@ def default_tendency_meta(
             dims=(NCELL,),
             long_name="Tendency of dry air weight at primal cell center and full level",
             description="Tendency of dry air weight at primal cell center and full level",
+            units="Pa / s",
+            hori_location=MeshEntity.Cell,
+            vert_location=VertLoc.Sfc,
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
+            staggered_kind="C",
+            mesh_name="primal",
+            is_prognostic=False,
+            output="h1"
+        )
+        meta["dmgsdt_dmf"] = StaggeredFieldMetaData(
+            name="dmgsdt_dmf",
+            dims=(NCELL,),
+            long_name="Tendency of dry air weight at primal cell center and full level due to mass flux divergence",
+            description="Tendency of dry air weight at primal cell center and full level due to mass flux divergence calculated from state variables",
             units="Pa / s",
             hori_location=MeshEntity.Cell,
             vert_location=VertLoc.Sfc,
@@ -933,6 +951,7 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
     dgzdt: FDT
     dgzdt_dmf: FDT
     dmgsdt: FDT
+    dmgsdt_dmf: FDT
     dptdt: FDT
     dptdt_dptfn: FDT
     dptdt_ptvf: FDT

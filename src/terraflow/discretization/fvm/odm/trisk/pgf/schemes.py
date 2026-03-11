@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
     DiscretizationInfo,
-    AbstractEquationSetAuxiliaryTerms
+    AbstractEquationOperator
 )
 from terraflow.discretization.fvm.odm.trisk.pgf.ptb import PerturbationPressureGradientForce
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from terraflow.discretization.fvm.odm.trisk.hybrid_lev.dry.hdc.dynamics_types import Block
 
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractEquationOperator[FiniteVolumeMethod]
 
 
 class PressureGradientForce(Term):
@@ -52,8 +52,8 @@ class PressureGradientForce(Term):
         self._built = True
         return self.scheme
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def build_default(self) -> "PressureGradientForce":
         if not self._built:

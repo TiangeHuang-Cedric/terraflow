@@ -81,14 +81,14 @@ def register(model: Catalog) -> None:
         belong_key,
         group="nonlinear_coriolis",
         alias="builder",
-        factory=term.NonlinearCoriolisTermAtDualEdge
+        factory=term.TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge
     )
 
     model.equterm.register(
         belong_key,
         group="grad_of_kinetic_energy",
         alias="builder",
-        factory=term.GradientOfKineticEnergyAtDualEdge
+        factory=term.TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge
     )
 
     model.equterm.register(

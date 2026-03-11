@@ -1,4 +1,5 @@
 from __future__ import annotations
+from re import A
 from typing import TYPE_CHECKING
 import jax.numpy as jnp
 import equinox as eqx
@@ -69,8 +70,8 @@ class UpwindHorizontalAdvection:
                 f"Horizontal location {batch.hori_loc} is not implemented."
             )
 
-    def prepare(self, block: Block) -> Block:
-        return self.adv_hflx_at_cell.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.adv_hflx_at_cell.prepare_block(block)
 
     def calc_at_cell(
         self,
@@ -78,16 +79,16 @@ class UpwindHorizontalAdvection:
         batch: batch.AdvBatchType,
         coord: CoordSys,
         aux: types.AdvectionAuxiliaryDataset
-    ):
+    ) -> batch.AdvBatchType:
         mfn = batch.mfn.unwrap()
         qmfn = self.adv_hflx_at_cell(
-            x_at_primal_cell=q * mfn,
+            x_at_primal_cell=q,
             normal_u_at_edge=mfn,
             coord=coord,
             aux=aux
         )
         return eqx.tree_at(
-            lambda b: b.qmfn,
+            lambda b: b.qmfn.data,
             batch,
             qmfn
         )
@@ -98,16 +99,16 @@ class UpwindHorizontalAdvection:
         batch: batch.AdvBatchType,
         coord: CoordSys,
         aux: types.AdvectionAuxiliaryDataset
-    ):
+    ) -> batch.AdvBatchType:
         mfn = batch.mfn.unwrap()
         qmfn = self.adv_hflx_at_vtx(
-            x_at_dual_cell=q * mfn,
+            x_at_dual_cell=q,
             tangent_u_at_edge=mfn,
             coord=coord,
             aux=aux
         )
         return eqx.tree_at(
-            lambda b: b.qmfn,
+            lambda b: b.qmfn.data,
             batch,
             qmfn
         )
@@ -150,14 +151,14 @@ class UpwindVerticalAdvection:
                 f"Vertical location {batch.vert_loc} is not implemented."
             )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
     def calc_at_cell(
         self,
         q: Array,
         batch: batch.AdvBatchType,
-    ):
+    ) -> batch.AdvBatchType:
         mfz = batch.mfz.unwrap()
         qmfz = self.adv_vflx_at_cell(
             q_lev=q,
@@ -165,7 +166,7 @@ class UpwindVerticalAdvection:
             wgt=self.wgt
         )
         return eqx.tree_at(
-            lambda b: b.qmfz,
+            lambda b: b.qmfz.data,
             batch,
             qmfz
         )
@@ -174,7 +175,7 @@ class UpwindVerticalAdvection:
         self,
         q: Array,
         batch: batch.AdvBatchType,
-    ):
+    ) -> batch.AdvBatchType:
         mfz = batch.mfz.unwrap()
         qmfz = self.adv_vflx_at_lev(
             q=q,
@@ -182,7 +183,7 @@ class UpwindVerticalAdvection:
             wgt=self.wgt
         )
         return eqx.tree_at(
-            lambda b: b.qmfz,
+            lambda b: b.qmfz.data,
             batch,
             qmfz
         )
@@ -194,12 +195,10 @@ def upwind0_adv_vflx_at_cell(
     *args,
     **kwargs
 ) -> Float[Array, "nlev n_points"]:
-    return jnp.pad(
-        0.5 * (q_lev[1:-2, :] + q_lev[2:-1, :]) * mfz[1:-1, :],
-        ((1, 1), (0, 0)),
-        before_value=0.5 * (q_lev[0, :] + q_lev[1, :]) * mfz[0, :],
-        after_value=0.5 * (q_lev[-2, :] + q_lev[-1, :]) * mfz[-1, :]
-    )
+    top = 0.5 * (q_lev[0, :] + q_lev[1, :]) * mfz[0, :]
+    mid = 0.5 * (q_lev[1:-2, :] + q_lev[2:-1, :]) * mfz[1:-1, :]
+    bottom = 0.5 * (q_lev[-2, :] + q_lev[-1, :]) * mfz[-1, :]
+    return jnp.concatenate([top[None, :], mid, bottom[None, :]], axis=0)
 
 
 def upwind3_adv_vflx_at_cell(
@@ -211,18 +210,17 @@ def upwind3_adv_vflx_at_cell(
     c32 = -1.0 / 12.0
     c33 = 1.0 / 12.0
     direction = jnp.sign(mfz[1:-1, :])
+    top = 0.5 * (q_lev[0, :] + q_lev[1, :]) * mfz[0, :]
     tmp = (
         c31 * (q_lev[1:-2, :] + q_lev[2:-1, :])
         + c32 * (q_lev[3:, :] + q_lev[:-3, :])
-        + c33 * ((q_lev[3:, :] - q_lev[:-3, :])
-                 - 3 * (q_lev[2:-1, :] - q_lev[1:-2, :])) * direction * mfz[1:-1, :] * wgt
+        + c33 * (
+            (q_lev[3:, :] - q_lev[:-3, :])
+            - 3 * (q_lev[2:-1, :] - q_lev[1:-2, :])
+        ) * direction * mfz[1:-1, :] * wgt
     )
-    return jnp.pad(
-        tmp,
-        ((1, 1), (0, 0)),
-        before_value=0.5 * (q_lev[0, :] + q_lev[1, :]) * mfz[0, :],
-        after_value=0.5 * (q_lev[-2, :] + q_lev[-1, :]) * mfz[-1, :]
-    )
+    bottom = 0.5 * (q_lev[-2, :] + q_lev[-1, :]) * mfz[-1, :]
+    return jnp.concatenate([top[None, :], tmp, bottom[None, :]], axis=0)
 
 
 def upwind0_adv_vflx_at_lev(
@@ -246,18 +244,17 @@ def upwind3_adv_vflx_at_lev(
     c32 = -1.0 / 12.0
     c33 = 1.0 / 12.0
     direction = jnp.sign(mfz_lev[2:-2, :])
-    tmp = (
+    top = 0.5 * (q[0, :] + q[1, :]) * mfz_lev[1, :]
+    mid = (
         c31 * (q[2:-1, :] + q[1:-2, :])
         + c32 * q[3:, :] + q[:-3, :]
-        + c33 * ((q[3:, :] - q[:-3, :])
-                 - 3 * (q[2:-1, :] - q[1:-2, :])) * direction * mfz_lev[2:-2, :] * wgt
+        + c33 * (
+            (q[3:, :] - q[:-3, :])
+            - 3 * (q[2:-1, :] - q[1:-2, :])
+        ) * direction * mfz_lev[2:-2, :] * wgt
     )
-    tmp = jnp.pad(
-        tmp,
-        ((1, 1), (0, 0)),
-        before_value=0.5 * (q[0, :] + q[1, :]) * mfz_lev[1, :],
-        after_value=0.5 * (q[-2, :] + q[-1, :]) * mfz_lev[-2, :]
-    )
+    bottom = 0.5 * (q[-2, :] + q[-1, :]) * mfz_lev[-2, :]
+    tmp = jnp.concatenate([top[None, :], mid, bottom[None, :]], axis=0)
     return jnp.pad(
         tmp,
         ((1, 1), (0, 0)),

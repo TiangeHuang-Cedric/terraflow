@@ -302,33 +302,34 @@ class AdvBatchType(eqx.Module):
         mfn: Optional[Array] = None,
         mfz: Optional[Array] = None,
         m: Optional[Array] = None
-    ):
+    ) -> "AdvBatchType":
         self = eqx.tree_at(
-            lambda b: (b.un, b.ut),
+            lambda b: (b.un.data, b.ut.data),
             self,
             (un, ut)
         )
         if w is not None:
             self = eqx.tree_at(
-                lambda b: b.w,
+                lambda b: b.w.data,
                 self,
                 w
             )
         if mfn is not None:
             self = eqx.tree_at(
-                lambda b: b.mfn,
+                lambda b: b.mfn.data,
                 self,
                 mfn
             )
         if mfz is not None:
             self = eqx.tree_at(
-                lambda b: b.mfz,
+                lambda b: b.mfz.data,
                 self,
                 mfz
             )
         if m is not None:
             self = eqx.tree_at(
-                lambda b: b.m,
+                lambda b: b.m.data,
                 self,
                 m
             )
+        return self

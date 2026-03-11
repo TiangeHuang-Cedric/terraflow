@@ -8,7 +8,7 @@ from typing import (
     overload,
     TYPE_CHECKING,
     TypeVar,
-    Generic
+    Generic,
 )
 import inspect
 import equinox as eqx
@@ -31,8 +31,7 @@ if TYPE_CHECKING:
     from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
-    import terraflow.discretization.fvm.odm.trisk.single_lev.aux as fvm_odm_trisk_1lev_aux
-    import terraflow.discretization.fvm.odm.trisk.single_lev.term as fvm_odm_trisk_1lev_builder
+    import terraflow.discretization.fvm.odm.trisk.single_lev.term as fvm_odm_trisk_1lev_terms
 
     Array = typing.Array
 
@@ -43,14 +42,13 @@ VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 UHM = TypeVar("UHM", bound=AbstractUnstructuredMesh)
 BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
-ESAUX = TypeVar(
-    "ESAUX", bound=disc_types.AbstractEquationSetAuxiliaryTerms
-)
+PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
+SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
 
 
 class AbstractShallowWaterEquationSet(
-    disc_types.AbstractEquationSet[DM, ESAUX],
-    Generic[DM, ESAUX],
+    disc_types.AbstractEquationSet[DM, SOP],
+    Generic[DM, SOP],
     ABC
 ):
     def __init__(
@@ -67,27 +65,17 @@ class AbstractShallowWaterEquationSet(
             ideal_dry_core=False,
             advection=False
         )
+        factory = self.navi2space_ops()
+        space_operators: SOP = factory(
+            disc=disc,
+            method=method,
+        )
+        self._space_operators = space_operators
 
     @staticmethod
     def alias_name() -> str:
         """Return the alias name of the dynamics set."""
         return "swe"
-
-    @abstractmethod
-    def init_continuity_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM
-    ) -> disc_types.AbstractContinuityEquForm:
-        raise NotImplementedError
-
-    @abstractmethod
-    def init_momentum_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM
-    ) -> disc_types.AbstractMomentumEquForm:
-        raise NotImplementedError
 
 
 ShallowWaterEquationSet = TypeVar(
@@ -136,6 +124,44 @@ class AbstractShallowWaterTerm(
             ideal_dry_core=False,
             advection=False
         )
+
+
+class AbstractShallowWaterSpaceOperators(
+    disc_types.AbstractSpaceOperators[DM, PSO],
+    Generic[DM, PSO],
+    ABC
+):
+
+    def __init__(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=False,
+            hydrostatic=False,
+            nonhydrostatic=False,
+            ideal_dry_core=False,
+            advection=False
+        )
+
+    @abstractmethod
+    def init_continuity_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM
+    ) -> disc_types.AbstractContinuityEquForm:
+        raise NotImplementedError
+
+    @abstractmethod
+    def init_momentum_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM
+    ) -> disc_types.AbstractMomentumEquForm:
+        raise NotImplementedError
 
 
 class DivergenceOfMassFluxProtocol(
@@ -217,8 +243,8 @@ class ExContinuityEqu(
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.dmf.prepare(block)
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.dmf.prepare_block(block)
         return block
 
     def init_div_mfx(self) -> DMF:
@@ -289,10 +315,10 @@ class ExNormalMomentumEqu4UGRID(
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.coriolis.prepare(block)
-        block = self.grad_ke.prepare(block)
-        block = self.pgf.prepare(block)
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.coriolis.prepare_block(block)
+        block = self.grad_ke.prepare_block(block)
+        block = self.pgf.prepare_block(block)
         return block
 
     def init_nonlinear_coriolis_term(self) -> NCT:
@@ -335,15 +361,14 @@ class ExNormalMomentumEqu4UGRID(
             )
 
 
-class ExVifShallowWaterEquationSet4UGRID(
-    AbstractShallowWaterEquationSet[DM, ESAUX],
-    AbstractExplicitODE,
+class ExVifShallowWaterEquationSet4UGRIDSpaceOperators(
+    AbstractShallowWaterSpaceOperators[DM, PSO],
     Generic[
         DMF,
         NCT, GKE, PGF,
-        ESAUX,
-        DM
+        DM, PSO
     ],
+    ABC
 ):
     dgzdt: ExContinuityEqu[DMF, DM]
     dundt: ExNormalMomentumEqu4UGRID[
@@ -358,6 +383,51 @@ class ExVifShallowWaterEquationSet4UGRID(
         super().__init__(disc=disc, method=method)
         self.dgzdt = self.init_continuity_equation(disc=disc, method=method)
         self.dundt = self.init_momentum_equation(disc=disc, method=method)
+
+    def init_continuity_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> ExContinuityEqu[DMF, DM]:
+        return ExContinuityEqu(disc=disc, method=method)
+
+    def init_momentum_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> ExNormalMomentumEqu4UGRID[
+        NCT, GKE, PGF, DM
+    ]:
+        return ExNormalMomentumEqu4UGRID(disc=disc, method=method)
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self.prepare.build_default()
+            self.dgzdt.build_default()
+            self.dundt.build_default()
+            self._built = True
+        return self
+
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.prepare.prepare_block(block)
+        block = self.dgzdt.prepare_block(block)
+        block = self.dundt.prepare_block(block)
+        logger.success("Prepared auxiliary and data.")
+        return block
+
+
+class ExVifShallowWaterEquationSet4UGRID(
+    AbstractShallowWaterEquationSet[DM, SOP],
+    AbstractExplicitODE,
+    Generic[DM, SOP],
+):
+
+    def __init__(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ):
+        super().__init__(disc=disc, method=method)
 
     @staticmethod
     def alias_name() -> str:
@@ -440,49 +510,24 @@ class ExVifShallowWaterEquationSet4UGRID(
             case=case
         )
 
-    def init_continuity_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> ExContinuityEqu[DMF, DM]:
-        return ExContinuityEqu(disc=disc, method=method)
-
-    def init_momentum_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> ExNormalMomentumEqu4UGRID[
-        NCT, GKE, PGF, DM
-    ]:
-        return ExNormalMomentumEqu4UGRID(disc=disc, method=method)
-
     def build_default(self) -> Self:
         if not self.has_built():
-            self.aux.build_default()
-            self.dgzdt.build_default()
-            self.dundt.build_default()
+            self._space_operators.build_default()
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.aux.prepare(block)
-        block = self.dgzdt.prepare(block)
-        block = self.dundt.prepare(block)
-        logger.success("Prepared auxiliary terms and data.")
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self._space_operators.prepare_block(block)
+        logger.success("Prepared auxiliary and data.")
         return block
 
-    def explicit_terms(self, block: BLOCK, pass_tag: str = "all_pass") -> BLOCK:
-        block = self.aux(block, pass_tag=pass_tag)
-        if pass_tag == "all_pass":
-            block = self.dgzdt(block)
-            block = self.dundt(block)
-        elif pass_tag == "forward_pass":
-            block = self.dgzdt(block)
-        elif pass_tag == "backward_pass":
-            block = self.dundt(block)
-        else:
-            raise ValueError(f"Unknown pass_tag: {pass_tag}")
-        return block
+    def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        return self.space_operators(
+            block,
+            *args,
+            **kwargs,
+            explicit=True
+        )
 
 
 class ShallowWaterEquationBuilder:
@@ -545,10 +590,6 @@ class ShallowWaterEquationBuilder:
 
 if TYPE_CHECKING:
     ExVif_SWE_ODM_TriSKCGrid_FVM = ExVifShallowWaterEquationSet4UGRID[
-        fvm_odm_trisk_1lev_builder.TendencyOfDivergenceOfMassFlux,
-        fvm_odm_trisk_1lev_builder.NonlinearCoriolisTermAtDualEdge,
-        fvm_odm_trisk_1lev_builder.GradientOfKineticEnergyAtDualEdge,
-        fvm_odm_trisk_1lev_builder.PressureGradientForceAtDualEdge,
-        fvm_odm_trisk_1lev_aux.AuxiliaryTerms,
         FiniteVolumeMethod,
+        fvm_odm_trisk_1lev_terms.ExSpaceOperators,
     ]

@@ -69,8 +69,8 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.aux.dmg.recon_at_edge.central_difference()
-equation.aux.pv.interp.upwind(3)
+equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
+equation.space_operators.prepare.pv.interp.upwind(3)
 
 # %%
 equation.build_default()
@@ -79,7 +79,7 @@ equation.build_default()
 block = equation.build_block_from_testcase(
     coord=coord, para=para, case=testcase)
 
-block = equation.prepare(block)
+block = equation.prepare_block(block)
 
 # %% [markdown]
 # ## Plot using easygems

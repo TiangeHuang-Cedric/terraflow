@@ -9,7 +9,7 @@ from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayou
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.fvm.odm.trisk.adv import upwind, batch, types
-from terraflow.discretization.abstract import AbstractEquationSetAuxiliaryTerms
+from terraflow.discretization.abstract import AbstractPrepareSpaceOperators
 
 Array = typing.Array
 
@@ -25,7 +25,7 @@ CoordSys = CoordinateSystem[
 ]
 
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 
 
 class HorizontalAdvectionScheme:
@@ -52,8 +52,8 @@ class HorizontalAdvectionScheme:
         self._built = True
         return self.scheme
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def build_default(self) -> Self:
         if not self._built:
@@ -82,8 +82,8 @@ class VerticalAdvectionScheme:
         self._built = True
         return self.scheme
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def build_default(self) -> Self:
         if not self._built:

@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-import numpy as np
 
 
 class Backend:
@@ -26,6 +25,7 @@ class JaxBackend(Backend):
 
 class AbstractDevice:
     """Base class for computational devices."""
+
     float_type: type
     int_type: type
     backend: Backend
@@ -71,17 +71,11 @@ class Distributed(AbstractDevice):
 
     def __init__(self, singe_device: AbstractDevice):
         if isinstance(singe_device, CPU):
-            return DistributedCPU(
-                singe_device.float_type, singe_device.int_type
-            )
+            return DistributedCPU(singe_device.float_type, singe_device.int_type)
         elif isinstance(singe_device, GPU):
-            return DistributedGPU(
-                singe_device.float_type, singe_device.int_type
-            )
+            return DistributedGPU(singe_device.float_type, singe_device.int_type)
         elif isinstance(singe_device, TPU):
-            return DistributedTPU(
-                singe_device.float_type, singe_device.int_type
-            )
+            return DistributedTPU(singe_device.float_type, singe_device.int_type)
         else:
             raise TypeError("Unsupported device type for distributed device.")
 
@@ -91,8 +85,7 @@ class DistributedCPU(CPU):
 
     def __init__(self, float_type: type = jnp.float64, int_type: type = jnp.int64):
         ref = jax.devices("cpu")
-        AbstractDevice.__init__(
-            self, float_type, int_type, JaxBackend("cpu", ref))
+        AbstractDevice.__init__(self, float_type, int_type, JaxBackend("cpu", ref))
 
 
 class DistributedGPU(GPU):
@@ -100,8 +93,7 @@ class DistributedGPU(GPU):
 
     def __init__(self, float_type: type = jnp.float32, int_type: type = jnp.int32):
         ref = jax.devices("gpu")
-        AbstractDevice.__init__(
-            self, float_type, int_type, JaxBackend("gpu", ref))
+        AbstractDevice.__init__(self, float_type, int_type, JaxBackend("gpu", ref))
 
 
 class DistributedTPU(TPU):
@@ -109,5 +101,4 @@ class DistributedTPU(TPU):
 
     def __init__(self, float_type: type = jnp.float32, int_type: type = jnp.int32):
         ref = jax.devices("tpu")
-        AbstractDevice.__init__(
-            self, float_type, int_type, JaxBackend("tpu", ref))
+        AbstractDevice.__init__(self, float_type, int_type, JaxBackend("tpu", ref))

@@ -11,7 +11,7 @@ from terraflow.mesh.orthogonal_dual_mesh import operator as mesh_op
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.discretization.abstract import (
     DiscretizationInfo,
-    AbstractEquationSetAuxiliaryTerms,
+    AbstractPrepareSpaceOperators,
     AbstractEquationTermAuxiliaryData
 )
 from terraflow.layout.abstract import CoordinateSystem
@@ -35,7 +35,7 @@ CoordSys = CoordinateSystem[
     HybridVertCoordLayout
 ]
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 
 
 class RefProfileData(AbstractEquationTermAuxiliaryData):
@@ -180,12 +180,12 @@ class PerturbationPressureGradientForce(Term):
             para=block.para
         )
         return eqx.tree_at(
-            lambda b: b.tend.dundt_pgf,
+            lambda b: b.tend.dundt_pgf.data,
             block,
             - (tmp1 + tmp2 + tmp3 + tmp4)
         )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         pro = RefProfileData.from_coord(
             coord=block.coord,
             para=block.para,

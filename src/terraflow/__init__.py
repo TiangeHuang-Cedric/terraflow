@@ -10,5 +10,18 @@ from . import discretization
 from . import dynamics
 from . import solver
 
+__all__ = [
+    "util",
+    "operator",
+    "mesh",
+    "vert_coord",
+    "planet",
+    "layout",
+    "prepare",
+    "test_case",
+    "discretization",
+    "dynamics",
+    "solver"
+]
 
 __version__ = "0.1.0"

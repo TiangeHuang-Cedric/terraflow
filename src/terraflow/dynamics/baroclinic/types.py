@@ -17,12 +17,13 @@ HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
-ESAUX = TypeVar("ESAUX", bound=disc_types.AbstractEquationSetAuxiliaryTerms)
+PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
+SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
 
 
 class AbstractBaroclinicEquationSet(
-    disc_types.AbstractEquationSet[DM, ESAUX],
-    Generic[DM, ESAUX],
+    disc_types.AbstractEquationSet[DM, SOP],
+    Generic[DM, SOP],
     ABC
 ):
     def __init__(
@@ -34,7 +35,6 @@ class AbstractBaroclinicEquationSet(
         ideal_dry_core: bool,
         advection: bool
     ):
-        self.hydrostatic = hydrostatic
         super().__init__(
             disc=disc,
             method=method,
@@ -44,40 +44,26 @@ class AbstractBaroclinicEquationSet(
             ideal_dry_core=ideal_dry_core,
             advection=advection
         )
+        factory = self.navi2space_ops()
+        space_operators: SOP = factory(
+            disc=disc,
+            method=method,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection,
+        )
+        self._space_operators = space_operators
 
     @staticmethod
     @abstractmethod
     def alias_name() -> str:
         raise NotImplementedError
 
-    @abstractmethod
-    def init_continuity_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> disc_types.AbstractContinuityEquForm:
-        raise NotImplementedError
-
-    @abstractmethod
-    def init_momentum_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> disc_types.AbstractMomentumEquForm:
-        raise NotImplementedError
-
-    @abstractmethod
-    def init_thermodynamic_equation(
-        self,
-        disc: disc_types.DiscretizationInfo,
-        method: DM,
-    ) -> disc_types.AbstractThermodynamicEquForm:
-        raise NotImplementedError
-
 
 class AbstractHydrostaticEquationSet(
-    AbstractBaroclinicEquationSet[DM, ESAUX],
-    Generic[DM, ESAUX],
+    AbstractBaroclinicEquationSet[DM, SOP],
+    Generic[DM, SOP],
     ABC
 ):
     def __init__(
@@ -102,8 +88,8 @@ class AbstractHydrostaticEquationSet(
 
 
 class AbstractDryHydrostaticEquationSet(
-    AbstractHydrostaticEquationSet[DM, ESAUX],
-    Generic[DM, ESAUX],
+    AbstractHydrostaticEquationSet[DM, SOP],
+    Generic[DM, SOP],
     ABC
 ):
     def __init__(
@@ -167,6 +153,55 @@ class AbstractBaroclinicEquationForm(
             ideal_dry_core=ideal_dry_core,
             advection=advection
         )
+
+
+class AbstractBaroclinicSpaceOperators(
+    disc_types.AbstractSpaceOperators[DM, PSO],
+    Generic[DM, PSO],
+    ABC
+):
+    def __init__(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=True,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+
+    @abstractmethod
+    def init_continuity_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> disc_types.AbstractContinuityEquForm:
+        raise NotImplementedError
+
+    @abstractmethod
+    def init_momentum_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> disc_types.AbstractMomentumEquForm:
+        raise NotImplementedError
+
+    @abstractmethod
+    def init_thermodynamic_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> disc_types.AbstractThermodynamicEquForm:
+        raise NotImplementedError
 
 
 class DivergenceOfMassFluxAtSurfaceProtocol(
@@ -274,7 +309,12 @@ class ExContinuityEqu(
         self.div_mfs = self.init_div_mfs()
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        return self.div_mfs(block)
+        block = self.div_mfs(block)
+        return eqx.tree_at(
+            lambda b: b.tend.dmgsdt.data,
+            block,
+            replace=self.div_mfs.unwrap(block).unwrap()
+        )
 
     @staticmethod
     def alias_name() -> str:
@@ -290,8 +330,8 @@ class ExContinuityEqu(
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.div_mfs.prepare(block)
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.div_mfs.prepare_block(block)
         return block
 
     def init_div_mfs(self) -> DMFS:
@@ -349,11 +389,11 @@ class ExThermodynamicEqu(
         block = self.div_mft(block)
         block = self.adv_vert(block)
         return eqx.tree_at(
-            lambda b: b.tend.dthdt,
+            lambda b: b.tend.dptdt.data,
             block,
             replace=(
-                block.tend.dptdt_mft
-                + block.tend.dptdt_adv_vert
+                self.div_mft.unwrap(block).unwrap()
+                + self.adv_vert.unwrap(block).unwrap()
             )
         )
 
@@ -372,9 +412,9 @@ class ExThermodynamicEqu(
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.div_mft.prepare(block)
-        block = self.adv_vert.prepare(block)
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.div_mft.prepare_block(block)
+        block = self.adv_vert.prepare_block(block)
         return block
 
     def init_div_mft(self) -> DMFT:
@@ -456,17 +496,16 @@ class ExNormalMomentumEqu4UGRID(
     def __call__(self, block: BLOCK) -> BLOCK:
         block = self.coriolis(block)
         block = self.grad_ke(block)
-        # TODO: Need to open the options below
-        # block = self.adv_vert(block)
-        # block = self.pgf(block)
+        block = self.adv_vert(block)
+        block = self.pgf(block)
         return eqx.tree_at(
-            lambda b: b.tend.dundt,
+            lambda b: b.tend.dundt.data,
             block,
             replace=(
-                block.tend.dundt_coriolis
-                + block.tend.dundt_grad_ke
-                + block.tend.dundt_wedundeta
-                + block.tend.dundt_pgf
+                self.coriolis.unwrap(block).unwrap()
+                + self.grad_ke.unwrap(block).unwrap()
+                + self.adv_vert.unwrap(block).unwrap()
+                + self.pgf.unwrap(block).unwrap()
             )
         )
 
@@ -487,11 +526,11 @@ class ExNormalMomentumEqu4UGRID(
             self._built = True
         return self
 
-    def prepare(self, block: BLOCK) -> BLOCK:
-        block = self.coriolis.prepare(block)
-        block = self.grad_ke.prepare(block)
-        block = self.adv_vert.prepare(block)
-        block = self.pgf.prepare(block)
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.coriolis.prepare_block(block)
+        block = self.grad_ke.prepare_block(block)
+        block = self.adv_vert.prepare_block(block)
+        block = self.pgf.prepare_block(block)
         return block
 
     def init_coriolis(self) -> NCT:
@@ -577,3 +616,103 @@ class ExNormalMomentumEqu4UGRID(
             raise TypeError(
                 f"The factory {factory} is not a subclass of PressureGradientForceTermProtocol."
             )
+
+
+class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
+    AbstractBaroclinicSpaceOperators[DM, PSO],
+    Generic[
+        DMFS,
+        DMFT, VAT,
+        NCT, GKE, VAM, PGF,
+        DM, PSO,
+    ],
+):
+
+    def __init__(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+        self.dmgsdt = self.init_continuity_equation(
+            disc=disc,
+            method=method,
+        )
+        self.dptdt = self.init_thermodynamic_equation(
+            disc=disc,
+            method=method,
+        )
+        self.dundt = self.init_momentum_equation(
+            disc=disc,
+            method=method,
+        )
+
+    def init_continuity_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> ExContinuityEqu[DMFS, DM,]:
+        return ExContinuityEqu(
+            disc=disc,
+            method=method,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+
+    def init_thermodynamic_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> ExThermodynamicEqu[DMFT, VAT, DM,
+                            ]:
+        return ExThermodynamicEqu(
+            disc=disc,
+            method=method,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+
+    def init_momentum_equation(
+        self,
+        disc: disc_types.DiscretizationInfo,
+        method: DM,
+    ) -> ExNormalMomentumEqu4UGRID[NCT, GKE, VAM, PGF, DM]:
+        return ExNormalMomentumEqu4UGRID(
+            disc=disc,
+            method=method,
+            hydrostatic=self.hydrostatic,
+            nonhydrostatic=self.nonhydrostatic,
+            ideal_dry_core=self.ideal_dry_core,
+            advection=self.advection
+        )
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self.prepare.build_default()
+            self.dmgsdt.build_default()
+            self.dptdt.build_default()
+            self.dundt.build_default()
+            self._built = True
+        return self
+
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.prepare.prepare_block(block)
+        block = self.dmgsdt.prepare_block(block)
+        block = self.dptdt.prepare_block(block)
+        block = self.dundt.prepare_block(block)
+        return block

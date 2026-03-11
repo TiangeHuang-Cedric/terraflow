@@ -13,7 +13,7 @@ from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import (
-    AbstractEquationSetAuxiliaryTerms,
+    AbstractEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
 )
@@ -36,7 +36,7 @@ CoordSys = CoordinateSystem[
     VLO
 ]
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractEquationOperator[FiniteVolumeMethod]
 
 
 class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
@@ -162,7 +162,7 @@ class TriSKCoriolisForceAtEdge(Term):
             replace=res
         )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         coord = block.coord
         return eqx.tree_at(
             lambda b: b.equaux.coriolis.trisk,

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from loguru import logger
 import time
 import jax
@@ -39,8 +41,9 @@ equation = tf.dynamics.DryHydrostaticEquation.from_model(
     ode_kind="explicit",
 )
 
-equation.aux.dmg.recon_at_edge.central_difference()
-equation.aux.pv.interp.upwind(3)
+equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
+equation.space_operators.prepare.pv.interp.upwind(3)
+equation.space_operators.dptdt.adv_vert.adv_scheme.upwind(0)
 
 equation.build_default()
 
@@ -48,11 +51,11 @@ block = equation.build_block_from_testcase(
     coord=coord, para=para, case=testcase
 )
 
-block = equation.prepare(block)
+block = equation.prepare_block(block)
 
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="0001-01-01T00:00:00",
-    end_time="0001-01-01T00:05:00",
+    end_time="0001-01-01T02:00:00",
     save_interval="300 seconds",
     dt_dyn="300 seconds",
 )
@@ -71,6 +74,7 @@ solver = tf.solver.ExRungeKutta3Solver(
     time_manager=time_manager,
     dev=dev,
     forward_backward=False,
+    with_jit=False,
 )
 
 integrate_fn = solver.io_callback(history=history)

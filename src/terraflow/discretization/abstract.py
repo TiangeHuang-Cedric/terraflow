@@ -52,7 +52,8 @@ VM = TypeVar("VM", bound=AbstractVertCoordinate)
 HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
-ESAUX = TypeVar("ESAUX", bound="AbstractEquationSetAuxiliaryTerms")
+PSO = TypeVar("PSO", bound="AbstractPrepareSpaceOperators")
+SOP = TypeVar("SOP", bound="AbstractSpaceOperators")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
 FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
@@ -206,7 +207,7 @@ class AbstractEquationBase(Generic[DM], ABC):
         self.advection = advection
 
     @abstractmethod
-    def prepare(self, *args, **kwargs) -> Any:
+    def prepare_block(self, *args, **kwargs) -> Any:
         raise NotImplementedError
 
     @abstractmethod
@@ -379,7 +380,70 @@ class AbstractThermodynamicEquForm(AbstractEquationForm[DM], ABC):
     pass
 
 
-class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
+class AbstractEquationTermAuxiliaryData(eqx.Module, ABC):
+    _init: bool
+
+    def has_initialized(self) -> bool:
+        return self._init
+
+    @classmethod
+    @abstractmethod
+    def empty(cls) -> Self:
+        raise NotImplementedError
+
+
+class AbstractEquationTermAuxiliaryDataset(eqx.Module, ABC):
+    @classmethod
+    @abstractmethod
+    def empty(cls) -> Self:
+        raise NotImplementedError
+
+
+class AbstractEquationOperator(
+    AbstractEquationBase[DM],
+    Generic[DM],
+    ABC
+):
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: DM,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+
+    def disc_info(self) -> Dict[str, str]:
+        return {
+            "planet": self._disc.planet,
+            "component": self._disc.component,
+            "equset": self._disc.equset,
+            "form": self._disc.form,
+            "equ": self._disc.equ,
+            "ode_kind": self._disc.ode_kind,
+            "method": self._disc.method,
+            "layout": self._disc.layout,
+            "horizontal_mesh": self._disc.horizontal_mesh,
+            "vertical_coordinate": self._disc.vertical_coordinate,
+        }
+
+
+class AbstractPrepareSpaceOperators(
+    AbstractEquationBase[DM],
+    Generic[DM],
+    ABC
+):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -410,7 +474,6 @@ class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
             "component": self._disc.component,
             "equset": self._disc.equset,
             "form": self._disc.form,
-            "equ": self._disc.equ,
             "ode_kind": self._disc.ode_kind,
             "method": self._disc.method,
             "layout": self._disc.layout,
@@ -419,12 +482,80 @@ class AbstractEquationSetAuxiliaryTerms(AbstractEquationBase[DM]):
         }
 
 
+class AbstractSpaceOperators(
+    AbstractEquationBase[DM],
+    Generic[DM, PSO],
+    ABC
+):
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: DM,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+        self._table = "equaux"
+        factory = self.navi2prepare_ops()
+        operators_prepare: PSO = factory(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection,
+        )
+        self._operators_prepare = operators_prepare
+
+    @abstractmethod
+    def __call__(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        raise NotImplementedError
+
+    @property
+    def prepare(self) -> PSO:
+        return self._operators_prepare
+
+    def disc_info(self) -> Dict[str, str]:
+        return {
+            "planet": self._disc.planet,
+            "component": self._disc.component,
+            "equset": self._disc.equset,
+            "form": self._disc.form,
+            "ode_kind": self._disc.ode_kind,
+            "method": self._disc.method,
+            "layout": self._disc.layout,
+            "horizontal_mesh": self._disc.horizontal_mesh,
+            "vertical_coordinate": self._disc.vertical_coordinate,
+        }
+
+    def navi2prepare_ops(self) -> Callable:
+        """Navigate to the prepare space operators configuration in the equaux table."""
+        id_col = "unique_id"
+        disc = self.disc_id()
+        choice = "prepare_space_operators"
+        id_val = disc + "::" + choice
+        return navigate("equaux", id_col=id_col, id_val=id_val)[0]
+
+
 class AbstractEquationSet(
     AbstractEquationBase[DM],
     AbstractODE,
-    Generic[DM, ESAUX],
+    Generic[DM, SOP],
     ABC
 ):
+    _space_operators: SOP
 
     def __init__(
         self,
@@ -446,17 +577,6 @@ class AbstractEquationSet(
             advection=advection
         )
         self._table = "equset"
-        factory = self.navi2aux()
-        aux: ESAUX = factory(
-            disc=disc,
-            method=method,
-            baroclinic=baroclinic,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection,
-        )
-        self._aux = aux
 
     @staticmethod
     @abstractmethod
@@ -488,8 +608,8 @@ class AbstractEquationSet(
         raise NotImplementedError
 
     @property
-    def aux(self) -> ESAUX:
-        return self._aux
+    def space_operators(self) -> SOP:
+        return self._space_operators
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -504,11 +624,11 @@ class AbstractEquationSet(
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
 
-    def navi2aux(self) -> Callable:
-        """Navigate to the auxiliary terms configuration in the equaux table."""
+    def navi2space_ops(self) -> Callable:
+        """Navigate to the space operators configuration in the equaux table."""
         id_col = "unique_id"
         disc = self.disc_id()
-        choice = "auxiliary_terms"
+        choice = "space_operators"
         id_val = disc + "::" + choice
         return navigate("equaux", id_col=id_col, id_val=id_val)[0]
 
@@ -1106,25 +1226,6 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
         return cls(variables=variables)
 
 
-class AbstractEquationTermAuxiliaryData(eqx.Module, ABC):
-    _init: bool
-
-    def has_initialized(self) -> bool:
-        return self._init
-
-    @classmethod
-    @abstractmethod
-    def empty(cls) -> Self:
-        raise NotImplementedError
-
-
-class AbstractEquationTermAuxiliaryDataset(eqx.Module, ABC):
-    @classmethod
-    @abstractmethod
-    def empty(cls) -> Self:
-        raise NotImplementedError
-
-
 class AbstractBlock(
     ABC,
     eqx.Module,
@@ -1135,7 +1236,7 @@ class AbstractBlock(
     nonhydrostatic: bool = eqx.field(static=True)
     ideal_dry_core: bool = eqx.field(static=True)
     advection: bool = eqx.field(static=True)
-    coord: CoordinateSystem[HM, VM, HLO, VLO]
+    _coord: CoordinateSystem[HM, VM, HLO, VLO]
     para: PlanetParameterSet
     state: STATE
     tend: TEND
@@ -1162,6 +1263,10 @@ class AbstractBlock(
     @abstractmethod
     def reset(self) -> Self:
         raise NotImplementedError
+
+    @property
+    def coord(self) -> CoordinateSystem[HM, VM, HLO, VLO]:
+        return self._coord
 
     def diagnose(self) -> Self:
         return self

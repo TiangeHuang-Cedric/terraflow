@@ -24,13 +24,7 @@ from terraflow.discretization.abstract import (
 )
 import terraflow.discretization.fvm.odm.trisk.dynamics_types as vars
 from terraflow.discretization.fvm.odm.trisk.adv.batch import AdvBatchType
-from terraflow.discretization.fvm.odm.trisk.single_lev.term import (
-    TendencyOfDivergenceOfMassFlux,
-    NonlinearCoriolisTermAtDualEdge,
-    GradientOfKineticEnergyAtDualEdge,
-    PressureGradientForceAtDualEdge
-)
-from terraflow.discretization.fvm.odm.trisk.single_lev.aux import AuxiliaryTerms
+from terraflow.discretization.fvm.odm.trisk.single_lev.term import ExSpaceOperators
 
 Array = typing.Array
 
@@ -44,12 +38,8 @@ Coordsys = CoordinateSystem[
 
 
 Equation = ExVifShallowWaterEquationSet4UGRID[
-    TendencyOfDivergenceOfMassFlux,
-    NonlinearCoriolisTermAtDualEdge,
-    GradientOfKineticEnergyAtDualEdge,
-    PressureGradientForceAtDualEdge,
-    AuxiliaryTerms,
     FiniteVolumeMethod,
+    ExSpaceOperators,
 ]
 
 
@@ -162,7 +152,7 @@ class DiagnosticsTools(
             nonhydrostatic=self.equation.nonhydrostatic,
             ideal_dry_core=self.equation.ideal_dry_core,
             advection=self.equation.advection,
-            coord=coord,
+            _coord=coord,
             para=para,
             state=state,
             static=static,
@@ -172,10 +162,11 @@ class DiagnosticsTools(
             equaux=equaux
         )
         if self.jit:
-            explicit_terms_jit = jax.jit(self.equation.explicit_terms)
-            block = explicit_terms_jit(block)
+            space_operators_jit = jax.jit(self.equation.space_operators)
+            block = space_operators_jit(block)
         else:
-            block = self.equation.explicit_terms(block)
+            space_operators = self.equation.space_operators
+            block = space_operators(block)
         state = block.state
         static = block.static
         tend = block.tend

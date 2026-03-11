@@ -4,7 +4,7 @@ from typing import Self, TYPE_CHECKING
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.fvm.odm.trisk import coriolis
 from terraflow.discretization.abstract import (
-    AbstractEquationSetAuxiliaryTerms,
+    AbstractEquationOperator,
     DiscretizationInfo,
 )
 
@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
 
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractEquationOperator[FiniteVolumeMethod]
 
 
 class CoriolisForceAtEdge(Term):
@@ -56,8 +56,8 @@ class CoriolisForceAtEdge(Term):
         self._built = True
         return self.scheme
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def build_default(self) -> Self:
         if not self._built:

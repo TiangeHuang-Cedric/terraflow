@@ -103,8 +103,8 @@ class FluxReconstructAtEdgeOnPrimalMesh:
             aux=aux
         )
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def central_difference(self) -> "CentralDifference2AtEdgeOnPrimalMesh":
         self.scheme_name = "central_difference"
@@ -178,8 +178,8 @@ class FluxReconstructAtEdgeOnDualMesh:
             aux=aux
         )
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
     def central_difference(self) -> "CentralDifference2AtEdgeOnDualMesh":
         self.scheme_name = "central_difference"
@@ -260,7 +260,7 @@ class CentralDifference2AtEdgeOnPrimalMesh:
             out_axes=0
         )(x_at_primal_cell, coord.mesh.dual.edge.endpoints)
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -284,7 +284,7 @@ class CentralDifference2AtEdgeOnDualMesh:
             out_axes=0
         )(x_at_dual_cell, coord.mesh.primal.edge.endpoints)
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -316,7 +316,7 @@ class AbstractWRF34AtEdgeOnPrimalMesh:
             self.beta
         )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         if not block.equaux.adv.edd2nd.has_initialized():
             edd2nd = FluxReconstructAuxiliaryData.from_coord(
                 block.coord, "primal", 2
@@ -377,7 +377,7 @@ class AbstractWRF56AtEdgeOnPrimalMesh:
             self.beta
         )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         if not block.equaux.adv.edd2nd.has_initialized():
             edd2nd = FluxReconstructAuxiliaryData.from_coord(
                 block.coord, "primal", 2
@@ -450,7 +450,7 @@ class AbstractWRF34AtEdgeOnDualMesh:
             self.beta
         )
 
-    def prepare(
+    def prepare_block(
         self,
         block: Block,
     ) -> Block:
@@ -515,7 +515,7 @@ class AbstractWRF56AtEdgeOnDualMesh:
             self.beta
         )
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         if not block.equaux.adv.edp2nd.has_initialized():
             edp2nd = FluxReconstructAuxiliaryData.from_coord(
                 block.coord, "dual", 2, use_mbs=self.use_mbs

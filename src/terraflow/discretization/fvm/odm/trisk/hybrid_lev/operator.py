@@ -1,3 +1,4 @@
+from typing import Self, Callable
 import equinox as eqx
 import jax.numpy as jnp
 
@@ -11,9 +12,9 @@ from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-from terraflow.discretization.abstract import AbstractEquationSetAuxiliaryTerms
+from terraflow.discretization.abstract import AbstractPrepareSpaceOperators
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,

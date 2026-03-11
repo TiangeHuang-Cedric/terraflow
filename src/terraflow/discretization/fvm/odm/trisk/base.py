@@ -15,7 +15,7 @@ from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayou
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.abstract import (
-    AbstractEquationSetAuxiliaryTerms,
+    AbstractEquationOperator,
     DiscretizationInfo
 )
 
@@ -41,51 +41,7 @@ CoordSys = CoordinateSystem[
 ]
 
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
-
-
-class DivergenceOfMassFluxAtCell(AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]):
-
-    def __init__(
-        self,
-        disc: DiscretizationInfo,
-        method: FiniteVolumeMethod,
-        baroclinic: bool,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
-    ):
-        super().__init__(
-            disc=disc,
-            method=method,
-            baroclinic=baroclinic,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
-        )
-
-    def __call__(self, block: Block) -> Block:
-        mfn = block.aux.mfn.unwrap()
-        dmf = op.div_at_primal_cell(
-            x_at_edge=mfn,
-            coord=block.coord,
-            para=block.para
-        )
-        return eqx.tree_at(
-            lambda b: b.aux.dmf.data,
-            block,
-            replace=dmf
-        )
-
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self._built = True
-        return self
-
-    def prepare(self, block: Block) -> Block:
-        return block
+Term = AbstractEquationOperator[FiniteVolumeMethod]
 
 
 class RelativeVorticityAtDualCell(Term):
@@ -130,7 +86,7 @@ class RelativeVorticityAtDualCell(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -171,7 +127,51 @@ class MassFlux(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
+        return block
+
+
+class DivergenceOfMassFluxAtCell(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
+        baroclinic: bool,
+        hydrostatic: bool,
+        nonhydrostatic: bool,
+        ideal_dry_core: bool,
+        advection: bool
+    ):
+        super().__init__(
+            disc=disc,
+            method=method,
+            baroclinic=baroclinic,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection
+        )
+
+    def __call__(self, block: Block) -> Block:
+        mfn = block.aux.mfn.unwrap()
+        dmf = op.div_at_primal_cell(
+            x_at_edge=mfn,
+            coord=block.coord,
+            para=block.para
+        )
+        return eqx.tree_at(
+            lambda b: b.aux.dmf.data,
+            block,
+            replace=dmf
+        )
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -216,8 +216,8 @@ class InterpPotentialVorticityMidpoint(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
-        return self.recon_scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.recon_scheme.prepare_block(block)
 
 
 class InterpPotentialVorticityUpwind(Term):
@@ -284,9 +284,9 @@ class InterpPotentialVorticityUpwind(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
-        block = self.central_difference_scheme.prepare(block)
-        return self.recon_scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        block = self.central_difference_scheme.prepare_block(block)
+        return self.recon_scheme.prepare_block(block)
 
 
 class InterpPotentialVorticityPureUpwind(Term):
@@ -345,8 +345,8 @@ class InterpPotentialVorticityPureUpwind(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
-        return self.recon_scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.recon_scheme.prepare_block(block)
 
 
 class InterpPotentialVorticityAtDualEdge(Term):
@@ -423,8 +423,8 @@ class InterpPotentialVorticityAtDualEdge(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
-        return self.adv_scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.adv_scheme.prepare_block(block)
 
 
 class PotentialVorticity(Term):
@@ -480,8 +480,8 @@ class PotentialVorticity(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
-        return self.interp.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.interp.prepare_block(block)
 
 
 class Ringler2010KineticEnergyAtPrimalCell(Term):
@@ -524,7 +524,7 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -587,7 +587,7 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
             self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -653,5 +653,5 @@ class KineticEnergyAtPrimalCell(Term):
             self.gassmann_2013()
         return self
 
-    def prepare(self, block: Block) -> Block:
-        return self.scheme.prepare(block)
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)

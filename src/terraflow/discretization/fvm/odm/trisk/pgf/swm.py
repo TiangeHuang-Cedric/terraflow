@@ -9,7 +9,7 @@ from terraflow.mesh.orthogonal_dual_mesh import operator as mesh_op
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.discretization.abstract import (
     DiscretizationInfo,
-    AbstractEquationSetAuxiliaryTerms,
+    AbstractPrepareSpaceOperators,
 )
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
@@ -32,7 +32,7 @@ CoordSys = CoordinateSystem[
     OneLayerVertCoordLayout
 ]
 
-Term = AbstractEquationSetAuxiliaryTerms[FiniteVolumeMethod]
+Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 
 
 class PressureGradientForce(Term):
@@ -71,5 +71,5 @@ class PressureGradientForce(Term):
         self._built = True
         return self
 
-    def prepare(self, block: Block) -> Block:
+    def prepare_block(self, block: Block) -> Block:
         return block

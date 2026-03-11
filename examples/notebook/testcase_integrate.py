@@ -33,9 +33,9 @@ dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
 mesh = tf.mesh.OrthogonalDualMesh.from_grist(
-    grist_0d_file=grist_0d_file, 
-    grist_2d_file=grist_2d_file, 
-    n_dual=3, 
+    grist_0d_file=grist_0d_file,
+    grist_2d_file=grist_2d_file,
+    n_dual=3,
     dev=dev
 )
 
@@ -67,8 +67,8 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.aux.dmg.recon_at_edge.central_difference()
-equation.aux.pv.interp.pure_upwind(3)
+equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
+equation.space_operators.prepare.pv.interp.pure_upwind(3)
 
 # %%
 equation.build_default()
@@ -77,7 +77,7 @@ equation.build_default()
 block = equation.build_block_from_testcase(
     coord=coord, para=para, case=testcase)
 
-block = equation.prepare(block)
+block = equation.prepare_block(block)
 
 # %%
 time_manager = tf.util.datetime.DateTimeManager(
