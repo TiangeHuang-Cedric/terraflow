@@ -1,5 +1,4 @@
 from __future__ import annotations
-from re import I
 from typing import (
     TYPE_CHECKING,
     Optional,
@@ -1699,9 +1698,10 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
     This mesh type is registered in the catalog with alias 'odm' through
     the registration system in terraflow.manager.plugins.mesh.registrations.
     """
-    n_polg: IntType
-    n_dual: IntType
-    n_edge: IntType
+    glevel: str = eqx.field(static=True)
+    n_polg: IntType = eqx.field(static=True)
+    n_dual: IntType = eqx.field(static=True)
+    n_edge: IntType = eqx.field(static=True)
     _plg: PrimalCell
     _dua: DualCell
     _edp: PrimalEdge
@@ -1760,6 +1760,7 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
         grist = GristRefMesh.from_netcdf(
             grist_0d_file, grist_2d_file, n_dual=n_dual, dev=dev
         )
+        glevel = "g" + str(int(grist.meta.glevel))
         n_polg = int(grist.shape["nv"])
         n_dual = int(grist.shape["nt"])
         n_edge = int(grist.shape["ne"])
@@ -1769,7 +1770,7 @@ class OrthogonalDualMesh(AbstractUnstructuredMesh):
         edd = DualEdge.from_grist(grist)
         aux = AuxiliaryData.from_elements(plg, dua, edp, edd)
         logger.success("Initialized OrthogonalDualMesh from Grist mesh.")
-        return cls(dev, n_polg, n_dual, n_edge, plg, dua, edp, edd, aux)
+        return cls(dev, glevel, n_polg, n_dual, n_edge, plg, dua, edp, edd, aux)
 
     def reconstruct_vector(
         self,

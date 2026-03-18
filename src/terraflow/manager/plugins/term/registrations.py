@@ -22,21 +22,21 @@ def register(model: Catalog) -> None:
         belong_key,
         group="nonlinear_coriolis",
         alias="builder",
-        factory=term.NonlinearCoriolisTermAtDualEdge
+        factory=term.TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge
     )
 
     model.equterm.register(
         belong_key,
         group="grad_of_geopotential",
         alias="builder",
-        factory=term.PressureGradientForceAtDualEdge
+        factory=term.TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge
     )
 
     model.equterm.register(
         belong_key,
         group="grad_of_kinetic_energy",
         alias="builder",
-        factory=term.GradientOfKineticEnergyAtDualEdge
+        factory=term.TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge
     )
 
     belong_key = "earth::atm::swe::vif::continuity_equ::explicit::fvm::triskC::odm::1level"

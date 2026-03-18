@@ -461,6 +461,21 @@ class Field(eqx.Module, Generic[FDT, FMT]):
                 "data must be either a JAX-like array or an unxt.AbstractQuantity"
             )
 
+    def zeros_like(self) -> Self:
+        """Return a new AbstractField with the same shape and metadata but filled with zeros."""
+        if isinstance(self.data, Array):
+            zero_data = jnp.zeros_like(self.data)
+            return self._wrap(zero_data)
+        elif isinstance(self.data, ux.AbstractQuantity):
+            zero_array = jnp.zeros_like(jnp.asarray(self.data.value))
+            zero_quantity = ux.Quantity(
+                zero_array, self.data.unit)  # type: ignore
+            return self._wrap(zero_quantity)
+        else:
+            raise TypeError(
+                "data must be either a JAX-like array or an unxt.AbstractQuantity"
+            )
+
     @overload
     @classmethod
     def empty(

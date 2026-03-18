@@ -23,7 +23,7 @@ from terraflow.discretization.abstract import (
     AbstractDiagnosticTools,
 )
 import terraflow.discretization.fvm.odm.trisk.dynamics_types as vars
-from terraflow.discretization.fvm.odm.trisk.adv.batch import AdvBatchType
+from terraflow.discretization.fvm.odm.trisk.common.adv.batch import AdvBatchType
 from terraflow.discretization.fvm.odm.trisk.single_lev.term import ExSpaceOperators
 
 Array = typing.Array
@@ -147,27 +147,48 @@ class DiagnosticsTools(
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
         block = vars.Block(
-            baroclinic=self.equation.baroclinic,
-            hydrostatic=self.equation.hydrostatic,
-            nonhydrostatic=self.equation.nonhydrostatic,
-            ideal_dry_core=self.equation.ideal_dry_core,
-            advection=self.equation.advection,
+            mode=self.equation.mode,
             _coord=coord,
             para=para,
-            state=state,
+            old=0,
+            new=1,
+            state=[state] * 3,
             static=static,
             tend=vars.Tendency.from_coord(coord=coord, equation=self.equation),
             aux=vars.Auxiliary.from_coord(coord=coord, equation=self.equation),
-            adv_batch_pt=AdvBatchType.empty(coord=coord),
+            adv_batch_pt=AdvBatchType.empty(mode=self.equation.mode),
             equaux=equaux
         )
         if self.jit:
-            space_operators_jit = jax.jit(self.equation.space_operators)
-            block = space_operators_jit(block)
+            space_operators_jit = jax.jit(
+                self.equation.space_operators,
+                static_argnames=(
+                    "old_idx",
+                    "star_idx",
+                    "new_idx",
+                    "pass_tag",
+                    "explicit",
+                ),
+            )
+            block = space_operators_jit(
+                block,
+                old_idx=0,
+                star_idx=0,
+                new_idx=1,
+                pass_tag="all_pass",
+                explicit=True
+            )
         else:
             space_operators = self.equation.space_operators
-            block = space_operators(block)
-        state = block.state
+            block = space_operators(
+                block,
+                old_idx=0,
+                star_idx=0,
+                new_idx=1,
+                pass_tag="all_pass",
+                explicit=True
+            )
+        state = block.get_state(0)
         static = block.static
         tend = block.tend
         aux = block.aux
@@ -207,13 +228,13 @@ class DiagnosticsTools(
             coord=coord, field=aux.ke, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dmg"] = self.process_field(
-            coord=coord, field=aux.dmg, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord, field=state.dmg, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dmg_e"] = self.process_field(
-            coord=coord, field=aux.dmg_e, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord, field=state.dmg_e, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dmg_vtx"] = self.process_field(
-            coord=coord, field=aux.dmg_vtx, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord, field=state.dmg_vtx, to_ugrid=to_ugrid, use_dual=use_dual
         )
         diag_vars["dmf"] = self.process_field(
             coord=coord, field=aux.dmf, to_ugrid=to_ugrid, use_dual=use_dual

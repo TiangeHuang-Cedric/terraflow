@@ -112,14 +112,14 @@ class PlanetParameter(eqx.Module):
 
         # Extract numeric value and store as plain float
         if create_with_unit:
-            if isinstance(value, ux.Quantity):
+            if isinstance(value, ux.AbstractQuantity):
                 self.data = value.to(unit)
             else:
                 value_arr = jnp.asarray(value)
                 self.data = ux.Quantity(value_arr, unit)  # type: ignore
         else:
-            if isinstance(value, ux.Quantity):
-                self.data = value.value
+            if isinstance(value, ux.AbstractQuantity):
+                self.data = jnp.asarray(value.value)
             else:
                 self.data = jnp.asarray(value)
 
@@ -145,7 +145,7 @@ class PlanetParameter(eqx.Module):
     def unwrap(self) -> Array:
         """Return the raw value without unit."""
         if isinstance(self.data, ux.AbstractQuantity):
-            return self.data.value
+            return jnp.asarray(self.data.value)
         return self.data
 
     def to(self, unit: str) -> Self:
@@ -191,7 +191,7 @@ class PlanetParameter(eqx.Module):
     def to_value(self) -> Self:
         """Convert the parameter value to its raw float representation."""
         if isinstance(self.data, ux.AbstractQuantity):
-            self.data = self.data.value
+            self.data = jnp.asarray(self.data.value)
         return self
 
     def to_quantity(self) -> Self:

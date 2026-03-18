@@ -2,7 +2,7 @@ from typing import Self
 
 from terraflow.util import typing
 from terraflow.discretization.abstract import AbstractEquationTermAuxiliaryDataset
-from terraflow.discretization.fvm.odm.trisk.adv.flux_reconstruct import FluxReconstructAuxiliaryData
+from terraflow.discretization.fvm.odm.trisk.common.adv.flux_reconstruct import FluxReconstructAuxiliaryData
 
 Float = typing.Float
 Array = typing.Array

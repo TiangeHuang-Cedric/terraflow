@@ -198,6 +198,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def output(
         self,
         block: AbstractBlock,
+        itime: int,
         save_idx: int,
         first_call: bool = False
     ) -> None:
@@ -217,8 +218,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         jax.experimental.io_callback(
             self.advance_forward_in_time,
             None,
-            save_idx,
             block,
+            itime,
+            save_idx,
             first_call,
             ordered=True
         )
@@ -233,8 +235,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def advance_forward_in_time(
         self,
-        save_interval_idx: int,
         block: AbstractBlock,
+        itime: int,
+        save_interval_idx: int,
         first_call: bool = False
     ) -> None:
 
@@ -247,25 +250,33 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             ds.close()
         if self.output_h0:
             _set_time_var(self.h0)
-            self.write_h0(block, first_call=first_call)
+            self.write_h0(block, itime=itime, first_call=first_call)
             self.log_done_write("h0")
         if self.output_h1:
             _set_time_var(self.h1)
-            self.write_h1(block)
+            self.write_h1(block, itime=itime)
             self.log_done_write("h1")
         if self.output_h2:
             _set_time_var(self.h2)
-            self.write_h2(block)
+            self.write_h2(block, itime=itime)
             self.log_done_write("h2")
         return None
 
     def setup_h0(self, block: AbstractBlock) -> None:
         if self.output_h0:
-            self.h0.setup([block.state, block.static, block.aux])
+            self.h0.setup([block.state[0], block.static, block.aux])
 
     def setup_h1(self, block: AbstractBlock) -> None:
         if self.output_h1:
-            self.h1.setup([block.state, block.static, block.tend, block.aux])
+            self.h1.setup(
+                [
+                    block.state[0],
+                    block.static,
+                    block.tend,
+                    block.aux,
+                    block.adv_batch_pt
+                ]
+            )
 
     def setup_h2(self, block: AbstractBlock) -> None:
         if self.output_h2:
@@ -274,17 +285,19 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 h2_list = h2_list + [block.state, block.static, block.aux]
             if self.output_h0 and self.output_h1:
                 h2_list = h2_list + [
-                    block.state,
+                    block.state[0],
                     block.tend,
                     block.static,
-                    block.aux
+                    block.aux,
+                    block.adv_batch_pt
                 ]
             if not self.output_h0 and self.output_h1:
                 h2_list = h2_list + [
-                    block.state,
+                    block.state[0],
                     block.tend,
                     block.static,
-                    block.aux
+                    block.aux,
+                    block.adv_batch_pt
                 ]
             if not self.output_h0 and not self.output_h1:
                 h2_list = []
@@ -295,33 +308,36 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                     "output_h0 and output_h1 are both False, cannot setup h2."
                 )
 
-    def write_h0(self, block: AbstractBlock, first_call: bool = False):
+    def write_h0(self, block: AbstractBlock, itime: int, first_call: bool = False):
         if first_call:
             self.h0.write_fields(block.static)
-        self.h0.write_fields(block.state)
+        self.h0.write_fields(block.get_state(itime))
         self.h0.write_fields(block.aux)
 
-    def write_h1(self, block: AbstractBlock):
-        self.h1.write_fields(block.state)
+    def write_h1(self, block: AbstractBlock, itime: int):
+        self.h1.write_fields(block.get_state(itime))
         self.h1.write_fields(block.tend)
         self.h1.write_fields(block.static)
         self.h1.write_fields(block.aux)
+        self.h1.write_fields(block.adv_batch_pt)
 
-    def write_h2(self, block: AbstractBlock):
+    def write_h2(self, block: AbstractBlock, itime: int):
         if self.output_h0 and not self.output_h1:
-            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.get_state(itime))
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
         if self.output_h0 and self.output_h1:
-            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.get_state(itime))
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
+            self.h2.write_fields(block.adv_batch_pt)
         if not self.output_h0 and self.output_h1:
-            self.h2.write_fields(block.state)
+            self.h2.write_fields(block.get_state(itime))
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
+            self.h2.write_fields(block.adv_batch_pt)
         if not self.output_h0 and not self.output_h1:
             raise ValueError(
                 "output_h0 and output_h1 are both False, cannot write h2."
@@ -471,9 +487,9 @@ class AbstractHistory(ABC):
                 continue
             data = np.asarray(field.unwrap(), dtype=self.float_type)
             if field.meta.is_static:
-                ds.variables[field_name][...] = data
+                ds.variables[field.meta.name][...] = data
             else:
-                ds.variables[field_name][idx, ...] = data
+                ds.variables[field.meta.name][idx, ...] = data
         ds.close()
         return None
 
@@ -563,7 +579,7 @@ class UGRIDHistory(AbstractHistory):
             var_dims = tuple(str(dim) for dim in dsxr.dims)
             if not field.meta.is_static:
                 var_dims = tuple(("time",) + var_dims)
-            v = ds.createVariable(field_name, var_dtype, var_dims)
+            v = ds.createVariable(field.meta.name, var_dtype, var_dims)
             v.mesh = dsxr.attrs.get("mesh", "")
             v.location = dsxr.attrs.get("location", "")
             v.coordinates = dsxr.attrs.get("coordinates", "")
@@ -648,13 +664,13 @@ class UnstructuredHistory(AbstractHistory):
     def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         var_dtype = self.nc_float_type
-        for field_name, field in fields.items():
+        for _, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
             var_dims = field.meta.dims
             if not field.meta.is_static:
                 var_dims = tuple(("time",) + field.meta.dims)
-            v = ds.createVariable(field_name, var_dtype, var_dims)
+            v = ds.createVariable(field.meta.name, var_dtype, var_dims)
             v.hori_location = field.meta.hori_location
             v.vert_location = field.meta.vert_location
             v.coordinates = field.meta.coordinates

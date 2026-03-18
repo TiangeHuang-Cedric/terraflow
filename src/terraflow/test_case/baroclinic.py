@@ -3,7 +3,7 @@ from jax import numpy as jnp
 import jax
 import equinox as eqx
 
-from terraflow.util import typing, math
+from terraflow.util import typing, math, formula
 from terraflow.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractTestCase
 
@@ -32,7 +32,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
-    def init_mgs(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
         """Initialize dry mass field at surface.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -41,7 +41,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Dry mass surface initialization is not implemented."
         )
 
-    def init_gzs(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_gzs(self, lon: Array, lat: Array) -> Array:
         """Initialize geopotential surface field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -86,6 +86,15 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Temperature initialization is not implemented."
         )
 
+    def init_pt(self, lon: Array, lat: Array, eta: Array, p: Array) -> Array:
+        """Initialize potential temperature field.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Potential temperature initialization is not implemented."
+        )
+
 
 class SteadyStateTestCase(BaroclinicEquationTestCase):
     alpha: float = eqx.field(default=0.0)
@@ -101,7 +110,13 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
         self.name = "Steady State"
         self.description = "Steady state test case for baroclinic dynamics."
         self.references = (
-            "Adapted from Jablonowski and Williamson (2006) baroclinic wave test case.",
+            "Jablonowski, C. & Williamson, D. L. "
+            "A baroclinic instability test case for atmospheric model dynamical cores. "
+            "Quarterly Journal of the Royal Meteorological Society 132, 2943–2975 (2006).",
+
+            "Jablonowski, C., Lauritzen, P., Nair, R. & Taylor, M. "
+            "Idealized test cases for the dynamical cores of Atmospheric General Circulation Models: "
+            "A proposal for the NCAR ASP 2008 summer colloquium."
         )
         self.keywords = ("baroclinic", "steady state", "atmosphere")
         self.alpha = 0.0
@@ -111,9 +126,9 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
         self.dt = 4.8e5  # K
         self.eta0 = 0.252
         self.etat = 0.2  # Tropopause level
-        logger.success("Initialized steady state test case.")
+        logger.success("Initialized baroclinic steady state test case.")
 
-    def init_mgs(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
         """Initialize dry mass field for steady state test case."""
         return jnp.ones_like(lon) * 1.0e5
 
@@ -188,7 +203,7 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
 
         return jax.vmap(_wrap, in_axes=0, out_axes=0)(eta)
 
-    def init_gzs(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_gzs(self, lon: Array, lat: Array) -> Array:
         """Initialize geopotential surface field for steady state test case."""
         radius = self.para.radius.unwrap()
         omega = self.para.omega.unwrap()
@@ -200,4 +215,92 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
             * self.u0 * jnp.cos(etav) ** 1.5
             + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - jnp.pi / 4)
             * radius * omega
+        )
+
+
+class MountainWaveTestCase(BaroclinicEquationTestCase):
+    """Baroclinic wave test case with a mountain perturbation."""
+    T0: float = eqx.field(default=288.0)  # K
+    h0: float = eqx.field(default=2000.0)  # m
+    d: float = eqx.field(default=1.5e6)  # m
+    u0: float = eqx.field(default=20.0)  # m s-1
+    lonc: float = eqx.field(default=jnp.pi / 2.0)  # rad
+    latc: float = eqx.field(default=jnp.pi / 6.0)  # rad
+    kap: float = eqx.field(default=2.0 / 7.0)
+    psp: float = eqx.field(default=93000.0)  # Pa
+    N: float = eqx.field(default=0.0182)  # s-1
+
+    def __init__(self, para: PlanetParameterSet):
+        self._para = para
+        self.name = "Mountain Wave"
+        self.description = "Baroclinic wave test case with a mountain perturbation."
+        self.references = (
+            "Jablonowski, C., Lauritzen, P., Nair, R. & Taylor, M. "
+            "Idealized test cases for the dynamical cores of Atmospheric General Circulation Models: "
+            "A proposal for the NCAR ASP 2008 summer colloquium.",
+        )
+        self.keywords = ("baroclinic", "mountain wave", "atmosphere")
+        self.T0 = 288.0  # K
+        self.h0 = 2000.0  # m
+        self.d = 1.5e6
+        self.u0 = 20.0  # m s-1
+        self.lonc = jnp.pi / 2.0
+        self.latc = jnp.pi / 6.0
+        self.kap = 2.0 / 7.0
+        self.psp = 93000.0  # Pa
+        self.N = 0.0182  # s-1
+        logger.success("Initialized baroclinic mountain wave test case.")
+
+    def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize zonal (u) velocity component for mountain wave test case."""
+        cos_lat = jnp.cos(lat)
+        res = jnp.expand_dims(self.u0 * cos_lat, axis=0)
+        return jnp.tile(res, (eta.shape[0], 1))
+
+    def init_v(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize meridional (v) velocity component for mountain wave test case."""
+        dtype = lon.dtype
+        return jnp.zeros((eta.shape[0], lat.shape[0]), dtype=dtype)
+
+    def init_gzs(self, lon: Array, lat: Array) -> Array:
+        """Initialize geopotential field for mountain wave test case."""
+        d = self.d
+        h0 = self.h0
+        latc = self.latc
+        lonc = self.lonc
+        radius = self.para.radius.unwrap()
+        g = self.para.gravity.unwrap()
+        sin_lat = jnp.sin(lat)
+        cos_lat = jnp.cos(lat)
+        r = radius * jnp.acos(
+            jnp.sin(latc) * sin_lat
+            + jnp.cos(latc) * cos_lat * jnp.cos(lon - lonc)
+        )
+        return g * h0 * jnp.exp(-(r / d)**2)
+
+    def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
+        """Initialize dry mass field for mountain wave test case."""
+        sin_lat = jnp.sin(lat)
+        radius = self.para.radius.unwrap()
+        omega = self.para.omega.unwrap()
+        g = self.para.gravity.unwrap()
+        u0 = self.u0
+        psp = self.psp
+        N = self.N
+        kap = self.kap
+        return psp * jnp.exp(
+            (
+                -0.5 * radius * N**2 * u0 / g**2 / kap
+                * (u0 / radius + 2.0 * omega)
+            )
+            * (sin_lat**2 - 1.0)
+            - N**2 / g**2 / kap * gzs
+        )
+
+    def init_pt(self, lon: Array, lat: Array, eta: Array, p: Array) -> Array:
+        """Initialize potential temperature field for mountain wave test case."""
+        return formula.dry_potential_temperature(
+            t=jnp.array(288.0, dtype=lon.dtype),
+            p=p,
+            para=self.para,
         )

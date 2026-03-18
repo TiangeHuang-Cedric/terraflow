@@ -21,7 +21,7 @@ mesh = tf.mesh.OrthogonalDualMesh.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.cam_l32(dev=dev)
+vert = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
@@ -31,7 +31,7 @@ para = tf.planet.PlanetParameterSet.from_si(
 
 method = tf.operator.FiniteVolumeMethod()
 
-testcase = tf.test_case.baroclinic.SteadyStateTestCase(para)
+testcase = tf.test_case.baroclinic.MountainWaveTestCase(para)
 
 equation = tf.dynamics.DryHydrostaticEquation.from_model(
     coord=coord,
@@ -41,9 +41,8 @@ equation = tf.dynamics.DryHydrostaticEquation.from_model(
     ode_kind="explicit",
 )
 
-equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
 equation.space_operators.prepare.pv.interp.upwind(3)
-equation.space_operators.dptdt.adv_vert.adv_scheme.upwind(0)
+equation.space_operators.dptdt.adv_vert.adv_scheme.upwind(3)
 
 equation.build_default()
 
@@ -63,7 +62,7 @@ time_manager = tf.util.datetime.DateTimeManager(
 history = tf.util.history.UnstructuredHistoryset(
     coord=coord,
     time_manager=time_manager,
-    case_name="terraflow",
+    case_name="terraflow" + "." + mesh.glevel,
     output_h1=True,
     output_h2=False,
     dev=dev,
@@ -73,8 +72,6 @@ solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     dev=dev,
-    forward_backward=False,
-    with_jit=False,
 )
 
 integrate_fn = solver.io_callback(history=history)

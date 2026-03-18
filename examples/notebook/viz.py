@@ -85,7 +85,7 @@ block = equation.prepare_block(block)
 # ## Plot using easygems
 
 # %%
-gz = xr.DataArray(np.array(block.state.gz.unwrap()).squeeze())
+gz = xr.DataArray(np.array(block.state[0].gz.unwrap()).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
@@ -104,7 +104,7 @@ display(img)
 # ### Convert data and mesh into UGRID Format and pack it into uxarray
 
 # %%
-ugrid_ds = block.state.to_ugrid(coord, use_dual=False)
+ugrid_ds = block.state[0].to_ugrid(coord, use_dual=False)
 
 ugrid_ds.uxds
 

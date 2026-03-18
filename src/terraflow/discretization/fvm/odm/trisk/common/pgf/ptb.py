@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, TypeVar, Self
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -10,8 +10,9 @@ from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operator as mesh_op
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.discretization.abstract import (
+    AbstractEquationMode,
+    AbstractEquationOperator,
     DiscretizationInfo,
-    AbstractPrepareSpaceOperators,
     AbstractEquationTermAuxiliaryData
 )
 from terraflow.layout.abstract import CoordinateSystem
@@ -20,7 +21,7 @@ from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayou
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.odm.trisk.hybrid_lev.dry.hdc.dynamics_types import Block
+    from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block, State
 
 Float = typing.Float
 
@@ -35,7 +36,9 @@ CoordSys = CoordinateSystem[
     HybridVertCoordLayout
 ]
 
-Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
+EM = TypeVar("EM", bound=AbstractEquationMode)
+
+Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
 
 
 class RefProfileData(AbstractEquationTermAuxiliaryData):
@@ -86,13 +89,16 @@ class RefProfileData(AbstractEquationTermAuxiliaryData):
         c = -1.0385
         ps0 = 1013.0  # hPa
         rd = para.rd.unwrap()
-        nlevp = coord.vert.nlev + 1
-        ref_ps_lev = jnp.tile(ref_ps, (nlevp, 1))  # in hPa
-        p = coord.vert.calc_mg_lev(ref_ps) / 100.0
+        # =============================
+        # For half lev
+        p_lev = coord.vert.calc_mg_lev(ref_ps) / 100.0
         gz_lev = -rd * (
-            a * (p - ps0)
-            + b / (1 + c) * (p**(1 + c) - ps0**(1 + c))
+            a * (p_lev - ps0)
+            + b / (1 + c) * (p_lev**(1 + c) - ps0**(1 + c))
         )
+        mg_lev = p_lev * 100.0
+        # =============================
+        # For full lev
         p = coord.vert.calc_mg(ref_ps) / 100.0
         t = p * (a + b * p**c)
         mg = p * 100.0
@@ -105,12 +111,13 @@ class RefProfileData(AbstractEquationTermAuxiliaryData):
             t=t,
             p=mg,
             para=para
-        ) * (ref_ps_lev[1:, :] - ref_ps_lev[:-1, :])
+        ) * (mg_lev[1:, :] - mg_lev[:-1, :])
         dmgdn = mesh_op.grad_at_dual_edge(
             x_at_primal_cell=mg,
             coord=coord,
             para=para
         )
+        # =============================
         return cls(
             mg=mg,
             gz=gz,
@@ -121,37 +128,27 @@ class RefProfileData(AbstractEquationTermAuxiliaryData):
         )
 
 
-class PerturbationPressureGradientForce(Term):
+class PerturbationPressureGradientForce(Operator):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        baroclinic: bool,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: AbstractEquationMode,
     ):
-        super().__init__(
-            disc=disc,
-            method=method,
-            baroclinic=baroclinic,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
-        )
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block) -> Block:
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
         mesh = block.coord.mesh
-        edd_v = mesh.dual.edge.dual_cells  # (nedge, 2)
+        edd_v = mesh.dual.edge.endpoints  # (nedge, 2)
+        cell_1 = edd_v[:, 0]
+        cell_2 = edd_v[:, 1]
         pro = block.equaux.pgf.pro
-        dmg = block.aux.dmg.unwrap()
-        p = block.state.p.unwrap()
-        p_lev = block.state.p_lev.unwrap()
+        dmg = star_state.dmg.unwrap()
+        p = star_state.p.unwrap()
+        p_lev = star_state.p_lev.unwrap()
+        gz = star_state.gz.unwrap()
         rhod = block.aux.rhod.unwrap()
-        gz = block.state.gz.unwrap()
 
         # perturbation quantities
         p_ptb = p - pro.mg
@@ -161,8 +158,9 @@ class PerturbationPressureGradientForce(Term):
 
         # compute pgf tendency
         # TODO: For ideal dry core, need to add mixing ratio effect
-        tmp1 = pro.dmgdn * 0.5 * jnp.sum(ad_ptb[:, edd_v], axis=-1)
-        tmp2 = 0.5 * jnp.sum(1.0 / rhod[:, edd_v], axis=-1)
+        L = 1
+        tmp1 = pro.dmgdn * 0.5 * (ad_ptb[:, cell_1] + ad_ptb[:, cell_2])
+        tmp2 = 0.5 * (1.0 / rhod[:, cell_1] + 1.0 / rhod[:, cell_2])
         tmp2 = tmp2 * mesh_op.grad_at_dual_edge(
             x_at_primal_cell=p_ptb,
             coord=block.coord,
@@ -173,17 +171,21 @@ class PerturbationPressureGradientForce(Term):
             coord=block.coord,
             para=block.para
         )
-        tmp4 = 0.5 * jnp.sum(dp_ptb[:, edd_v] / dmg[:, edd_v], axis=-1)
+        tmp4 = 0.5 * (
+            dp_ptb[:, cell_1] / dmg[:, cell_1] +
+            dp_ptb[:, cell_2] / dmg[:, cell_2]
+        )
         tmp4 = tmp4 * mesh_op.grad_at_dual_edge(
             x_at_primal_cell=gz,
             coord=block.coord,
             para=block.para
         )
-        return eqx.tree_at(
+        block = eqx.tree_at(
             lambda b: b.tend.dundt_pgf.data,
             block,
-            - (tmp1 + tmp2 + tmp3 + tmp4)
+            - (tmp1 + tmp2 + tmp3 + tmp4) / L
         )
+        return block, star_state
 
     def prepare_block(self, block: Block) -> Block:
         pro = RefProfileData.from_coord(

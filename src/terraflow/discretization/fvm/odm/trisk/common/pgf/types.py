@@ -1,6 +1,6 @@
 from typing import Self
 from terraflow.discretization.abstract import AbstractEquationTermAuxiliaryDataset
-from terraflow.discretization.fvm.odm.trisk.pgf.ptb import RefProfileData
+from terraflow.discretization.fvm.odm.trisk.common.pgf.ptb import RefProfileData
 
 
 class PressureGradientForceDataset(AbstractEquationTermAuxiliaryDataset):

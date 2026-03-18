@@ -13,13 +13,14 @@ from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import (
+    AbstractEquationMode,
     AbstractEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
 )
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.odm.trisk.base import Block, Block
+    from terraflow.discretization.fvm.odm.trisk.base import Block, State
 
 Int = typing.Int
 Float = typing.Float
@@ -27,6 +28,7 @@ Array = typing.Array
 
 VM = TypeVar("VM", bound=AbstractVertCoordinate)
 VLO = TypeVar("VLO", bound=AbstractLayout)
+EM = TypeVar("EM", bound=AbstractEquationMode)
 
 
 CoordSys = CoordinateSystem[
@@ -36,7 +38,7 @@ CoordSys = CoordinateSystem[
     VLO
 ]
 
-Term = AbstractEquationOperator[FiniteVolumeMethod]
+Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
 
 
 class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
@@ -76,29 +78,17 @@ class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
         )
 
 
-class TriSKCoriolisForceAtEdge(Term):
+class TriSKCoriolisForceAtEdge(Operator):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        baroclinic: bool,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: AbstractEquationMode
     ):
-        super().__init__(
-            disc=disc,
-            method=method,
-            baroclinic=baroclinic,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
-        )
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block) -> Block:
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
         """Compute nonlinear Coriolis term at dual edges."""
         coord = block.coord
         coriolis = block.equaux.coriolis.trisk
@@ -126,19 +116,21 @@ class TriSKCoriolisForceAtEdge(Term):
             mfx_tile = mfx_tile * pv_eep
             return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
 
-        res = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
+        coriolis = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
             mfn_e, pv_e
         )
-        return eqx.tree_at(
+        block = eqx.tree_at(
             lambda b: b.aux.coriolis.data,
             block,
-            replace=res
+            replace=coriolis
         )
+        return block, star_state
 
     def recon_ut(
         self,
-        block: Block
-    ) -> Block:
+        block: Block,
+        star_state: State
+    ) -> tuple[Block, State]:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
         coord = block.coord
         coriolis = block.equaux.coriolis.trisk
@@ -146,7 +138,7 @@ class TriSKCoriolisForceAtEdge(Term):
         ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
         weight = coriolis.edp_trsk_on_edge
         lenp = coriolis.edp_edpl_on_edge
-        un = block.state.un.unwrap()
+        un = star_state.un.unwrap()
 
         def _wrap(
             un: Float[Array, "nEdge"],
@@ -155,12 +147,13 @@ class TriSKCoriolisForceAtEdge(Term):
             wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
             return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
 
-        res = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
-        return eqx.tree_at(
+        ut = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
+        block = eqx.tree_at(
             lambda b: b.aux.ut.data,
             block,
-            replace=res
+            replace=ut
         )
+        return block, star_state
 
     def prepare_block(self, block: Block) -> Block:
         coord = block.coord

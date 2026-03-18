@@ -104,7 +104,7 @@ final = jax.block_until_ready(final)
 # %%
 # %matplotlib inline
 
-_, da = final.state.gz.to_ugrid(coord=coord).to_structured_grid(
+_, da = final.state[final.new].gz.to_ugrid(coord=coord).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",

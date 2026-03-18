@@ -20,7 +20,7 @@ from terraflow.discretization.abstract import AbstractEquationTermAuxiliaryData
 
 if TYPE_CHECKING:
     from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
-    from terraflow.discretization.fvm.odm.trisk.adv.types import AdvectionAuxiliaryDataset
+    from terraflow.discretization.fvm.odm.trisk.common.adv.types import AdvectionAuxiliaryDataset
 
 Int = typing.Int
 Float = typing.Float

@@ -1,7 +1,7 @@
 from terraflow.discretization.abstract import (
     AbstractEquationTermAuxiliaryDataset
 )
-from terraflow.discretization.fvm.odm.trisk.coriolis.trisk import TriSKCoriolisForceAtEdgeData
+from terraflow.discretization.fvm.odm.trisk.common.coriolis.trisk import TriSKCoriolisForceAtEdgeData
 
 
 class CoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryDataset):

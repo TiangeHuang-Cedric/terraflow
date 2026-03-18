@@ -1155,14 +1155,25 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         self.hybm = hybm
         self.full_lev = full_lev
         self.half_lev = half_lev
+        # =========================================================
+        # full dlev
         full_dlev = self.half_lev[1:] - self.half_lev[:-1]
+        # =========================================================
+        # half dlev
         half_dlev = jnp.zeros_like(self.half_lev)
+        # =========================================
+        # k = 1
         tmp = self.full_lev[0] - self.half_lev[0]
         half_dlev = half_dlev.at[0].set(tmp)
-        tmp = self.half_lev[1:-1]-self.half_lev[:-2]
+        # =========================================
+        # k = 2, ..., nlev
+        tmp = self.full_lev[1:]-self.full_lev[:-1]
         half_dlev = half_dlev.at[1:-1].set(tmp)
+        # =========================================
+        # k = nlev + 1
         tmp = self.half_lev[-1] - self.full_lev[-1]
         half_dlev = half_dlev.at[-1].set(tmp)
+        # =========================================================
         self.full_dlev = full_dlev
         self.half_dlev = half_dlev
 

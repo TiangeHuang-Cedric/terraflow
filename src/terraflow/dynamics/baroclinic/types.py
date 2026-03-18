@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Self
+from typing import TypeVar, Generic, Self, Any
 import inspect
-import equinox as eqx
 
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -17,41 +16,56 @@ HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=AbstractDiscretizationMethod)
 BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
+STATE = TypeVar("STATE", bound=disc_types.AbstractFields)
 PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
 SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
+BEM = TypeVar("BEM", bound="AbstractBaroclinicEquationMode")
+HEM = TypeVar("HEM", bound="AbstractHydrostaticEquationMode")
+
+
+class AbstractBaroclinicEquationMode(
+    disc_types.AbstractEquationMode,
+    ABC
+):
+    def __init__(
+        self,
+        hydrostatic: bool = False,
+        nonhydrostatic: bool = False,
+        ideal_dry_core: bool = False,
+        advection: bool = False,
+        **kwargs
+    ):
+        super().__init__(
+            baroclinic=True,
+            hydrostatic=hydrostatic,
+            nonhydrostatic=nonhydrostatic,
+            ideal_dry_core=ideal_dry_core,
+            advection=advection,
+            **kwargs
+        )
 
 
 class AbstractBaroclinicEquationSet(
-    disc_types.AbstractEquationSet[DM, SOP],
-    Generic[DM, SOP],
+    disc_types.AbstractEquationSet[DM, BEM, SOP],
+    Generic[DM, BEM, SOP],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM,
     ):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=True,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
         factory = self.navi2space_ops()
         space_operators: SOP = factory(
             disc=disc,
             method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection,
+            mode=mode
         )
         self._space_operators = space_operators
 
@@ -61,24 +75,35 @@ class AbstractBaroclinicEquationSet(
         raise NotImplementedError
 
 
+class AbstractHydrostaticEquationMode(
+    AbstractBaroclinicEquationMode,
+    ABC
+):
+    def __init__(self, ideal_dry_core: bool = False, **kwargs):
+        super().__init__(
+            hydrostatic=True,
+            nonhydrostatic=False,
+            ideal_dry_core=ideal_dry_core,
+            advection=False,
+            **kwargs
+        )
+
+
 class AbstractHydrostaticEquationSet(
-    AbstractBaroclinicEquationSet[DM, SOP],
-    Generic[DM, SOP],
+    AbstractBaroclinicEquationSet[DM, HEM, SOP],
+    Generic[DM, HEM, SOP],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        ideal_dry_core: bool,
+        mode: HEM,
     ):
         super().__init__(
             disc=disc,
             method=method,
-            hydrostatic=True,
-            nonhydrostatic=False,
-            ideal_dry_core=ideal_dry_core,
-            advection=False
+            mode=mode
         )
 
     @staticmethod
@@ -87,17 +112,28 @@ class AbstractHydrostaticEquationSet(
         raise NotImplementedError
 
 
+class DryHydrostaticEquationMode(
+    AbstractHydrostaticEquationMode,
+    ABC
+):
+    def __init__(self, **kwargs):
+        super().__init__(ideal_dry_core=True, **kwargs)
+
+
 class AbstractDryHydrostaticEquationSet(
-    AbstractHydrostaticEquationSet[DM, SOP],
+    AbstractHydrostaticEquationSet[DM, DryHydrostaticEquationMode, SOP],
     Generic[DM, SOP],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
-        method: DM
+        method: DM,
+        **kwargs
     ):
-        super().__init__(disc=disc, method=method, ideal_dry_core=True)
+        super().__init__(
+            disc=disc, method=method, mode=DryHydrostaticEquationMode(**kwargs)
+        )
 
     @staticmethod
     @abstractmethod
@@ -106,77 +142,56 @@ class AbstractDryHydrostaticEquationSet(
 
 
 class AbstractBaroclinicEquationTerm(
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=True,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
 
 
 class AbstractBaroclinicEquationForm(
-    disc_types.AbstractEquationForm[DM],
-    Generic[DM],
+    disc_types.AbstractEquationForm[DM, BEM],
+    Generic[DM, BEM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=True,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
 
 
 class AbstractBaroclinicSpaceOperators(
-    disc_types.AbstractSpaceOperators[DM, PSO],
-    Generic[DM, PSO],
+    disc_types.AbstractSpaceOperators[DM, BEM, PSO],
+    Generic[DM, BEM, PSO],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=True,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
 
     @abstractmethod
@@ -205,9 +220,9 @@ class AbstractBaroclinicSpaceOperators(
 
 
 class DivergenceOfMassFluxAtSurfaceProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -216,9 +231,9 @@ DMFS = TypeVar("DMFS", bound=DivergenceOfMassFluxAtSurfaceProtocol)
 
 
 class DivergenceOfThermodynamicMassFluxProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -227,9 +242,9 @@ DMFT = TypeVar("DMFT", bound=DivergenceOfThermodynamicMassFluxProtocol)
 
 
 class VerticalAdvectionOfThermodynamicTermProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -238,9 +253,9 @@ VAT = TypeVar("VAT", bound=VerticalAdvectionOfThermodynamicTermProtocol)
 
 
 class NonlinearCoriolisTermProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -249,9 +264,9 @@ NCT = TypeVar("NCT", bound=NonlinearCoriolisTermProtocol)
 
 
 class GradientOfKineticEnergyProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -260,9 +275,9 @@ GKE = TypeVar("GKE", bound=GradientOfKineticEnergyProtocol)
 
 
 class VerticalAdvectionOfMomentumTermProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -271,9 +286,9 @@ VAM = TypeVar("VAM", bound=VerticalAdvectionOfMomentumTermProtocol)
 
 
 class PressureGradientForceTermProtocol(
-    AbstractBaroclinicEquationTerm[DM],
-    disc_types.AbstractEquationTerm[DM],
-    Generic[DM]
+    AbstractBaroclinicEquationTerm[DM, BEM],
+    disc_types.AbstractEquationTerm[DM, BEM],
+    Generic[DM, BEM]
 ):
     pass
 
@@ -282,9 +297,9 @@ PGF = TypeVar("PGF", bound=PressureGradientForceTermProtocol)
 
 
 class ExContinuityEqu(
-    AbstractBaroclinicEquationForm[DM],
-    disc_types.AbstractContinuityEquForm[DM],
-    Generic[DMFS, DM],
+    AbstractBaroclinicEquationForm[DM, BEM],
+    disc_types.AbstractContinuityEquForm[DM, BEM],
+    Generic[DMFS, DM, BEM],
     ABC
 ):
     div_mfs: DMFS
@@ -293,28 +308,18 @@ class ExContinuityEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ):
         super().__init__(
             disc=disc,
             method=method,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
         self.div_mfs = self.init_div_mfs()
 
-    def __call__(self, block: BLOCK) -> BLOCK:
-        block = self.div_mfs(block)
-        return eqx.tree_at(
-            lambda b: b.tend.dmgsdt.data,
-            block,
-            replace=self.div_mfs.unwrap(block).unwrap()
-        )
+    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
+        block, star_state = self.div_mfs(block, star_state)
+        return block, star_state
 
     @staticmethod
     def alias_name() -> str:
@@ -344,10 +349,7 @@ class ExContinuityEqu(
             instance = factory(
                 disc=self._disc,
                 method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
+                mode=self.mode
             )
             return instance  # type: ignore[return-value]
         else:
@@ -357,9 +359,9 @@ class ExContinuityEqu(
 
 
 class ExThermodynamicEqu(
-    AbstractBaroclinicEquationForm[DM],
-    disc_types.AbstractThermodynamicEquForm[DM],
-    Generic[DMFT, VAT, DM],
+    AbstractBaroclinicEquationForm[DM, BEM],
+    disc_types.AbstractThermodynamicEquForm[DM, BEM],
+    Generic[DMFT, VAT, DM, BEM],
     ABC
 ):
     div_mft: DMFT
@@ -369,33 +371,20 @@ class ExThermodynamicEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ) -> None:
         super().__init__(
             disc=disc,
             method=method,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
         self.div_mft = self.init_div_mft()
         self.adv_vert = self.init_adv_vert()
 
-    def __call__(self, block: BLOCK) -> BLOCK:
-        block = self.div_mft(block)
-        block = self.adv_vert(block)
-        return eqx.tree_at(
-            lambda b: b.tend.dptdt.data,
-            block,
-            replace=(
-                self.div_mft.unwrap(block).unwrap()
-                + self.adv_vert.unwrap(block).unwrap()
-            )
-        )
+    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
+        block, star_state = self.div_mft(block, star_state)
+        block, star_state = self.adv_vert(block, star_state)
+        return block, star_state
 
     @staticmethod
     def alias_name() -> str:
@@ -427,10 +416,7 @@ class ExThermodynamicEqu(
             instance = factory(
                 disc=self._disc,
                 method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
+                mode=self.mode
             )
             return instance  # type: ignore[return-value]
         else:
@@ -448,10 +434,7 @@ class ExThermodynamicEqu(
             instance = factory(
                 disc=self._disc,
                 method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
+                mode=self.mode
             )
             return instance  # type: ignore[return-value]
         else:
@@ -461,9 +444,9 @@ class ExThermodynamicEqu(
 
 
 class ExNormalMomentumEqu4UGRID(
-    AbstractBaroclinicEquationForm[DM],
-    disc_types.AbstractMomentumEquForm[DM],
-    Generic[NCT, GKE, VAM, PGF, DM],
+    AbstractBaroclinicEquationForm[DM, BEM],
+    disc_types.AbstractMomentumEquForm[DM, BEM],
+    Generic[NCT, GKE, VAM, PGF, DM, BEM],
     ABC
 ):
     coriolis: NCT
@@ -475,39 +458,24 @@ class ExNormalMomentumEqu4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ) -> None:
         super().__init__(
             disc=disc,
             method=method,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
         self.coriolis = self.init_coriolis()
         self.grad_ke = self.init_grad_ke()
         self.adv_vert = self.init_vertical_advection()
         self.pgf = self.init_pgf()
 
-    def __call__(self, block: BLOCK) -> BLOCK:
-        block = self.coriolis(block)
-        block = self.grad_ke(block)
-        block = self.adv_vert(block)
-        block = self.pgf(block)
-        return eqx.tree_at(
-            lambda b: b.tend.dundt.data,
-            block,
-            replace=(
-                self.coriolis.unwrap(block).unwrap()
-                + self.grad_ke.unwrap(block).unwrap()
-                + self.adv_vert.unwrap(block).unwrap()
-                + self.pgf.unwrap(block).unwrap()
-            )
-        )
+    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
+        block, star_state = self.coriolis(block, star_state)
+        block, star_state = self.grad_ke(block, star_state)
+        block, star_state = self.adv_vert(block, star_state)
+        block, star_state = self.pgf(block, star_state)
+        return block, star_state
 
     @staticmethod
     def alias_name() -> str:
@@ -541,12 +509,7 @@ class ExNormalMomentumEqu4UGRID(
         origin = getattr(factory, '__origin__', factory)
         if inspect.isclass(origin) and issubclass(origin, NonlinearCoriolisTermProtocol):
             instance = factory(
-                disc=self._disc,
-                method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
+                disc=self._disc, method=self.method, mode=self.mode
             )
             return instance  # type: ignore[return-value]
         else:
@@ -562,13 +525,7 @@ class ExNormalMomentumEqu4UGRID(
         origin = getattr(factory, '__origin__', factory)
         if inspect.isclass(origin) and issubclass(origin, GradientOfKineticEnergyProtocol):
             instance = factory(
-                disc=self._disc,
-                method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
-            )
+                disc=self._disc, method=self.method, mode=self.mode)
             return instance  # type: ignore[return-value]
         else:
             raise TypeError(
@@ -583,13 +540,7 @@ class ExNormalMomentumEqu4UGRID(
         origin = getattr(factory, '__origin__', factory)
         if inspect.isclass(origin) and issubclass(origin, VerticalAdvectionOfMomentumTermProtocol):
             instance = factory(
-                disc=self._disc,
-                method=self.method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
-            )
+                disc=self._disc, method=self.method, mode=self.mode)
             return instance  # type: ignore[return-value]
         else:
             raise TypeError(
@@ -604,13 +555,7 @@ class ExNormalMomentumEqu4UGRID(
         origin = getattr(factory, '__origin__', factory)
         if inspect.isclass(origin) and issubclass(origin, PressureGradientForceTermProtocol):
             instance = factory(
-                disc=self._disc,
-                method=self._method,
-                hydrostatic=self.hydrostatic,
-                nonhydrostatic=self.nonhydrostatic,
-                ideal_dry_core=self.ideal_dry_core,
-                advection=self.advection
-            )
+                disc=self._disc, method=self._method, mode=self.mode)
             return instance  # type: ignore[return-value]
         else:
             raise TypeError(
@@ -619,12 +564,12 @@ class ExNormalMomentumEqu4UGRID(
 
 
 class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
-    AbstractBaroclinicSpaceOperators[DM, PSO],
+    AbstractBaroclinicSpaceOperators[DM, BEM, PSO],
     Generic[
         DMFS,
         DMFT, VAT,
         NCT, GKE, VAM, PGF,
-        DM, PSO,
+        DM, BEM, PSO,
     ],
 ):
 
@@ -632,19 +577,9 @@ class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: BEM
     ):
-        super().__init__(
-            disc=disc,
-            method=method,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
-        )
+        super().__init__(disc=disc, method=method, mode=mode)
         self.dmgsdt = self.init_continuity_equation(
             disc=disc,
             method=method,
@@ -662,44 +597,22 @@ class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-    ) -> ExContinuityEqu[DMFS, DM,]:
-        return ExContinuityEqu(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
+    ) -> ExContinuityEqu[DMFS, DM, BEM]:
+        return ExContinuityEqu(disc=disc, method=method, mode=self.mode)
 
     def init_thermodynamic_equation(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-    ) -> ExThermodynamicEqu[DMFT, VAT, DM,
-                            ]:
-        return ExThermodynamicEqu(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
+    ) -> ExThermodynamicEqu[DMFT, VAT, DM, BEM]:
+        return ExThermodynamicEqu(disc=disc, method=method, mode=self.mode)
 
     def init_momentum_equation(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-    ) -> ExNormalMomentumEqu4UGRID[NCT, GKE, VAM, PGF, DM]:
-        return ExNormalMomentumEqu4UGRID(
-            disc=disc,
-            method=method,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
+    ) -> ExNormalMomentumEqu4UGRID[NCT, GKE, VAM, PGF, DM, BEM]:
+        return ExNormalMomentumEqu4UGRID(disc=disc, method=method, mode=self.mode)
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -710,7 +623,7 @@ class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
             self._built = True
         return self
 
-    def prepare_block(self, block: BLOCK) -> BLOCK:
+    def prepare_block(self, block: Any) -> Any:
         block = self.prepare.prepare_block(block)
         block = self.dmgsdt.prepare_block(block)
         block = self.dptdt.prepare_block(block)

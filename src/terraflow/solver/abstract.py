@@ -8,7 +8,8 @@ from typing import (
     overload,
     Self,
     TYPE_CHECKING,
-    Optional
+    Optional,
+    Any
 )
 from loguru import logger
 import datetime
@@ -33,6 +34,7 @@ Array = typing.Array
 
 
 class AbstractODE(ABC):
+    _space_operators: Any
 
     @abstractmethod
     def build_default(self) -> Self:
@@ -69,10 +71,11 @@ def repeated(
     if steps == 1:
         return fn
 
-    def f_repeated(x_initial: typing.PyTree) -> typing.PyTree:
+    def f_repeated(x_initial: AbstractBlock) -> AbstractBlock:
 
         def g(old_x, _):
-            new_x, _ = fn(old_x)
+            new_x: AbstractBlock = fn(old_x)
+            new_x = new_x.swap_time_indices()
             return (new_x, None)
 
         new_x_final, _ = scan_fn(
@@ -87,46 +90,18 @@ def repeated(
     return f_repeated
 
 
-def repeated_with_inout(
-    fn: Callable,
-    steps: int,
-    scan_fn: Callable = jax.lax.scan
-) -> Callable:
-    """
-    Returns a version of fn() that is repeatedly applied `steps` times.
-    The returned function returns both the final output and the input
-    from the previous step.
-    """
-    if steps == 1:
-        return fn
-
-    def f_repeated(x_initial: typing.PyTree) -> tuple[typing.PyTree, typing.PyTree]:
-        carry_in = (x_initial, x_initial)
-
-        def g(carry, _):
-            old_block, _ = carry
-            new_block, old_block = fn(old_block)
-            return (new_block, old_block), None
-
-        (new_block, old_block), _ = scan_fn(
-            g, carry_in, xs=None, length=steps
-        )
-
-        return new_block, old_block
-
-    return f_repeated
-
-
 class MultiStepWithHistory:
 
     def __init__(
         self,
+        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
         history: hy.abstract.AbstractHistoryset,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
+        self.operator_prepare_fn = operator_prepare_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
         self.history = history
@@ -136,49 +111,54 @@ class MultiStepWithHistory:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_vars.Block,
+        old_block: fvm_odm_trisk_vars.Block,
     ) -> fvm_odm_trisk_vars.Block:
         ...
 
     @overload
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> AbstractBlock:
         ...
 
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> AbstractBlock:
         self.history.output_prepare(0)
-        new_block, old_block = self.step_fn(block)
-        old_block = old_block.diagnose()
+        new_block: AbstractBlock = self.operator_prepare_fn(old_block)
+        new_block = new_block.diagnose(itime=new_block.old)
         self.history.output(
-            block=old_block,
+            block=new_block,
+            itime=new_block.old,
             save_idx=0,
             first_call=True
         )
-        final, _ = self.outer_scan_fn(
+        new_block: AbstractBlock = self.step_fn(new_block)
+        new_block = new_block.swap_time_indices()
+        final_block: AbstractBlock = self.outer_scan_fn(
             self.inner_step_fn,
             (new_block, 1),
             xs=None,
             length=self.outer_steps
         )[0]
-        return final
+        return final_block
 
 
 class MultiStepWithTrajectory:
 
     def __init__(
         self,
+        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
         outer_steps: int,
         start_with_input: bool = False,
-        post_process_fn: Callable = lambda x: x.state,
+        post_process_fn: Callable = lambda x: x.get_state(x.new),
         outer_scan_fn: Callable = jax.lax.scan,
     ):
+        self.operator_prepare_fn = operator_prepare_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
         self.outer_steps = outer_steps
@@ -189,22 +169,24 @@ class MultiStepWithTrajectory:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_vars.Block,
+        old_block: fvm_odm_trisk_vars.Block,
     ) -> Tuple[fvm_odm_trisk_vars.State, fvm_odm_trisk_vars.State]:
         ...
 
     @overload
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> Tuple[AbstractFields, AbstractFields]:
         ...
 
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> Tuple[AbstractFields, AbstractFields]:
-        new_block, old_block = self.step_fn(block)
+        new_block: AbstractBlock = self.operator_prepare_fn(old_block)
+        new_block: AbstractBlock = self.step_fn(new_block)
+        new_block = new_block.swap_time_indices()
         _, trajectory = self.outer_scan_fn(
             self.inner_step_fn,
             new_block,
@@ -217,7 +199,7 @@ class MultiStepWithTrajectory:
                     [jnp.expand_dims(o, axis=0), t],
                     axis=0
                 ),
-                self.post_process_fn(old_block),
+                old_block.get_state(0),
                 trajectory,
                 is_leaf=lambda x: isinstance(x, Array)
             )
@@ -232,11 +214,13 @@ class MultiStepWithIntegration:
 
     def __init__(
         self,
+        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
+        self.operator_prepare_fn = operator_prepare_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
         self.outer_steps = outer_steps
@@ -245,32 +229,35 @@ class MultiStepWithIntegration:
     @overload
     def __call__(
         self,
-        block: fvm_odm_trisk_vars.Block,
+        old_block: fvm_odm_trisk_vars.Block,
     ) -> fvm_odm_trisk_vars.Block:
         ...
 
     @overload
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> AbstractBlock:
         ...
 
     def __call__(
         self,
-        block: AbstractBlock,
+        old_block: AbstractBlock,
     ) -> AbstractBlock:
-        new_block, _ = self.step_fn(block)
-        _, final_block = self.outer_scan_fn(
+        new_block: AbstractBlock = self.operator_prepare_fn(old_block)
+        new_block: AbstractBlock = self.step_fn(new_block)
+        new_block = new_block.swap_time_indices()
+        final_block: AbstractBlock = self.outer_scan_fn(
             self.inner_step_fn,
-            (new_block, new_block),
+            new_block,
             xs=None,
             length=self.outer_steps
         )[0]
-        return final_block.diagnose()
+        return final_block.diagnose(itime=final_block.new)
 
 
 def io_callback(
+    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
@@ -281,7 +268,7 @@ def io_callback(
     history: hy.abstract.AbstractHistoryset
 ) -> MultiStepWithHistory | pjit.JitWrapped:
     if inner_steps != 1:
-        repeated_step_fn = repeated_with_inout(
+        repeated_step_fn = repeated(
             fn=step_fn,
             steps=inner_steps,
             scan_fn=inner_scan_fn
@@ -292,15 +279,17 @@ def io_callback(
     def inner_step_fn(carry_in, _):
         block, save_idx = carry_in
         history.output_prepare(save_idx)
-        new_block, old_block = repeated_step_fn(block)
-        old_block = old_block.diagnose()
+        block = repeated_step_fn(block)
+        block = block.diagnose(itime=block.new)
         history.output(
-            block=old_block,
+            block=block,
+            itime=block.new,
             save_idx=save_idx
         )
-        return (new_block, save_idx + 1), None
+        return (block, save_idx + 1), None
 
     return_fn = MultiStepWithHistory(
+        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
         history=history,
@@ -315,13 +304,14 @@ def io_callback(
 
 
 def trajectory_from_step(
+    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
     *,
     with_jit: bool = True,
     start_with_input: bool = False,
-    post_process_fn: Callable = lambda x: x.state,
+    post_process_fn: Callable = lambda x: x.get_state(x.new),
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
 ) -> MultiStepWithTrajectory | pjit.JitWrapped:
@@ -346,7 +336,7 @@ def trajectory_from_step(
         (2) trajectory of length `outer_steps` representing time evolution.
     """
     if inner_steps != 1:
-        repeated_step_fn = repeated_with_inout(
+        repeated_step_fn = repeated(
             fn=step_fn,
             steps=inner_steps,
             scan_fn=inner_scan_fn
@@ -355,11 +345,12 @@ def trajectory_from_step(
         repeated_step_fn = step_fn
 
     def inner_step_fn(block, _):
-        new_block, old_block = repeated_step_fn(block)
-        old_block = old_block.diagnose()
-        return new_block, post_process_fn(old_block)
+        block = repeated_step_fn(block)
+        block = block.diagnose(itime=block.new)
+        return block, post_process_fn(block)
 
     return_fn = MultiStepWithTrajectory(
+        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
         outer_steps=outer_steps,
@@ -375,6 +366,7 @@ def trajectory_from_step(
 
 
 def integrate(
+    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
@@ -384,7 +376,7 @@ def integrate(
     inner_scan_fn: Callable = jax.lax.scan,
 ) -> MultiStepWithIntegration | pjit.JitWrapped:
     if inner_steps != 1:
-        repeated_step_fn = repeated_with_inout(
+        repeated_step_fn = repeated(
             fn=step_fn,
             steps=inner_steps,
             scan_fn=inner_scan_fn
@@ -392,12 +384,12 @@ def integrate(
     else:
         repeated_step_fn = step_fn
 
-    def inner_step_fn(carry_in, _):
-        old_block, _ = carry_in
-        new_block, old_block = repeated_step_fn(old_block)
-        return (new_block, old_block), None
+    def inner_step_fn(block, _):
+        block = repeated_step_fn(block)
+        return block, None
 
     return_fn = MultiStepWithIntegration(
+        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
         outer_steps=outer_steps,
@@ -563,6 +555,12 @@ class AbstractSolver(Generic[ODE], ABC):
     def stepper(self, *args, **kwargs) -> Callable:
         raise NotImplementedError
 
+    def update_state_fn(self) -> Callable:
+        return self.equation._space_operators.update_state
+
+    def operator_prepare_fn(self) -> Callable:
+        return self.equation._space_operators.prepare.first_call
+
     def io_callback(
         self,
         history: hy.abstract.AbstractHistoryset,
@@ -595,10 +593,16 @@ class AbstractSolver(Generic[ODE], ABC):
         else:
             stepper = self.stepper()
 
+        if self.with_jit:
+            operator_prepare_fn = jax.jit(self.operator_prepare_fn())
+        else:
+            operator_prepare_fn = self.operator_prepare_fn()
+
         return io_callback(
-            stepper,
-            outer_steps,
-            inner_steps,
+            operator_prepare_fn=operator_prepare_fn,
+            step_fn=stepper,
+            outer_steps=outer_steps,
+            inner_steps=inner_steps,
             with_jit=self.with_jit,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
@@ -609,7 +613,7 @@ class AbstractSolver(Generic[ODE], ABC):
         self,
         *,
         start_with_input: bool = False,
-        post_process_fn: Callable = lambda x: x.state,
+        post_process_fn: Callable = lambda x: x.get_state(x.new),
         outer_scan_fn=jax.lax.scan,
         inner_scan_fn=jax.lax.scan,
     ) -> MultiStepWithTrajectory | pjit.JitWrapped:
@@ -640,8 +644,14 @@ class AbstractSolver(Generic[ODE], ABC):
         else:
             stepper = self.stepper()
 
+        if self.with_jit:
+            operator_prepare_fn = jax.jit(self.operator_prepare_fn())
+        else:
+            operator_prepare_fn = self.operator_prepare_fn()
+
         return trajectory_from_step(
-            stepper,
+            operator_prepare_fn=operator_prepare_fn,
+            step_fn=stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
             with_jit=self.with_jit,
@@ -680,8 +690,14 @@ class AbstractSolver(Generic[ODE], ABC):
         else:
             stepper = self.stepper()
 
+        if self.with_jit:
+            operator_prepare_fn = jax.jit(self.operator_prepare_fn())
+        else:
+            operator_prepare_fn = self.operator_prepare_fn()
+
         return integrate(
-            stepper,
+            operator_prepare_fn=operator_prepare_fn,
+            step_fn=stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
             with_jit=self.with_jit,

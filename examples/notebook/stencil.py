@@ -14,7 +14,7 @@
 # ---
 
 # %%
-from terraflow.discretization.fvm.odm.trisk.adv.flux_reconstruct import (
+from terraflow.discretization.fvm.odm.trisk.common.adv.flux_reconstruct import (
     tr_stencil_member_list_4th_order_mbs
 )
 import cartopy.crs as ccrs

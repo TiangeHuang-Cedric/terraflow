@@ -7,9 +7,8 @@ from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-from terraflow.operator import FiniteVolumeMethod
-from terraflow.discretization.fvm.odm.trisk.adv import upwind, batch, types
-from terraflow.discretization.abstract import AbstractPrepareSpaceOperators
+from terraflow.discretization.fvm.odm.trisk.common.adv import batch
+from terraflow.discretization.fvm.odm.trisk.common.adv import types, upwind
 
 Array = typing.Array
 
@@ -23,9 +22,6 @@ CoordSys = CoordinateSystem[
     TriSKBasedCGridStaggeringLayout,
     HybridVertCoordLayout
 ]
-
-
-Term = AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 
 
 class HorizontalAdvectionScheme:

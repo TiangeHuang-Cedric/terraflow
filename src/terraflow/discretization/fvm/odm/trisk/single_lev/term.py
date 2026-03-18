@@ -16,8 +16,13 @@ from terraflow.discretization.abstract import (
     AbstractPrepareSpaceOperators,
     AbstractEquationOperator
 )
-from terraflow.discretization.fvm.odm.trisk import base, adv, coriolis, pgf
-from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
+from terraflow.discretization.fvm.odm.trisk.common import (
+    adv,
+    coriolis,
+    pgf,
+    operators as common_op
+)
+from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block, State
 from terraflow.dynamics.shallow_water import types
 
 Float = typing.Float
@@ -31,7 +36,12 @@ CoordSys = CoordinateSystem[
 BLOCK = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
 
 
-class FluidThickness(AbstractEquationOperator[FiniteVolumeMethod]):
+class FluidThickness(
+    AbstractEquationOperator[
+        FiniteVolumeMethod,
+        types.ShallowWaterEquationMode
+    ]
+):
 
     def __init__(
         self,
@@ -41,19 +51,15 @@ class FluidThickness(AbstractEquationOperator[FiniteVolumeMethod]):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=False,
-            hydrostatic=False,
-            nonhydrostatic=False,
-            ideal_dry_core=False,
-            advection=False
+            mode=types.ShallowWaterEquationMode()
         )
         self.recon_at_edge = adv.flux_reconstruct.FluxReconstructAtEdgeOnPrimalMesh()
 
-    def __call__(self, block: BLOCK) -> BLOCK:
+    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         coord = block.coord
         g = block.para.gravity.unwrap()
-        un = block.state.un.unwrap()
-        gz = block.state.gz.unwrap()
+        un = star_state.un.unwrap()
+        gz = star_state.gz.unwrap()
         gzs = block.static.gzs.unwrap()
         dmg = (gz - gzs) / g
         dmg_e = self.recon_at_edge(
@@ -66,11 +72,12 @@ class FluidThickness(AbstractEquationOperator[FiniteVolumeMethod]):
             x_at_primal_cell=dmg,
             coord=coord,
         )
-        return eqx.tree_at(
-            lambda b: (b.aux.dmg.data, b.aux.dmg_e.data, b.aux.dmg_vtx.data,),
-            block,
-            replace=(dmg, dmg_e, dmg_vtx)
+        star_state = eqx.tree_at(
+            lambda s: (s.dmg.data, s.dmg_e.data, s.dmg_vtx.data),
+            star_state,
+            (dmg, dmg_e, dmg_vtx)
         )
+        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -89,20 +96,25 @@ class TendencyOfDivergenceOfMassFlux(
     def __init__(
         self,
         disc: DiscretizationInfo,
-        method: FiniteVolumeMethod
+        method: FiniteVolumeMethod,
+        mode: types.ShallowWaterEquationMode
     ):
-        super().__init__(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block) -> Block:
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
         g = block.para.gravity.unwrap()
         dmf = block.aux.dmf.unwrap()
-        return eqx.tree_at(
-            lambda b: b.tend.dgzdt_dmf.data,
+        dgzdt = block.tend.dgzdt.unwrap()
+        dgzdt_dmf = -dmf * g
+        dgzdt = dgzdt + dgzdt_dmf
+        block = eqx.tree_at(
+            lambda b: (b.tend.dgzdt.data, b.tend.dgzdt_dmf.data),
             block,
-            replace=-dmf * g
+            replace=(dgzdt, dgzdt_dmf)
         )
+        return block, star_state
 
-    def build_default(self) -> "TendencyOfDivergenceOfMassFlux":
+    def build_default(self) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -110,30 +122,34 @@ class TendencyOfDivergenceOfMassFlux(
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block) -> Field:
+    def unwrap(self, block: Block, itime: int) -> Field:
         return block.tend.dgzdt_dmf
 
 
-class NonlinearCoriolisTermAtDualEdge(
+class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
     types.NonlinearCoriolisTermProtocol[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        method: FiniteVolumeMethod
+        method: FiniteVolumeMethod,
+        mode: types.ShallowWaterEquationMode
     ):
-        super().__init__(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block) -> Block:
-        coriolis = block.aux.coriolis.unwrap()
-        return eqx.tree_at(
-            lambda b: b.tend.dundt_coriolis.data,
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+        dundt_coriolis = block.aux.coriolis.unwrap()
+        dundt = block.tend.dundt.unwrap()
+        dundt = dundt + dundt_coriolis
+        block = eqx.tree_at(
+            lambda b: (b.tend.dundt.data, b.tend.dundt_coriolis.data),
             block,
-            replace=coriolis
+            replace=(dundt, dundt_coriolis)
         )
+        return block, star_state
 
-    def build_default(self) -> "NonlinearCoriolisTermAtDualEdge":
+    def build_default(self) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -141,61 +157,76 @@ class NonlinearCoriolisTermAtDualEdge(
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block) -> Field:
+    def unwrap(self, block: Block, itime: int) -> Field:
         return block.tend.dundt_coriolis
 
 
-class PressureGradientForceAtDualEdge(
+class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
     types.PressureGradientForceTermProtocol[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        method: FiniteVolumeMethod
+        method: FiniteVolumeMethod,
+        mode: types.ShallowWaterEquationMode
     ):
-        super().__init__(disc=disc, method=method)
-        self.scheme = pgf.swm.PressureGradientForce(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, mode=mode)
+        self.scheme = pgf.swm.PressureGradientForce(
+            disc=disc, method=method)
 
-    def __call__(self, block: Block) -> Block:
-        return self.scheme(block)
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+        block, star_state = self.scheme(block, star_state)
+        dundt = block.tend.dundt.unwrap()
+        dundt_pgf = block.tend.dundt_pgf.unwrap()
+        dundt = dundt + dundt_pgf
+        block = eqx.tree_at(
+            lambda b: (b.tend.dundt.data, b.tend.dundt_pgf.data),
+            block,
+            replace=(dundt, dundt_pgf)
+        )
+        return block, star_state
 
-    def build_default(self) -> "PressureGradientForceAtDualEdge":
+    def build_default(self) -> Self:
         self._built = True
         return self
 
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block) -> Field:
+    def unwrap(self, block: Block, itime: int) -> Field:
         return block.tend.dundt_pgf
 
 
-class GradientOfKineticEnergyAtDualEdge(
+class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     types.GradientOfKineticEnergyProtocol[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
-        method: FiniteVolumeMethod
+        method: FiniteVolumeMethod,
+        mode: types.ShallowWaterEquationMode
     ):
-        super().__init__(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block) -> Block:
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
         ke = block.aux.ke.unwrap()
-        grad_ke = - op.grad_at_dual_edge(
+        dundt = block.tend.dundt.unwrap()
+        dundt_grad_ke = - op.grad_at_dual_edge(
             x_at_primal_cell=ke,
             coord=block.coord,
             para=block.para
         )
-        return eqx.tree_at(
-            lambda b: b.tend.dundt_grad_ke.data,
+        dundt = dundt + dundt_grad_ke
+        block = eqx.tree_at(
+            lambda b: (b.tend.dundt.data, b.tend.dundt_grad_ke.data),
             block,
-            replace=grad_ke
+            replace=(dundt, dundt_grad_ke)
         )
+        return block, star_state
 
-    def build_default(self) -> "GradientOfKineticEnergyAtDualEdge":
+    def build_default(self) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -203,86 +234,89 @@ class GradientOfKineticEnergyAtDualEdge(
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block) -> Field:
+    def unwrap(self, block: Block, itime: int) -> Field:
         return block.tend.dundt_grad_ke
 
 
-class ExPrepareSpaceOperators(AbstractPrepareSpaceOperators[FiniteVolumeMethod]):
+class ExPrepareSpaceOperators(
+    AbstractPrepareSpaceOperators[
+        FiniteVolumeMethod,
+        types.ShallowWaterEquationMode
+    ]
+):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        baroclinic: bool,
-        hydrostatic: bool,
-        nonhydrostatic: bool,
-        ideal_dry_core: bool,
-        advection: bool
+        mode: types.ShallowWaterEquationMode
     ):
         super().__init__(
             disc=disc,
             method=method,
-            baroclinic=baroclinic,
-            hydrostatic=hydrostatic,
-            nonhydrostatic=nonhydrostatic,
-            ideal_dry_core=ideal_dry_core,
-            advection=advection
+            mode=mode
         )
         self.dmg = FluidThickness(disc=disc, method=method)
-        self.mf = base.MassFlux(
-            disc=disc,
-            method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
+        self.mf = common_op.NormalMassFluxAtEdge(
+            disc=disc, method=method, mode=mode
         )
-        self.dmf = base.DivergenceOfMassFluxAtCell(
-            disc=disc,
-            method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
+        self.dmf = common_op.DivergenceOfMassFluxAtCell(
+            disc=disc, method=method, mode=mode
         )
         self.coriolis = coriolis.schemes.CoriolisForceAtEdge(
+            disc=disc, method=method, mode=mode
+        )
+        self.vor = common_op.RelativeVorticityAtDualCell(
+            disc=disc, method=method, mode=mode
+        )
+        self.pv = common_op.PotentialVorticity(
+            disc=disc, method=method, mode=mode
+        )
+        self.ke = common_op.KineticEnergyAtPrimalCell(
             disc=disc,
             method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
+            mode=mode
         )
-        self.vor = base.RelativeVorticityAtDualCell(
-            disc=disc,
-            method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
-        self.pv = base.PotentialVorticity(
-            disc=disc,
-            method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
-        self.ke = base.KineticEnergyAtPrimalCell(
-            disc=disc,
-            method=method,
-            baroclinic=self.baroclinic,
-            hydrostatic=self.hydrostatic,
-            nonhydrostatic=self.nonhydrostatic,
-            ideal_dry_core=self.ideal_dry_core,
-            advection=self.advection
-        )
+
+    def first_call(self, block: BLOCK) -> BLOCK:
+        star_state = block.get_state(0)
+        block, star_state = self.dmg(block, star_state)
+        block, star_state = self.mf(block, star_state)
+        block, star_state = self.dmf(block, star_state)
+        block, star_state = self.coriolis.recon_ut(block, star_state)
+        block, star_state = self.vor(block, star_state)
+        block, star_state = self.pv(block, star_state)
+        block, star_state = self.coriolis(block, star_state)
+        block, star_state = self.ke(block, star_state)
+        block = block.set_state(itime=0, state=star_state)
+        return block
+
+    def __call__(
+        self,
+        block: BLOCK,
+        star_state: State,
+        pass_tag: str,
+        explicit: bool
+    ) -> tuple[BLOCK, State]:
+        if pass_tag == "all_pass":
+            block, star_state = self.mf(block, star_state)
+            block, star_state = self.dmf(block, star_state)
+            block, star_state = self.coriolis.recon_ut(block, star_state)
+            block, star_state = self.vor(block, star_state)
+            block, star_state = self.pv(block, star_state)
+            block, star_state = self.coriolis(block, star_state)
+            block, star_state = self.ke(block, star_state)
+        elif pass_tag == "forward_pass":
+            block, star_state = self.mf(block, star_state)
+            block, star_state = self.dmf(block, star_state)
+            block, star_state = self.coriolis.recon_ut(block, star_state)
+            block, star_state = self.vor(block, star_state)
+            block, star_state = self.pv(block, star_state)
+            block, star_state = self.coriolis(block, star_state)
+            block, star_state = self.ke(block, star_state)
+        elif pass_tag == "backward_pass":
+            pass
+        return block, star_state
 
     def build_default(self) -> "ExPrepareSpaceOperators":
         if not self.has_built():
@@ -297,7 +331,7 @@ class ExPrepareSpaceOperators(AbstractPrepareSpaceOperators[FiniteVolumeMethod])
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
-        block = self.dmg(block)
+        block = self.dmg.prepare_block(block)
         block = self.mf.prepare_block(block)
         block = self.dmf.prepare_block(block)
         block = self.vor.prepare_block(block)
@@ -306,39 +340,13 @@ class ExPrepareSpaceOperators(AbstractPrepareSpaceOperators[FiniteVolumeMethod])
         block = self.ke.prepare_block(block)
         return block
 
-    def __call__(
-        self,
-        block: BLOCK,
-        pass_tag: str = "all_pass",
-        explicit: bool = True
-    ) -> BLOCK:
-        block = self.dmg(block)
-        if pass_tag == "all_pass":
-            block = self.mf(block)
-            block = self.dmf(block)
-            block = self.coriolis.recon_ut(block)
-            block = self.vor(block)
-            block = self.pv(block)
-            block = self.coriolis(block)
-            block = self.ke(block)
-        elif pass_tag == "forward_pass":
-            block = self.mf(block)
-            block = self.dmf(block)
-        elif pass_tag == "backward_pass":
-            block = self.coriolis.recon_ut(block)
-            block = self.vor(block)
-            block = self.pv(block)
-            block = self.coriolis(block)
-            block = self.ke(block)
-        return block
-
 
 class ExSpaceOperators(
     types.ExVifShallowWaterEquationSet4UGRIDSpaceOperators[
         TendencyOfDivergenceOfMassFlux,
-        NonlinearCoriolisTermAtDualEdge,
-        GradientOfKineticEnergyAtDualEdge,
-        PressureGradientForceAtDualEdge,
+        TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge,
+        TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge,
+        TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge,
         FiniteVolumeMethod,
         ExPrepareSpaceOperators
     ]
@@ -347,22 +355,159 @@ class ExSpaceOperators(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
+        mode: types.ShallowWaterEquationMode
     ):
-        super().__init__(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, pass_tag: str = "all_pass", explicit: bool = True) -> BLOCK:
-        block = self.prepare(
-            block=block,
-            pass_tag=pass_tag,
-            explicit=explicit
-        )
+    def __call__(
+        self,
+        block: BLOCK,
+        old_idx: int,
+        star_idx: int,
+        new_idx: int,
+        pass_tag: str,
+        explicit: bool
+    ) -> BLOCK:
+        block = block.reset(pass_tag=pass_tag)
         if pass_tag == "all_pass":
-            block = self.dgzdt(block)
-            block = self.dundt(block)
+            # ==================================================
+            # Get state at star_idx
+            star_state = block.get_state(star_idx)
+            # ==================================================
+            # Prepare state and block for tendency calculation
+            block, star_state = self.prepare(
+                block=block,
+                star_state=star_state,
+                pass_tag=pass_tag,
+                explicit=explicit
+            )
+            # ==================================================
+            # Calculate tendencies
+            block, star_state = self.dgzdt(block, star_state)
+            block, star_state = self.dundt(block, star_state)
+            # ==================================================
+            # Update state at star idx
+            block = block.set_state(itime=star_idx, state=star_state)
+            # ==================================================
         elif pass_tag == "forward_pass":
-            block = self.dgzdt(block)
+            # ==================================================
+            # Get state at star_idx
+            star_state = block.get_state(star_idx)
+            # ==================================================
+            # Prepare state and block for tendency calculation
+            block, star_state = self.prepare(
+                block=block,
+                star_state=star_state,
+                pass_tag=pass_tag,
+                explicit=explicit
+            )
+            # ==================================================
+            # Calculate tendencies
+            block, star_state = self.dgzdt(block, star_state)
+            # ==================================================
+            # Update state at star idx
+            block = block.set_state(itime=star_idx, state=star_state)
+            # ==================================================
         elif pass_tag == "backward_pass":
-            block = self.dundt(block)
+            # ==================================================
+            # Get state at star_idx and new_idx
+            star_state = block.get_state(star_idx)
+            new_state = block.get_state(new_idx)
+            # ==================================================
+            # Prepare state and block for tendency calculation
+            block, new_state = self.prepare(
+                block=block,
+                star_state=new_state,
+                pass_tag=pass_tag,
+                explicit=explicit
+            )
+            # ==================================================
+            # Calculate tendencies
+            block, star_state = self.dundt.grad_ke(block, star_state)
+            block, new_state = self.dundt.pgf(block, new_state)
+            block, star_state = self.dundt.coriolis(block, star_state)
+            # ==================================================
+            # Update state at star idx and new idx
+            block = block.set_state(itime=star_idx, state=star_state)
+            block = block.set_state(itime=new_idx, state=new_state)
+            # ==================================================
         else:
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
         return block
+
+    def _update_gz(
+        self,
+        block: BLOCK,
+        old_state: State,
+        new_state: State,
+        dt: float,
+        pass_tag: str
+    ) -> State:
+        if pass_tag == "all_pass" or pass_tag == "forward_pass":
+            old_gz = old_state.gz.unwrap()
+            dgzdt = block.tend.dgzdt.unwrap()
+            new_gz = old_gz + dgzdt * dt
+            new_state = eqx.tree_at(
+                lambda s: s.gz.data,
+                new_state,
+                new_gz
+            )
+            # Update dmg
+            block, new_state = self.prepare.dmg(block, new_state)
+            return new_state
+        elif pass_tag == "backward_pass":
+            return new_state
+        else:
+            raise ValueError(f"Unknown pass tag: {pass_tag}")
+
+    def _update_un(
+        self,
+        block: BLOCK,
+        old_state: State,
+        new_state: State,
+        dt: float,
+        pass_tag: str
+    ) -> State:
+        if pass_tag == "all_pass" or pass_tag == "backward_pass":
+            old_un = old_state.un.unwrap()
+            dundt = block.tend.dundt.unwrap()
+            new_un = old_un + dundt * dt
+            return eqx.tree_at(
+                lambda s: s.un.data,
+                new_state,
+                new_un
+            )
+        elif pass_tag == "forward_pass":
+            return new_state
+        else:
+            raise ValueError(f"Unknown pass tag: {pass_tag}")
+
+    def update_state(
+        self,
+        block: BLOCK,
+        old_idx: int,
+        new_idx: int,
+        pass_tag: str,
+        dt: float
+    ) -> State:
+        old_state = block.get_state(old_idx)
+        new_state = block.get_state(new_idx)
+        # Update gz
+        new_state = self._update_gz(
+            block=block,
+            old_state=old_state,
+            new_state=new_state,
+            dt=dt,
+            pass_tag=pass_tag
+        )
+        # ================================================
+        # Update un
+        new_state = self._update_un(
+            block=block,
+            old_state=old_state,
+            new_state=new_state,
+            dt=dt,
+            pass_tag=pass_tag
+        )
+        # ================================================
+        return new_state

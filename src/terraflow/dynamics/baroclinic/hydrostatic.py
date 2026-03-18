@@ -51,8 +51,9 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
+        **kwargs
     ):
-        super().__init__(disc=disc, method=method)
+        super().__init__(disc=disc, method=method, **kwargs)
 
     @staticmethod
     def alias_name() -> str:
@@ -169,8 +170,7 @@ class DryHydrostaticEquationBuilder:
         method: FiniteVolumeMethod,
         form: str,
         ode_kind: str,
-        *args,
-        **kwargs
+        output_h1_tend: bool = False
     ) -> ExVif_DHDC_ODM_TriSKCGrid_FVM:
         ...
 
