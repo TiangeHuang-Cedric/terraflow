@@ -1,9 +1,9 @@
-from . import operator
+from . import operators
 from . import term
 from . import diag
 
 __all__ = [
-    "operator",
+    "operators",
     "term",
     "diag",
 ]

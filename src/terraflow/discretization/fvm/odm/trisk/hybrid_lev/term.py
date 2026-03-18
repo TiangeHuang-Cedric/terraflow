@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.mesh.orthogonal_dual_mesh.operator import (
+from terraflow.mesh.orthogonal_dual_mesh.operators import (
     div_at_primal_cell,
     grad_at_dual_edge,
     interp_weighted_add_plg2dua
@@ -26,7 +26,7 @@ from terraflow.discretization.fvm.odm.trisk.common import (
     adv,
     operators as common_op,
 )
-from terraflow.discretization.fvm.odm.trisk.hybrid_lev import operator as hybrid_op
+from terraflow.discretization.fvm.odm.trisk.hybrid_lev import operators as hybrid_op
 from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block, State
 from terraflow.dynamics.baroclinic import types
 

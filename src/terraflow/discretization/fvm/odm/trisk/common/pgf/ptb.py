@@ -7,7 +7,7 @@ from terraflow.util import typing, formula
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.mesh.orthogonal_dual_mesh import operator as mesh_op
+from terraflow.mesh.orthogonal_dual_mesh import operators as mesh_op
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.discretization.abstract import (
     AbstractEquationMode,

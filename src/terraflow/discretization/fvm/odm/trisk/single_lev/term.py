@@ -5,7 +5,7 @@ import equinox as eqx
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.mesh.orthogonal_dual_mesh import operator as op
+from terraflow.mesh.orthogonal_dual_mesh import operators as op
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
 from terraflow.layout.field import Field

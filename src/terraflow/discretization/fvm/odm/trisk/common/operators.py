@@ -6,7 +6,7 @@ import equinox as eqx
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
-from terraflow.mesh.orthogonal_dual_mesh import operator as op
+from terraflow.mesh.orthogonal_dual_mesh import operators as op
 from terraflow.discretization.fvm.odm.trisk.common.adv import \
     flux_reconstruct as fr
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
