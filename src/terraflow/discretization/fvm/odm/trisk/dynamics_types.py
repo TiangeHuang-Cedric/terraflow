@@ -1,4 +1,4 @@
-from typing import Self, List, Dict, Optional, TypeVar,  Generic
+from typing import Self, cast, List, Dict, Optional, TypeVar,  Generic, Union
 from loguru import logger
 import equinox as eqx
 import jax.numpy as jnp
@@ -58,6 +58,14 @@ NCELL = "cell"
 NEDGE = "edge"
 NVTX = "vtx"
 
+Element = Union[
+    "State",
+    "Tendency",
+    "Static",
+    "Auxiliary",
+    AdvBatchType
+]
+
 
 class Block(
     AbstractBlock[
@@ -104,11 +112,11 @@ class Block(
                     "Invalid test case for baroclinic equation"
                 )
             if isinstance(case, SteadyStateTestCase):
-                state, static, tend, aux, adv_batch_pt = baroclinic_steady_state_case_init_fn(
+                elements = baroclinic_steady_state_case_init_fn(
                     coord=coord, para=para, equation=equation, case=case
                 )
             elif isinstance(case, MountainWaveTestCase):
-                state, static, tend, aux, adv_batch_pt = baroclinic_mountain_wave_case_init_fn(
+                elements = baroclinic_mountain_wave_case_init_fn(
                     coord=coord, para=para, equation=equation, case=case
                 )
             else:
@@ -125,19 +133,25 @@ class Block(
                 raise ValueError(
                     "Invalid test case for shallow water equation"
                 )
-            state, static, tend, aux, adv_batch_pt = barotropic_case_init_fn(
+            elements = barotropic_case_init_fn(
                 coord=coord, para=para, equation=equation, case=case
             )
             # ==============================================
         logger.success("Initialized block from testcase.")
         # =======================================================
+        state = cast(State, elements["state"])
+        tend = cast(Tendency, elements["tend"])
+        static = cast(Static, elements["static"])
+        aux = cast(Auxiliary, elements["aux"])
+        adv_batch_pt = cast(AdvBatchType, elements["adv_batch_pt"])
         return cls(
             mode=equation.mode,
             old=0,
             new=1,
             _coord=coord,
             para=para,
-            state=[state,] * total_steps,  # for time integration stages
+            # for time integration stages
+            state=[state,] * total_steps,
             tend=tend,
             static=static,
             aux=aux,
@@ -168,13 +182,19 @@ class Block(
 def barotropic_block_element_init_fn(
     coord: CoordSys,
     equation: AbstractEquationSet,
-) -> tuple["State", "Static", "Tendency", "Auxiliary", "AdvBatchType"]:
+) -> Dict[str, Element]:
     state = State.from_coord(coord=coord, equation=equation)
     static = Static.from_coord(coord=coord, equation=equation)
     tend = Tendency.from_coord(coord=coord, equation=equation)
     aux = Auxiliary.from_coord(coord=coord, equation=equation)
     adv_batch_pt = AdvBatchType.empty(mode=equation.mode)
-    return state, static, tend, aux, adv_batch_pt
+    return {
+        "state": state,
+        "static": static,
+        "tend": tend,
+        "aux": aux,
+        "adv_batch_pt": adv_batch_pt
+    }
 
 
 def barotropic_case_init_fn(
@@ -183,9 +203,9 @@ def barotropic_case_init_fn(
     equation: AbstractEquationSet,
     *,
     case: ShallowWaterEquationTestCase,
-) -> tuple["State", "Static", "Tendency", "Auxiliary", "AdvBatchType"]:
+) -> Dict[str, Element]:
     g = para.gravity.unwrap()
-    state, static, tend, aux, adv_batch_pt = barotropic_block_element_init_fn(
+    elements = barotropic_block_element_init_fn(
         coord=coord, equation=equation
     )
     un = init_un_in_barotropic_case(
@@ -197,23 +217,23 @@ def barotropic_case_init_fn(
     gzs = init_zs_in_barotropic_case(
         coord=coord, equation=equation, test=case
     ) * g
-    state = eqx.tree_at(
+    elements["state"] = eqx.tree_at(
         lambda s: (s.un.data, s.gz.data),
-        state,
+        elements["state"],
         (un, gz)
     )
-    static = eqx.tree_at(
+    elements["static"] = eqx.tree_at(
         lambda s: s.gzs.data,
-        static,
+        elements["static"],
         gzs
     )
-    return state, static, tend, aux, adv_batch_pt
+    return elements
 
 
 def baroclinic_block_element_init_fn(
     coord: CoordSys,
     equation: AbstractEquationSet,
-) -> tuple["State", "Static", "Tendency", "Auxiliary", "AdvBatchType"]:
+) -> Dict[str, Element]:
     state = State.from_coord(coord=coord, equation=equation)
     tend = Tendency.from_coord(coord=coord, equation=equation)
     static = Static.from_coord(coord=coord, equation=equation)
@@ -225,7 +245,13 @@ def baroclinic_block_element_init_fn(
         coord=coord,
         equation=equation
     )
-    return state, static, tend, aux, adv_batch_pt
+    return {
+        "state": state,
+        "static": static,
+        "tend": tend,
+        "aux": aux,
+        "adv_batch_pt": adv_batch_pt
+    }
 
 
 def baroclinic_steady_state_case_init_fn(
@@ -234,8 +260,8 @@ def baroclinic_steady_state_case_init_fn(
     equation: AbstractEquationSet,
     *,
     case: SteadyStateTestCase,
-) -> tuple["State", "Static", "Tendency", "Auxiliary", "AdvBatchType"]:
-    state, static, tend, aux, adv_batch_pt = baroclinic_block_element_init_fn(
+) -> Dict[str, Element]:
+    elements = baroclinic_block_element_init_fn(
         coord=coord, equation=equation
     )
     gzs = init_gzs_in_baroclinic_case(
@@ -259,26 +285,26 @@ def baroclinic_steady_state_case_init_fn(
         coord=coord, equation=equation, test=case
     )
     ref_ps = mgs
-    state = eqx.tree_at(
+    elements["state"] = eqx.tree_at(
         lambda s: (
             s.mgs.data, s.mg.data,
             s.gz.data, s.gz_lev.data,
             s.un.data, s.pt.data
         ),
-        state,
+        elements["state"],
         (mgs, mg, gz, gz_lev, un, pt)
     )
-    static = eqx.tree_at(
+    elements["static"] = eqx.tree_at(
         lambda s: (s.gzs.data, s.ref_ps.data),
-        static,
+        elements["static"],
         (gzs, ref_ps)
     )
-    aux = eqx.tree_at(
+    elements["aux"] = eqx.tree_at(
         lambda a: a.t.data,
-        aux,
+        elements["aux"],
         t
     )
-    return state, static, tend, aux, adv_batch_pt
+    return elements
 
 
 def baroclinic_mountain_wave_case_init_fn(
@@ -287,8 +313,8 @@ def baroclinic_mountain_wave_case_init_fn(
     equation: AbstractEquationSet,
     *,
     case: MountainWaveTestCase,
-) -> tuple["State", "Static", "Tendency", "Auxiliary", "AdvBatchType"]:
-    state, static, tend, aux, adv_batch_pt = baroclinic_block_element_init_fn(
+) -> Dict[str, Element]:
+    elements = baroclinic_block_element_init_fn(
         coord=coord, equation=equation
     )
     tend = Tendency.from_coord(coord=coord, equation=equation)
@@ -315,19 +341,19 @@ def baroclinic_mountain_wave_case_init_fn(
         coord=coord, equation=equation, test=case
     )
     ref_ps = mgs
-    state = eqx.tree_at(
+    elements["state"] = eqx.tree_at(
         lambda s: (
             s.mgs.data, s.mg.data, s.un.data, s.pt.data
         ),
-        state,
+        elements["state"],
         (mgs, mg, un, pt)
     )
-    static = eqx.tree_at(
+    elements["static"] = eqx.tree_at(
         lambda s: (s.gzs.data, s.ref_ps.data),
-        static,
+        elements["static"],
         (gzs, ref_ps)
     )
-    return state, static, tend, aux, adv_batch_pt
+    return elements
 
 
 def init_z_in_barotropic_case(
@@ -373,8 +399,8 @@ def init_zs_in_barotropic_case(
     equation: AbstractEquationSet,
     test: ShallowWaterEquationTestCase,
 ) -> Array:
-    meta = default_static_meta(mode=equation.mode)
-    horizontal_coord = meta["gzs"].get_hori_position(coord).horizontal_coord
+    meta = default_static_meta(mode=equation.mode)["gzs"]
+    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     if horizontal_coord is None:
         raise ValueError(
             "Horizontal coordinate information is missing for gzs variable."
@@ -1218,21 +1244,6 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
         is_prognostic=False,
         output="h1"
     )
-    meta["coriolis"] = StaggeredFieldMetaData(
-        name="coriolis",
-        dims=(NLEV, NEDGE,) if mode.baroclinic else (NEDGE,),
-        long_name="Nonlinear Coriolis force at dual edge",
-        description="Nonlinear Coriolis force at dual edge",
-        units="m/s2",
-        hori_location=MeshEntity.Edge,
-        vert_location=VertLoc.Cell if mode.baroclinic else "",
-        basis=Basis.Normal,
-        coordinates="lon_edge lat_edge",
-        staggered_kind="C",
-        mesh_name="primal",
-        is_prognostic=False,
-        output=""
-    )
     meta["vor"] = StaggeredFieldMetaData(
         name="vor",
         dims=(NLEV, NVTX,) if mode.baroclinic else (NVTX,),
@@ -1394,7 +1405,6 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
     u: FDT
     v: FDT
     ut: FDT
-    coriolis: FDT
     vor: FDT
     pv_vtx: FDT
     pv_e: FDT

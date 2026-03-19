@@ -1,14 +1,16 @@
 from __future__ import annotations
 from typing import TypeVar, Self, TYPE_CHECKING
+import jax
 import jax.numpy as jnp
 import equinox as eqx
+from plum import T
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operators as op
-from terraflow.discretization.fvm.odm.trisk.common.adv import \
-    flux_reconstruct as fr
+from terraflow.discretization.fvm.odm.trisk.common.adv import flux_reconstruct as fr
+from terraflow.discretization.fvm.odm.trisk.common import coriolis
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
@@ -80,6 +82,102 @@ class RelativeVorticityAtDualCell(Term):
 
     def prepare_block(self, block: Block) -> Block:
         return block
+
+
+class TriSKTangentVelocityAtEdge(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
+        mode: AbstractEquationMode,
+    ):
+        super().__init__(disc=disc, method=method, mode=mode)
+
+    def __call__(
+        self,
+        block: Block,
+        star_state: State
+    ) -> tuple[Block, State]:
+        """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
+        coord = block.coord
+        coriolis = block.equaux.coriolis.trisk
+        edd_length = coord.mesh.dual.edge.length  # (nedg,)
+        ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
+        weight = coriolis.edp_trsk_on_edge
+        lenp = coriolis.edp_edpl_on_edge
+        un = star_state.un.unwrap()
+
+        def _wrap(
+            un: Float[Array, "nEdge"],
+        ) -> Float[Array, "nEdge"]:
+            wind_tile = un[ep_idx]  # (nedg, maxnnb*2)
+            wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
+            return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
+
+        ut = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
+        block = eqx.tree_at(
+            lambda b: b.aux.ut.data,
+            block,
+            replace=ut
+        )
+        return block, star_state
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
+    def prepare_block(self, block: Block) -> Block:
+        if not block.equaux.coriolis.trisk.has_initialized():
+            TriSKCoriolisForceAtEdgeData = coriolis.trisk.TriSKCoriolisForceAtEdgeData
+            coord = block.coord
+            block = eqx.tree_at(
+                lambda b: b.equaux.coriolis.trisk,
+                block,
+                replace=TriSKCoriolisForceAtEdgeData.from_coord(coord)
+            )
+        return block
+
+
+class TangentVelocityAtEdge(Term):
+
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
+        mode: AbstractEquationMode,
+    ):
+        super().__init__(disc=disc, method=method, mode=mode)
+
+    def __call__(
+        self,
+        block: Block,
+        star_state: State
+    ) -> tuple[Block, State]:
+        return self.scheme(block, star_state)
+
+    def trisk(self) -> TriSKTangentVelocityAtEdge:
+        self.scheme = TriSKTangentVelocityAtEdge(
+            disc=self.disc, method=self.method, mode=self.mode
+        )
+        self._built = True
+        return self.scheme
+
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
+
+    def build_default(self, coriolis_scheme: coriolis.schemes.CoriolisForceAtEdge) -> Self:
+        if not self.has_built():
+            TriSKCoriolisForceAtEdge = coriolis.trisk.TriSKCoriolisForceAtEdge
+            if isinstance(coriolis_scheme.scheme, TriSKCoriolisForceAtEdge):
+                self.trisk()
+            else:
+                raise ValueError(
+                    "Unsupported coriolis scheme for tangent velocity reconstruction."
+                )
+            self._built = True
+        return self
 
 
 class NormalMassFluxAtEdge(Term):

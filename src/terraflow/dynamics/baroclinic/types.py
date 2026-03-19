@@ -613,19 +613,3 @@ class ExVifBaroclinicEquationSet4UGRIDSpaceOperators(
         method: DM,
     ) -> ExNormalMomentumEqu4UGRID[NCT, GKE, VAM, PGF, DM, BEM]:
         return ExNormalMomentumEqu4UGRID(disc=disc, method=method, mode=self.mode)
-
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.prepare.build_default()
-            self.dmgsdt.build_default()
-            self.dptdt.build_default()
-            self.dundt.build_default()
-            self._built = True
-        return self
-
-    def prepare_block(self, block: Any) -> Any:
-        block = self.prepare.prepare_block(block)
-        block = self.dmgsdt.prepare_block(block)
-        block = self.dptdt.prepare_block(block)
-        block = self.dundt.prepare_block(block)
-        return block

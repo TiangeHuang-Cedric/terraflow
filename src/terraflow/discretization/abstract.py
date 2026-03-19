@@ -239,7 +239,7 @@ class AbstractEquationBase(Generic[DM, EM], ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def build_default(self) -> Self:
+    def build_default(self, *args, **kwargs) -> Self:
         raise NotImplementedError
 
     @property

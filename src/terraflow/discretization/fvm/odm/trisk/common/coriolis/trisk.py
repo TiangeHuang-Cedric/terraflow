@@ -116,42 +116,13 @@ class TriSKCoriolisForceAtEdge(Operator):
             mfx_tile = mfx_tile * pv_eep
             return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
 
-        coriolis = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
+        dundt_coriolis = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
             mfn_e, pv_e
         )
         block = eqx.tree_at(
-            lambda b: b.aux.coriolis.data,
+            lambda b: b.tend.dundt_coriolis.data,
             block,
-            replace=coriolis
-        )
-        return block, star_state
-
-    def recon_ut(
-        self,
-        block: Block,
-        star_state: State
-    ) -> tuple[Block, State]:
-        """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
-        coord = block.coord
-        coriolis = block.equaux.coriolis.trisk
-        edd_length = coord.mesh.dual.edge.length  # (nedg,)
-        ep_idx = coriolis.edp_edge_on_edge  # (nedg, maxnnb*2)
-        weight = coriolis.edp_trsk_on_edge
-        lenp = coriolis.edp_edpl_on_edge
-        un = star_state.un.unwrap()
-
-        def _wrap(
-            un: Float[Array, "nEdge"],
-        ) -> Float[Array, "nEdge"]:
-            wind_tile = un[ep_idx]  # (nedg, maxnnb*2)
-            wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
-            return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
-
-        ut = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
-        block = eqx.tree_at(
-            lambda b: b.aux.ut.data,
-            block,
-            replace=ut
+            replace=dundt_coriolis
         )
         return block, star_state
 

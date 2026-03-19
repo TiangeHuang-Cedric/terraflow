@@ -396,21 +396,6 @@ class ExVifShallowWaterEquationSet4UGRIDSpaceOperators(
     ]:
         return ExNormalMomentumEqu4UGRID(disc=disc, method=method, mode=self.mode)
 
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.prepare.build_default()
-            self.dgzdt.build_default()
-            self.dundt.build_default()
-            self._built = True
-        return self
-
-    def prepare_block(self, block: BLOCK) -> BLOCK:
-        block = self.prepare.prepare_block(block)
-        block = self.dgzdt.prepare_block(block)
-        block = self.dundt.prepare_block(block)
-        logger.success("Prepared auxiliary and data.")
-        return block
-
 
 class ExVifShallowWaterEquationSet4UGRID(
     AbstractShallowWaterEquationSet[DM, SOP],

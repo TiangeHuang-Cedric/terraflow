@@ -8,6 +8,7 @@ from typing import (
     overload,
     TYPE_CHECKING
 )
+from loguru import logger
 
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh.abstract import AbstractUnstructuredMesh
@@ -143,7 +144,9 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
-        return self.space_operators.prepare_block(block)
+        block = self.space_operators.prepare_block(block)
+        logger.success("Prepared auxiliary and data.")
+        return block
 
     def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
         return self.space_operators(

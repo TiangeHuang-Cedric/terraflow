@@ -333,7 +333,7 @@ display(fig)
 # ##### Plot UV Wind Vectors on Lat-Lon Grid
 
 # %%
-un = block.state.un.unwrap()
+un = block.state[0].un.unwrap()
 
 uv = coord.mesh.reconstruct_vector(un)
 

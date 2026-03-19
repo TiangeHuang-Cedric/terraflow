@@ -31,9 +31,6 @@ class CoriolisForceAtEdge(Operator):
     def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
         return self.scheme(block, star_state)
 
-    def recon_ut(self, block: Block, star_state: State) -> tuple[Block, State]:
-        return self.scheme.recon_ut(block, star_state)
-
     def trisk(self) -> trisk.TriSKCoriolisForceAtEdge:
         self.scheme = trisk.TriSKCoriolisForceAtEdge(
             disc=self.disc, method=self.method, mode=self.mode

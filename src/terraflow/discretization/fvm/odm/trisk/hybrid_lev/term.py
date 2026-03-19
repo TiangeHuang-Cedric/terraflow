@@ -700,11 +700,14 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
         mode: BEM
     ):
         super().__init__(disc=disc, method=method, mode=mode)
+        self.scheme = coriolis.schemes.CoriolisForceAtEdge(
+            disc=disc, method=method, mode=mode
+        )
 
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
-        coriolis = block.aux.coriolis.unwrap()
+        block, star_state = self.scheme(block, star_state)
+        dundt_coriolis = block.tend.dundt_coriolis.unwrap()
         dundt = block.tend.dundt.unwrap()
-        dundt_coriolis = coriolis
         dundt = dundt + dundt_coriolis
         block = eqx.tree_at(
             lambda b: (b.tend.dundt.data, b.tend.dundt_coriolis.data),
@@ -715,11 +718,12 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
 
     def build_default(self) -> "TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge":
         if not self.has_built():
+            self.scheme.build_default()
             self._built = True
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
-        return block
+        return self.scheme.prepare_block(block)
 
     def unwrap(self, block: BLOCK, itime: int) -> Field:
         return block.tend.dundt_coriolis
@@ -806,7 +810,7 @@ class ExPrepareSpaceOperators(
         self.gz = Geopotential(
             disc=disc, method=method, mode=mode
         )
-        self.coriolis = coriolis.schemes.CoriolisForceAtEdge(
+        self.ut = common_op.TangentVelocityAtEdge(
             disc=disc, method=method, mode=mode
         )
         self.vor = common_op.RelativeVorticityAtDualCell(
@@ -832,11 +836,10 @@ class ExPrepareSpaceOperators(
         block, old_state = self.p(block, old_state)
         block, old_state = self.t(block, old_state)
         block, old_state = self.gz(block, old_state)
-        block, old_state = self.coriolis.recon_ut(block, old_state)
+        block, old_state = self.ut(block, old_state)
         block, old_state = self.mft(block, old_state)
         block, old_state = self.vor(block, old_state)
         block, old_state = self.pv(block, old_state)
-        block, old_state = self.coriolis(block, old_state)
         block, old_state = self.ke(block, old_state)
         block, old_state = self.rhod(block, old_state)
         block = block.set_state(itime=0, state=old_state)
@@ -857,21 +860,19 @@ class ExPrepareSpaceOperators(
             block, star_state = self.p(block, star_state)
             block, star_state = self.t(block, star_state)
             block, star_state = self.gz(block, star_state)
-            block, star_state = self.coriolis.recon_ut(block, star_state)
+            block, star_state = self.ut(block, star_state)
             block, star_state = self.mft(block, star_state)
             block, star_state = self.vor(block, star_state)
             block, star_state = self.pv(block, star_state)
-            block, star_state = self.coriolis(block, star_state)
             block, star_state = self.ke(block, star_state)
             block, star_state = self.rhod(block, star_state)
         elif pass_tag == "forward_pass":
             block, star_state = self.mfn(block, star_state)
             block, star_state = self.dmf(block, star_state)
             block, star_state = self.mft(block, star_state)
-            block, star_state = self.coriolis.recon_ut(block, star_state)
+            block, star_state = self.ut(block, star_state)
             block, star_state = self.vor(block, star_state)
             block, star_state = self.pv(block, star_state)
-            block, star_state = self.coriolis(block, star_state)
             block, star_state = self.ke(block, star_state)
         elif pass_tag == "backward_pass":
             block, star_state = self.ph(block, star_state)
@@ -881,7 +882,7 @@ class ExPrepareSpaceOperators(
             block, star_state = self.rhod(block, star_state)
         return block, star_state
 
-    def build_default(self) -> "ExPrepareSpaceOperators":
+    def build_default(self, coriolis_scheme: coriolis.schemes.CoriolisForceAtEdge) -> "ExPrepareSpaceOperators":
         if not self.has_built():
             self.mg.build_default()
             self.dmg.build_default()
@@ -893,7 +894,7 @@ class ExPrepareSpaceOperators(
             self.t.build_default()
             self.gz.build_default()
             self.vor.build_default()
-            self.coriolis.build_default()
+            self.ut.build_default(coriolis_scheme=coriolis_scheme)
             self.pv.build_default()
             self.ke.build_default()
             self.rhod.build_default()
@@ -911,7 +912,7 @@ class ExPrepareSpaceOperators(
         block = self.t.prepare_block(block)
         block = self.gz.prepare_block(block)
         block = self.vor.prepare_block(block)
-        block = self.coriolis.prepare_block(block)
+        block = self.ut.prepare_block(block)
         block = self.pv.prepare_block(block)
         block = self.ke.prepare_block(block)
         block = self.rhod.prepare_block(block)
@@ -1029,13 +1030,21 @@ class ExSpaceOperators(
     def build_default(self) -> Self:
         if not self.has_built():
             self.mfz_lev.build_default()
-            super().build_default()
+            self.dmgsdt.build_default()
+            self.dptdt.build_default()
+            self.dundt.build_default()
+            self.prepare.build_default(
+                coriolis_scheme=self.dundt.coriolis.scheme
+            )
             self._built = True
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.dmgsdt.prepare_block(block)
+        block = self.dptdt.prepare_block(block)
+        block = self.dundt.prepare_block(block)
         block = self.mfz_lev.prepare_block(block)
-        block = super().prepare_block(block)
+        block = self.prepare.prepare_block(block)
         return block
 
     def _update_mgs(
