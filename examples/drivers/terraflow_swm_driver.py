@@ -85,12 +85,9 @@ logger.success(f"Integration time cost {t2 - t1} seconds.")
 
 logger.success(f"Total time cost {t2 - t0} seconds.")
 
-logger.info("Start post-processing...")
 tf.util.post_process.CDOPostProcesser.remap_history(
     history=history,
     res=1.0,
     remap=True,
     use_weight=True,
 )
-t3 = time.perf_counter()
-logger.success(f"Post-processing time cost {t3 - t2} seconds.")

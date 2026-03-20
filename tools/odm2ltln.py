@@ -38,6 +38,57 @@ def parse_commandline():
         action="store_true",
         help="If present, generate weight file before remapping.",
     )
+    parser.add_argument(
+        "--compression-backend",
+        choices=["cdo", "nccopy", "nco", "none"],
+        default="nco",
+        help="Compression backend to use after remapping. Defaults to nco.",
+    )
+    parser.add_argument(
+        "--compression-level",
+        type=int,
+        default=4,
+        help="Compression level in [1, 9]. Defaults to 4.",
+    )
+    parser.add_argument(
+        "--no-compress",
+        action="store_true",
+        help="Disable compression.",
+    )
+    parser.add_argument(
+        "--out-format",
+        type=str,
+        default="nc4c",
+        help="CDO output format passed to -f. Defaults to nc4c.",
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="F32",
+        help="CDO output precision passed to -b. Defaults to F32.",
+    )
+    parser.add_argument(
+        "--no-low-memory",
+        action="store_true",
+        help="Disable CDO low-memory mode -L.",
+    )
+    parser.add_argument(
+        "--nccopy-chunk-spec",
+        type=str,
+        default=None,
+        help="Chunk spec for nccopy -c, only used when compression backend is nccopy.",
+    )
+    parser.add_argument(
+        "--nco-ppc",
+        type=str,
+        default=None,
+        help="NCO --ppc option, only used when compression backend is nco.",
+    )
+    parser.add_argument(
+        "--silent",
+        action="store_true",
+        help="Suppress command outputs.",
+    )
     return parser.parse_args()
 
 
@@ -52,6 +103,15 @@ def main():
     else:
         outfile = f"{filehead}.{res}×{res}.nc"
     use_weight = args.use_weight
+    compress = not args.no_compress
+    compression_level = args.compression_level
+    compression_backend = args.compression_backend
+    out_format = args.out_format
+    precision = args.precision
+    low_memory = not args.no_low_memory
+    nccopy_chunk_spec = args.nccopy_chunk_spec
+    nco_ppc = args.nco_ppc
+    silent = args.silent
 
     logger.info(
         f"Remapping {infile} to {outfile} with resolution {res}×{res}."
@@ -71,22 +131,41 @@ def main():
             outfile=outfile,
             res=res,
             use_weight=use_weight,
-            silent=False
+            silent=silent,
+            compress=compress,
+            compression_level=compression_level,
+            out_format=out_format,
+            precision=precision,
+            low_memory=low_memory,
+            compression_backend=compression_backend,
+            nccopy_chunk_spec=nccopy_chunk_spec,
+            nco_ppc=nco_ppc
         )
         logger.info("Remapping completed successfully.")
     except Exception:
-        cdo.run([
-            "ncks",
-            "-O", "-x", "-v", "lon_vtx,lat_vtx", infile, "tmp.nc"
-        ])
+        cdo.run(
+            [
+                "ncks",
+                "-O", "-x", "-v", "lon_vtx,lat_vtx", infile, "tmp.nc"
+            ],
+            silent=silent
+        )
         cdo.remap_netcdf(
             infile="tmp.nc",
             outfile=outfile,
             res=res,
             use_weight=use_weight,
-            silent=False
+            silent=silent,
+            compress=compress,
+            compression_level=compression_level,
+            out_format=out_format,
+            precision=precision,
+            low_memory=low_memory,
+            compression_backend=compression_backend,
+            nccopy_chunk_spec=nccopy_chunk_spec,
+            nco_ppc=nco_ppc
         )
-        cdo.run(["rm", "tmp.nc"])
+        cdo.run(["rm", "tmp.nc"], silent=silent)
         logger.info(
             "Remapping completed successfully after removing vertex coordinates."
         )
