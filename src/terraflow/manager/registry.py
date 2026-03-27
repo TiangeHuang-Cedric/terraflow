@@ -10,7 +10,7 @@ import os
 import importlib.metadata as metadata
 import polars as pl
 
-from terraflow.manager.plugins.term.ext import EquationTermDataFrame, EquationTermDataFrameExt
+from terraflow.manager.plugins.equterm.ext import EquationTermDataFrame, EquationTermDataFrameExt
 from terraflow.manager.plugins.equaux.ext import EquationAuxiliaryDataFrame, EquationAuxiliaryDataFrameExt
 from terraflow.manager.plugins.diag.ext import DiagnosticMethodsDataFrame, DiagnosticMethodsDataFrameExt
 

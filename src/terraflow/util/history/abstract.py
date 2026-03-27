@@ -14,6 +14,7 @@ import netCDF4 as nc4
 import numpy as np
 import jax.numpy as jnp
 import jax.experimental
+import xarray as xr
 
 from terraflow.util import uxarray as tuxr
 from terraflow.util.device import AbstractDevice
@@ -22,6 +23,7 @@ from terraflow.util.datetime import DateTimeManager
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
+from terraflow.layout.field import FieldMetaData, NumericMetaData
 
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import (
@@ -570,22 +572,33 @@ class UGRIDHistory(AbstractHistory):
     def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         var_dtype = self.nc_float_type
-        for field_name, field in fields.items():
+        for _, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            dsxr = tuxr.format_terraflow2ugrid(
-                field.data, field.meta.to_dict(), use_dual=self.use_dual
-            )
-            var_dims = tuple(str(dim) for dim in dsxr.dims)
-            if not field.meta.is_static:
-                var_dims = tuple(("time",) + var_dims)
-            v = ds.createVariable(field.meta.name, var_dtype, var_dims)
-            v.mesh = dsxr.attrs.get("mesh", "")
-            v.location = dsxr.attrs.get("location", "")
-            v.coordinates = dsxr.attrs.get("coordinates", "")
-            v.units = dsxr.attrs.get("units", "")
-            v.long_name = dsxr.attrs.get("long_name", "")
-            v.description = dsxr.attrs.get("description", "")
+            if isinstance(field.meta, FieldMetaData):
+                dsxr = tuxr.format_terraflow2ugrid(
+                    field.data, field.meta.to_dict(), use_dual=self.use_dual
+                )
+                var_dims = tuple(str(dim) for dim in dsxr.dims)
+                if not field.meta.is_static:
+                    var_dims = tuple(("time",) + var_dims)
+                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                v.mesh = dsxr.attrs.get("mesh", "")
+                v.location = dsxr.attrs.get("location", "")
+                v.coordinates = dsxr.attrs.get("coordinates", "")
+                v.units = dsxr.attrs.get("units", "")
+                v.long_name = dsxr.attrs.get("long_name", "")
+                v.description = dsxr.attrs.get("description", "")
+            elif isinstance(field.meta, NumericMetaData):
+                var_dims = ("time",) if not field.meta.is_static else ()
+                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                v.units = field.meta.units
+                v.long_name = field.meta.long_name
+                v.description = field.meta.description
+            else:
+                raise ValueError(
+                    f"Unsupported field meta data type: {type(field.meta)}"
+                )
         ds.close()
         return None
 
@@ -667,16 +680,27 @@ class UnstructuredHistory(AbstractHistory):
         for _, field in fields.items():
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            var_dims = field.meta.dims
-            if not field.meta.is_static:
-                var_dims = tuple(("time",) + field.meta.dims)
-            v = ds.createVariable(field.meta.name, var_dtype, var_dims)
-            v.hori_location = field.meta.hori_location
-            v.vert_location = field.meta.vert_location
-            v.coordinates = field.meta.coordinates
-            v.units = field.meta.units
-            v.long_name = field.meta.long_name
-            v.description = field.meta.description
+            if isinstance(field.meta, FieldMetaData):
+                var_dims = field.meta.dims
+                if not field.meta.is_static:
+                    var_dims = tuple(("time",) + field.meta.dims)
+                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                v.hori_location = field.meta.hori_location
+                v.vert_location = field.meta.vert_location
+                v.coordinates = field.meta.coordinates
+                v.units = field.meta.units
+                v.long_name = field.meta.long_name
+                v.description = field.meta.description
+            elif isinstance(field.meta, NumericMetaData):
+                var_dims = ("time",) if not field.meta.is_static else ()
+                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                v.units = field.meta.units
+                v.long_name = field.meta.long_name
+                v.description = field.meta.description
+            else:
+                raise ValueError(
+                    f"Unsupported field meta data type: {type(field.meta)}"
+                )
         ds.close()
         return None
 
@@ -787,17 +811,34 @@ class Unstructured2StructuredHistory(AbstractHistory):
     def write_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
-        _, fields_remapped = fields.to_ugrid(self.coord).to_structured_grid(
-            remap_method=self.remap_method,
-            remap_to=self.remap_to,
-            lon_west=self.lon_west,
-            lon_east=self.lon_east,
-            lat_south=self.lat_south,
-            lat_north=self.lat_north,
-            east_west_resolution=self.east_west_resolution,
-            south_north_resolution=self.south_north_resolution,
-            with_reshaped_ds=True
-        )
+        staggered_var_ds = {}
+        for _, field in fields.items():
+            if not isinstance(field.meta, FieldMetaData):
+                continue
+            staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
+                value=field.data,
+                meta=field.meta.to_dict(),
+                is_numerical=False,
+            )
+        if staggered_var_ds:
+            staggered_ds = xr.Dataset(data_vars=staggered_var_ds)
+            uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+            _, fields_remapped = tuxr.UGRIDDataset.from_xarray(
+                ds=staggered_ds,
+                uxgrid=uxgrid
+            ).to_structured_grid(
+                remap_method=self.remap_method,
+                remap_to=self.remap_to,
+                lon_west=self.lon_west,
+                lon_east=self.lon_east,
+                lat_south=self.lat_south,
+                lat_north=self.lat_north,
+                east_west_resolution=self.east_west_resolution,
+                south_north_resolution=self.south_north_resolution,
+                with_reshaped_ds=True
+            )
+        else:
+            fields_remapped = xr.Dataset()
         var_dtype = self.float_type
         for field_name in fields_remapped.keys():
             field = fields_remapped.variables[field_name]
@@ -815,52 +856,101 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     data,
                     dtype=var_dtype
                 )
+        for _, field in fields.items():
+            if not isinstance(field.meta, NumericMetaData):
+                continue
+            if field.meta.output not in STRUCTURED_HISTORY_LIST or field.meta.output == "":
+                continue
+            field_name = field.meta.name
+            if field.meta.is_static:
+                ds.variables[field_name][...] = np.array(
+                    field.data, dtype=var_dtype)
+            else:
+                ds.variables[field_name][idx] = np.array(
+                    field.data, dtype=var_dtype)
         ds.close()
         return None
 
     def add_fields(self, fields: AbstractFields) -> None:
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
-        remapped_ds = fields.to_ugrid(self.coord).to_structured_grid(
-            remap_method=self.remap_method,
-            remap_to=self.remap_to,
-            lon_west=self.lon_west,
-            lon_east=self.lon_east,
-            lat_south=self.lat_south,
-            lat_north=self.lat_north,
-            east_west_resolution=self.east_west_resolution,
-            south_north_resolution=self.south_north_resolution,
-            with_reshaped_ds=True
-        )[1]
+        staggered_var_ds = {}
+        for _, field in fields.items():
+            if not isinstance(field.meta, FieldMetaData):
+                continue
+            staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
+                value=field.data,
+                meta=field.meta.to_dict(),
+                is_numerical=False,
+            )
+        if staggered_var_ds:
+            staggered_ds = xr.Dataset(data_vars=staggered_var_ds)
+            uxgrid = self.coord.mesh.to_ugrid().to_uxgrid()
+            remapped_ds = tuxr.UGRIDDataset.from_xarray(
+                ds=staggered_ds,
+                uxgrid=uxgrid
+            ).to_structured_grid(
+                remap_method=self.remap_method,
+                remap_to=self.remap_to,
+                lon_west=self.lon_west,
+                lon_east=self.lon_east,
+                lat_south=self.lat_south,
+                lat_north=self.lat_north,
+                east_west_resolution=self.east_west_resolution,
+                south_north_resolution=self.south_north_resolution,
+                with_reshaped_ds=True
+            )[1]
+        else:
+            remapped_ds = xr.Dataset()
         var_dtype = self.nc_float_type
-        for var_name, da in remapped_ds.data_vars.items():
-            output = da.attrs.get("output", None)
-            if output not in STRUCTURED_HISTORY_LIST or output == "":
+        for _, field in fields.items():
+            meta = field.meta
+            if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
                 logger.info(
-                    f"Skip variable {var_name} for history {self.history_name}."
+                    f"Skip variable {meta.name} for history {self.history_name}."
                 )
                 continue
-            is_static = da.attrs.get("is_static", False)
-            if len(da.dims) == 2:
-                var_dims = ("lat", "lon")
-            elif len(da.dims) == 3:
-                var_dims = (str(da.dims[0]), "lat", "lon")
+            if isinstance(meta, FieldMetaData):
+                if meta.name not in remapped_ds.data_vars:
+                    logger.info(
+                        f"Skip variable {meta.name} for history {self.history_name}: remapped field not found."
+                    )
+                    continue
+                da = remapped_ds.data_vars[meta.name]
+                is_static = da.attrs.get("is_static", False)
+                if len(da.dims) == 2:
+                    var_dims = ("lat", "lon")
+                elif len(da.dims) == 3:
+                    var_dims = (str(da.dims[0]), "lat", "lon")
+                else:
+                    raise ValueError(
+                        f"Variable {meta.name} has unsupported number of dimensions: {len(da.dims)}."
+                    )
+                if not is_static:
+                    var_dims = tuple(("time",) + var_dims)
+                v = ds.createVariable(
+                    str(meta.name), var_dtype, var_dims
+                )
+                v.setncattr("mesh", da.attrs.get("mesh", ""))
+                v.setncattr("location", da.attrs.get("location", ""))
+                v.setncattr("units", da.attrs.get("units", ""))
+                v.setncattr("long_name", da.attrs.get("long_name", ""))
+                v.setncattr("description", da.attrs.get("description", ""))
+                v.setncattr(
+                    "coordinates",
+                    " ".join([str(k) for k in da.coords.keys()])
+                )
+            elif isinstance(meta, NumericMetaData):
+                is_static = meta.is_static
+                var_dims = () if is_static else ("time",)
+                v = ds.createVariable(
+                    str(meta.name), var_dtype, var_dims
+                )
+                v.setncattr("units", meta.units)
+                v.setncattr("long_name", meta.long_name)
+                v.setncattr("description", meta.description)
             else:
                 raise ValueError(
-                    f"Variable {var_name} has unsupported number of dimensions: {len(da.dims)}."
+                    f"Unsupported meta data type for variable {meta.name}: {type(meta)}."
                 )
-            if not is_static:
-                var_dims = tuple(("time",) + var_dims)
-            v = ds.createVariable(
-                str(var_name), var_dtype, var_dims
-            )
-            v.setncattr("mesh", da.attrs.get("mesh", ""))
-            v.setncattr("location", da.attrs.get("location", ""))
-            v.setncattr("units", da.attrs.get("units", ""))
-            v.setncattr("long_name", da.attrs.get("long_name", ""))
-            v.setncattr("description", da.attrs.get("description", ""))
-            v.setncattr(
-                "coordinates",
-                " ".join([str(k) for k in da.coords.keys()])
-            )
         ds.close()
         return None

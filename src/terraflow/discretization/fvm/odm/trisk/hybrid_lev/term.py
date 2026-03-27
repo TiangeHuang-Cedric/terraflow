@@ -2,7 +2,7 @@ from typing import Self, TypeVar
 import equinox as eqx
 import jax.numpy as jnp
 
-from terraflow.util import typing
+from terraflow.util import typing, formula
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh.operators import (
@@ -12,7 +12,6 @@ from terraflow.mesh.orthogonal_dual_mesh.operators import (
 )
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
-from terraflow.layout.field import Field, ArrayField, StaggeredFieldMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.abstract import (
@@ -30,7 +29,6 @@ from terraflow.discretization.fvm.odm.trisk.hybrid_lev import operators as hybri
 from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block, State
 from terraflow.dynamics.baroclinic import types
 
-FDT = ArrayField[StaggeredFieldMetaData]
 
 CoordSys = CoordinateSystem[
     OrthogonalDualMesh,
@@ -60,17 +58,18 @@ class Temperature(Operator):
 
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         pt = star_state.pt.unwrap()
-        mg = star_state.mg.unwrap()
-        exner = hybrid_op.exner_at_full_lev(
-            coord=block.coord,
-            para=block.para,
-            mg=mg
+        p = star_state.p.unwrap()
+        t = formula.temperature(
+            pt=pt,
+            p=p,
+            qv=jnp.asarray(0.0, dtype=pt.dtype),
+            para=block.para
         )
-        t = pt * exner
+        tv = t
         block = eqx.tree_at(
-            lambda b: b.aux.t.data,
+            lambda b: (b.aux.t.data, b.aux.tv.data),
             block,
-            t
+            (t, tv)
         )
         return block, star_state
 
@@ -125,7 +124,11 @@ class VerticalMassFluxAtHalfLev(Operator):
         dmgsdt = block.tend.dmgsdt.unwrap()
         dmgdt_lev = block.coord.vert.calc_dmgdt_lev(dmgsdt)
         dmf = block.aux.dmf.unwrap()
-        mfz_lev = - dmgdt_lev[1:-1, :] - jnp.cumsum(dmf[:-1, :], axis=0)
+        mfz_lev = - dmgdt_lev[1:-1, :] - jnp.cumsum(
+            dmf[:-1, :],
+            dtype=jnp.float64,
+            axis=0
+        ).astype(block.dev.float_type)
         mfz_lev = jnp.pad(mfz_lev, ((1, 1), (0, 0)))
         block = eqx.tree_at(
             lambda b: b.aux.mfz_lev.data,
@@ -260,19 +263,26 @@ class Geopotential(Operator):
         para = block.para
         gzs = block.static.gzs.unwrap()
         ph_lev = star_state.ph_lev.unwrap()
-        t = block.aux.t.unwrap()
+        tv = block.aux.tv.unwrap()
         rd = para.rd.unwrap()
-        tmp = rd * t * jnp.log(ph_lev[1:, :] / ph_lev[:-1, :])
-        gz_lev = gzs + jnp.cumsum(
+        # ====================================================
+        # Calculat gz_lev
+        # =======================================
+        # From half_kde to half_kds
+        tmp = rd * tv * jnp.log(ph_lev[1:, :] / ph_lev[:-1, :])
+        gz_lev = gzs + jnp.cumulative_sum(
             jnp.flip(tmp, axis=0),
-            axis=0
-        )
-        gz_lev = jnp.concatenate(
-            [gzs.reshape(1, -1), gz_lev],
-            axis=0
-        )
+            axis=0,
+            dtype=jnp.float64,
+            include_initial=True
+        ).astype(block.dev.float_type)
+        # =======================================
+        # Flip back, from half_kds to half_kde
         gz_lev = jnp.flip(gz_lev, axis=0)
+        # ===================================================
+        # Calculate gz
         gz = 0.5 * (gz_lev[:-1, :] + gz_lev[1:, :])
+        # ===================================================
         star_state = eqx.tree_at(
             lambda s: (s.gz.data, s.gz_lev.data),
             star_state,
@@ -301,14 +311,23 @@ class HydrostaticPressure(Operator):
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         mg_lev = star_state.mg_lev.unwrap()
         dmg = star_state.dmg.unwrap()
+        float_type = block.dev.float_type
         # TODO: For ideal dry core, need to add mixing ratio effect
-        ph_lev = mg_lev[0, :] + jnp.cumsum(dmg, axis=0)
-        ph_lev = jnp.concatenate(
-            [mg_lev[0, :].reshape(1, -1), ph_lev],
-            axis=0
-        )
+        # =======================================================
+        # Calculate ph at half level
+        ph_lev = mg_lev[0, :] + jnp.cumulative_sum(
+            dmg,
+            axis=0,
+            dtype=jnp.float64,
+            include_initial=True
+        ).astype(float_type)
+        # =======================================================
+        # Calculate ph at full level
         ph = 0.5 * (ph_lev[:-1, :] + ph_lev[1:, :])
+        # =======================================================
+        # Calculate phs
         phs = ph_lev[-1, :]
+        # =======================================================
         star_state = eqx.tree_at(
             lambda s: (s.phs.data, s.ph.data, s.ph_lev.data),
             star_state,
@@ -342,26 +361,8 @@ class Pressure(Operator):
                 star_state,
                 (star_state.ph.data, star_state.ph_lev.data)
             )
-            return block, star_state
-        coord = block.coord
-        para = block.para
-        gz = star_state.gz.unwrap()
-        pt = star_state.pt.unwrap()
-        dmg = star_state.dmg.unwrap()
-        rd = para.rd.unwrap()
-        cp = para.cp.unwrap()
-        cv = para.cv.unwrap()
-        gamma = cp / cv
-        p0 = coord.vert.p0
-        dgz = hybrid_op.delta_at_full_lev(gz)
-        p = - rd * dmg * pt / (p0 * dgz)
-        p = p ** gamma * p0
-        # TODO: Need to add p_lev calculation for nonhydrostatic case
-        star_state = eqx.tree_at(
-            lambda s: (s.p.data,),
-            star_state,
-            (p,)
-        )
+        else:
+            raise NotImplementedError
         return block, star_state
 
     def build_default(self) -> Self:
@@ -414,9 +415,6 @@ class PotentialTemperatureHorizontalAdvection(Operator):
             self._built = True
         return self
 
-    def unwrap(self, block: BLOCK) -> tuple[FDT, FDT]:
-        return (block.adv_batch_pt.qmfn, block.adv_batch_pt.qmfz)
-
 
 class PotentialTemperatureVerticalAdvection(Operator):
     def __init__(
@@ -452,9 +450,6 @@ class PotentialTemperatureVerticalAdvection(Operator):
             self._built = True
         return self
 
-    def unwrap(self, block: BLOCK) -> tuple[FDT, FDT]:
-        return (block.adv_batch_pt.qmfn, block.adv_batch_pt.qmfz)
-
 
 class TendencyOfDryAirMassAtSurface(
     types.DivergenceOfMassFluxAtSurfaceProtocol[FiniteVolumeMethod, BEM]
@@ -470,7 +465,11 @@ class TendencyOfDryAirMassAtSurface(
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         dmf = block.aux.dmf.unwrap()
         dmgsdt = block.tend.dmgsdt.unwrap()
-        dmgsdt_dmf = - jnp.sum(dmf, axis=0)
+        dmgsdt_dmf = - jnp.sum(
+            dmf,
+            dtype=jnp.float64,
+            axis=0
+        ).astype(block.dev.float_type)
         dmgsdt = dmgsdt + dmgsdt_dmf
         block = eqx.tree_at(
             lambda b: (b.tend.dmgsdt.data, b.tend.dmgsdt_dmf.data),
@@ -478,9 +477,6 @@ class TendencyOfDryAirMassAtSurface(
             (dmgsdt, dmgsdt_dmf)
         )
         return block, star_state
-
-    def unwrap(self, block: BLOCK, itime: int) -> ArrayField[StaggeredFieldMetaData]:
-        return block.tend.dmgsdt_dmf
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -542,9 +538,6 @@ class TendencyOfPotentialTemperatureDueToDivergenceOfFlux(
         )
         return block, star_state
 
-    def unwrap(self, block: BLOCK, itime: int) -> ArrayField[StaggeredFieldMetaData]:
-        return block.tend.dptdt_dptfn
-
     def build_default(self) -> Self:
         if not self.has_built():
             self.adv_scheme.build_default()
@@ -583,9 +576,6 @@ class TendencyOfPotentialTemperatureDueToVerticalAdvection(
             (dptdt, dptdt_ptvf)
         )
         return block, star_state
-
-    def unwrap(self, block: BLOCK, itime: int) -> ArrayField[StaggeredFieldMetaData]:
-        return block.tend.dptdt_ptvf
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -638,9 +628,6 @@ class TendencyOfNormalVelocityDueToVerticalAdvection(
         )
         return block, star_state
 
-    def unwrap(self, block: BLOCK, itime: int) -> ArrayField[StaggeredFieldMetaData]:
-        return block.tend.dundt_wedundeta
-
     def build_default(self) -> Self:
         if not self.has_built():
             self._built = True
@@ -675,9 +662,6 @@ class TendencyOfNormalVelocityDueToPressureGradientForce(
             dundt
         )
         return block, star_state
-
-    def unwrap(self, block: BLOCK, itime: int) -> ArrayField[StaggeredFieldMetaData]:
-        return block.tend.dundt_pgf
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.pgf_scheme.prepare_block(block)
@@ -725,9 +709,6 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
-    def unwrap(self, block: BLOCK, itime: int) -> Field:
-        return block.tend.dundt_coriolis
-
 
 class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     types.GradientOfKineticEnergyProtocol[FiniteVolumeMethod, BEM]
@@ -764,9 +745,6 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
-
-    def unwrap(self, block: BLOCK, itime: int) -> Field:
-        return block.tend.dundt_grad_ke
 
 
 class ExPrepareSpaceOperators(
@@ -827,7 +805,7 @@ class ExPrepareSpaceOperators(
         )
 
     def first_call(self, block: BLOCK) -> BLOCK:
-        old_state = block.get_state(itime=0)
+        old_state = block.get_state(itime=block.old)
         block, old_state = self.mg(block, old_state)
         block, old_state = self.dmg(block, old_state)
         block, old_state = self.mfn(block, old_state)
@@ -842,7 +820,7 @@ class ExPrepareSpaceOperators(
         block, old_state = self.pv(block, old_state)
         block, old_state = self.ke(block, old_state)
         block, old_state = self.rhod(block, old_state)
-        block = block.set_state(itime=0, state=old_state)
+        block = block.set_state(itime=block.old, state=old_state)
         return block
 
     def __call__(
@@ -854,23 +832,23 @@ class ExPrepareSpaceOperators(
     ) -> tuple[BLOCK, State]:
         # TODO: optimize by using forward-backward scheme
         if pass_tag == "all_pass":
+            block, star_state = self.ut(block, star_state)
             block, star_state = self.mfn(block, star_state)
+            block, star_state = self.mft(block, star_state)
             block, star_state = self.dmf(block, star_state)
             block, star_state = self.ph(block, star_state)
             block, star_state = self.p(block, star_state)
             block, star_state = self.t(block, star_state)
             block, star_state = self.gz(block, star_state)
-            block, star_state = self.ut(block, star_state)
-            block, star_state = self.mft(block, star_state)
             block, star_state = self.vor(block, star_state)
             block, star_state = self.pv(block, star_state)
             block, star_state = self.ke(block, star_state)
             block, star_state = self.rhod(block, star_state)
         elif pass_tag == "forward_pass":
-            block, star_state = self.mfn(block, star_state)
-            block, star_state = self.dmf(block, star_state)
-            block, star_state = self.mft(block, star_state)
             block, star_state = self.ut(block, star_state)
+            block, star_state = self.mfn(block, star_state)
+            block, star_state = self.mft(block, star_state)
+            block, star_state = self.dmf(block, star_state)
             block, star_state = self.vor(block, star_state)
             block, star_state = self.pv(block, star_state)
             block, star_state = self.ke(block, star_state)
@@ -880,6 +858,8 @@ class ExPrepareSpaceOperators(
             block, star_state = self.t(block, star_state)
             block, star_state = self.gz(block, star_state)
             block, star_state = self.rhod(block, star_state)
+        else:
+            raise ValueError(f"Unsupported pass tag: {pass_tag}!")
         return block, star_state
 
     def build_default(self, coriolis_scheme: coriolis.schemes.CoriolisForceAtEdge) -> "ExPrepareSpaceOperators":

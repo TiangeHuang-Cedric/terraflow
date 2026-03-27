@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 
 Float = typing.Float
+Int = typing.Int
 Array = typing.Array
 IntType = typing.IntType
 FloatType = typing.FloatType
@@ -37,7 +38,7 @@ FloatType = typing.FloatType
 
 class PrimalCell(RefPrimalCell):
     """A cell in the primal mesh."""
-    nnb: Array
+    nnb: Int[Array, "ncell"]
     maxnnb: IntType
 
     @classmethod
@@ -123,7 +124,7 @@ def calc_edptg_eddnr(edp: PrimalEdge, edd: DualEdge) -> Array:
     Return the sign between edp tangent and edd normal vectors. If they are
     the same direction, return 1; if opposite, return -1.
     """
-    return jnp.sign(jnp.sum(edp.tg * edd.nr, axis=-1)).astype(edp.v.dtype)
+    return jnp.sign(jnp.sum(edp.tg * edd.nr, dtype=jnp.float64, axis=-1)).astype(edp.v.dtype)
 
 
 @jax.jit
@@ -132,7 +133,7 @@ def calc_edpnr_eddtg(edp: PrimalEdge, edd: DualEdge) -> Array:
     Return the sign between edp normal and edd tangent vectors. If they are
     the same direction, return 1; if opposite, return -1.
     """
-    return jnp.sign(jnp.sum(edp.nr * edd.tg, axis=-1)).astype(edp.v.dtype)
+    return jnp.sign(jnp.sum(edp.nr * edd.tg, dtype=jnp.float64, axis=-1)).astype(edp.v.dtype)
 
 
 @jax.jit
@@ -145,7 +146,7 @@ def calc_edp12_edptg(edp: PrimalEdge, dua: DualCell) -> Array:
     edp2 = edp.vertex[:, 1]  # (n_edge, )
     dua_cc = dua.centroid.cartesian  # (n_dual, 3)
     edp12 = dua_cc[edp2] - dua_cc[edp1]  # (n_edge, 3)
-    return jnp.sign(jnp.sum(edp12 * edp.tg, axis=-1)).astype(edp.v.dtype)
+    return jnp.sign(jnp.sum(edp12 * edp.tg, dtype=jnp.float64, axis=-1)).astype(edp.v.dtype)
 
 
 @jax.jit
@@ -158,15 +159,15 @@ def calc_edp12_eddnr(edp: PrimalEdge, edd: DualEdge, dua: DualCell) -> Array:
     edp2 = edp.vertex[:, 1]  # (n_edge, )
     dua_cc = dua.centroid.cartesian  # (n_polg, 3)
     edp12 = dua_cc[edp2] - dua_cc[edp1]  # (n_edge, 3)
-    return jnp.sign(jnp.sum(edp12 * edd.nr, axis=-1)).astype(edp.v.dtype)
+    return jnp.sign(jnp.sum(edp12 * edd.nr, dtype=jnp.float64, axis=-1)).astype(edp.v.dtype)
 
 
 class AuxiliaryData(eqx.Module):
     """Auxiliary data for the orthogonal dual mesh."""
-    edptg_eddnr: Array
-    edpnr_eddtg: Array
-    edp12_edptg: Array
-    edp12_eddnr: Array
+    edptg_eddnr: Int[Array, "nedge"]
+    edpnr_eddtg: Int[Array, "nedge"]
+    edp12_edptg: Int[Array, "nedge"]
+    edp12_eddnr: Int[Array, "nedge"]
 
     @classmethod
     def from_elements(
@@ -1847,6 +1848,7 @@ def reconstruct_vector_at_primal_cell_from_dual_edge(
         - The implementation handles variable neighbour counts using masking.
         - All arrays are expected to be jax-compatible.
     """
+    float_type = mesh.dev.float_type
     cell = mesh.primal.cell
     cell_centroid = cell.centroid.cartesian  # (ncell, 3)
     cell_edges = cell.edges  # (ncell, maxnnb)
@@ -1891,7 +1893,11 @@ def reconstruct_vector_at_primal_cell_from_dual_edge(
         rei_unit = rei / rei_norm[:, :, None]  # (ncell, maxnnb, 3)
 
         # Dot product: nei . rei_unit
-        dot_val = jnp.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
+        dot_val = jnp.sum(
+            nei * rei_unit,
+            dtype=jnp.float64,
+            axis=-1
+        ).astype(float_type)  # (ncell, maxnnb)
 
         # Contribution per neighbor: rei * wind * dot_val * leng
         # (ncell, maxnnb, 3)
@@ -1901,7 +1907,11 @@ def reconstruct_vector_at_primal_cell_from_dual_edge(
         contrib = contrib * mask[:, :, None]  # (ncell, maxnnb, 3)
 
         # Sum contributions across neighbors
-        vector_cart = jnp.sum(contrib, axis=1)  # (ncell, 3)
+        vector_cart = jnp.sum(
+            contrib,
+            dtype=jnp.float64,
+            axis=1
+        ).astype(float_type)  # (ncell, 3)
 
         # Divide by cell area
         area = jnp.maximum(cell_area, eps * 100)  # (ncell,)

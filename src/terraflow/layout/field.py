@@ -25,7 +25,7 @@ VM = TypeVar("VM", bound=AbstractVertCoordinate)
 HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 FDT = TypeVar("FDT", Array, ux.AbstractQuantity)
-FMT = TypeVar("FMT", bound="AbstractFieldMetaData")
+FMT = TypeVar("FMT", bound="AbstractMetaData")
 
 
 def unit_convert(from_unit: str, usys: ux.AbstractUnitSystem) -> str:
@@ -35,24 +35,19 @@ def unit_convert(from_unit: str, usys: ux.AbstractUnitSystem) -> str:
     return converted.unit.to_string()
 
 
-class AbstractFieldMetaData(eqx.Module, ABC):
+class AbstractMetaData(eqx.Module, ABC):
     """Abstract metadata for AbstractField."""
     name: str = eqx.field(static=True, default="")
-    dims: tuple[str, ...] = eqx.field(static=True, default=())
     long_name: str = eqx.field(static=True, default="")
     description: str = eqx.field(static=True, default="")
     units: str = eqx.field(static=True, default="")
-    hori_location: str = eqx.field(static=True, default="")
-    vert_location: str = eqx.field(static=True, default="")
-    basis: str = eqx.field(static=True, default="")
-    coordinates: str = eqx.field(static=True, default="")
-    is_prognostic: bool = eqx.field(static=True, default=False)
     is_static: bool = eqx.field(static=True, default=False)
     output: str = eqx.field(static=True, default="")
 
+    @abstractmethod
     def is_empty(self) -> bool:
         """Check if the metadata indicates an empty field."""
-        return self.name == "" and self.dims == () and self.units == ""
+        raise NotImplementedError
 
     @abstractmethod
     def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
@@ -71,49 +66,137 @@ class AbstractFieldMetaData(eqx.Module, ABC):
         """Create a new FieldMetaData instance from a dictionary."""
         raise NotImplementedError
 
-    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> "ArrayField[Self]":
+    @abstractmethod
+    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> Any:
         """Create a zero-filled array with the same shape as the specified layout position."""
-        data = coord.zeros_like(
-            hori_loc=self.hori_location,
-            vert_loc=self.vert_location,
-            basis=self.basis
-        )
-        return ArrayField.create(
-            data=data,
-            meta=self,
-            as_quantity=False
+        raise NotImplementedError
+
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the FieldMetaData instance to a dictionary."""
+        raise NotImplementedError
+
+
+class EmptyMetaData(AbstractMetaData):
+
+    def is_empty(self) -> bool:
+        return True
+
+    def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
+        """Return a copy of the metadata with its unit converted to ``usys``."""
+        raise ValueError(
+            "Cannot wrap unit when metadata is empty."
         )
 
-    def get_hori_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
-        return coord.get_hori_layout(
-            loc=self.hori_location, basis=self.basis
+    @classmethod
+    def create(cls, **kwargs) -> Self:
+        """Create a new FieldMetaData instance."""
+        return cls()
+
+    @classmethod
+    def from_dict(cls, meta: dict) -> Self:
+        """Create a new FieldMetaData instance from a dictionary."""
+        raise ValueError(
+            "Cannot create from dict when metadata is empty."
         )
 
-    def get_vert_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
-        return coord.get_vert_layout(
-            loc=self.vert_location
+    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> Any:
+        """Create a zero-filled array with the same shape as the specified layout position."""
+        raise ValueError(
+            "Cannot create zeros_like when metadata is empty."
         )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the FieldMetaData instance to a dictionary."""
+        raise ValueError(
+            "Cannot convert to dict when metadata is empty."
+        )
+
+
+class NumericMetaData(AbstractMetaData):
+    """Metadata for numeric fields that can be directly converted to arrays."""
+
+    @classmethod
+    def create(cls, **kwargs) -> Self:
+        """Create a new NumericMetaData instance."""
+        return cls(
+            name=kwargs.get("name", ""),
+            long_name=kwargs.get("long_name", ""),
+            description=kwargs.get("description", ""),
+            units=kwargs.get("units", ""),
+            is_static=kwargs.get("is_static", False),
+            output=kwargs.get("output", ""),
+        )
+
+    @classmethod
+    def from_dict(cls, meta: dict) -> Self:
+        """Create a new NumericMetaData instance from a dictionary."""
+        return cls(
+            name=meta.get("name", ""),
+            long_name=meta.get("long_name", ""),
+            description=meta.get("description", ""),
+            units=meta.get("units", ""),
+            is_static=meta.get("is_static", False),
+            output=meta.get("output", ""),
+        )
+
+    def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
+        """Return a copy of the metadata with its unit converted to ``usys``."""
+        if isinstance(usys, str):
+            units = usys
+        else:
+            units = unit_convert(self.units, usys)
+
+        return type(self)(
+            name=self.name,
+            long_name=self.long_name,
+            description=self.description,
+            units=units,
+            is_static=self.is_static,
+            output=self.output,
+        )
+
+    def is_empty(self) -> bool:
+        """Check if the metadata indicates an empty field."""
+        return self.name == "" and self.units == ""
+
+    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> "ArrayField[Self]":
+        """Create a zero-filled array with the same shape as the specified layout position."""
+        return ArrayField.create(
+            data=jnp.array(0.0, dtype=coord.dev.float_type),
+            meta=self,
+            as_quantity=False
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
-            "dims": self.dims,
             "long_name": self.long_name,
             "description": self.description,
             "units": self.units,
-            "hori_location": self.hori_location,
-            "vert_location": self.vert_location,
-            "basis": self.basis,
-            "coordinates": self.coordinates,
-            "is_prognostic": self.is_prognostic,
             "is_static": self.is_static,
             "output": self.output,
         }
 
 
-class FieldMetaData(AbstractFieldMetaData):
+class FieldMetaData(AbstractMetaData):
     """Metadata for AbstractField."""
+    name: str = eqx.field(static=True, default="")
+    dims: tuple[str, ...] = eqx.field(static=True, default=())
+    long_name: str = eqx.field(static=True, default="")
+    description: str = eqx.field(static=True, default="")
+    units: str = eqx.field(static=True, default="")
+    hori_location: str = eqx.field(static=True, default="")
+    vert_location: str = eqx.field(static=True, default="")
+    basis: str = eqx.field(static=True, default="")
+    coordinates: str = eqx.field(static=True, default="")
+    is_prognostic: bool = eqx.field(static=True, default=False)
+    is_static: bool = eqx.field(static=True, default=False)
+    output: str = eqx.field(static=True, default="")
+
+    def is_empty(self) -> bool:
+        """Check if the metadata indicates an empty field."""
+        return self.name == "" and self.dims == () and self.units == ""
 
     def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
         """Return a copy of the metadata with its unit converted to ``usys``."""
@@ -139,6 +222,29 @@ class FieldMetaData(AbstractFieldMetaData):
             is_prognostic=self.is_prognostic,
             is_static=self.is_static,
             output=self.output,
+        )
+
+    def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> "ArrayField[Self]":
+        """Create a zero-filled array with the same shape as the specified layout position."""
+        data = coord.zeros_like(
+            hori_loc=self.hori_location,
+            vert_loc=self.vert_location,
+            basis=self.basis
+        )
+        return ArrayField.create(
+            data=data,
+            meta=self,
+            as_quantity=False
+        )
+
+    def get_hori_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return coord.get_hori_layout(
+            loc=self.hori_location, basis=self.basis
+        )
+
+    def get_vert_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        return coord.get_vert_layout(
+            loc=self.vert_location
         )
 
     @classmethod
@@ -179,7 +285,20 @@ class FieldMetaData(AbstractFieldMetaData):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert the FieldMetaData instance to a dictionary."""
-        return super().to_dict()
+        return {
+            "name": self.name,
+            "dims": self.dims,
+            "long_name": self.long_name,
+            "description": self.description,
+            "units": self.units,
+            "hori_location": self.hori_location,
+            "vert_location": self.vert_location,
+            "basis": self.basis,
+            "coordinates": self.coordinates,
+            "is_prognostic": self.is_prognostic,
+            "is_static": self.is_static,
+            "output": self.output,
+        }
 
 
 class StaggeredFieldMetaData(FieldMetaData):
@@ -284,9 +403,13 @@ class Field(eqx.Module, Generic[FDT, FMT]):
             validated_meta = cast(FieldMetaData, meta)
         elif isinstance(meta, StaggeredFieldMetaData):
             validated_meta = cast(StaggeredFieldMetaData, meta)
+        elif isinstance(meta, NumericMetaData):
+            validated_meta = cast(NumericMetaData, meta)
+        elif isinstance(meta, EmptyMetaData):
+            validated_meta = cast(EmptyMetaData, meta)
         else:
             raise TypeError(
-                "meta must be either a FieldMetaData or StaggeredFieldMetaData"
+                "meta must be either a FieldMetaData, StaggeredFieldMetaData, NumericMetaData, or EmptyMetaData"
             )
         object.__setattr__(self, 'data', cast(FDT, validated_data))
         object.__setattr__(self, '_meta', validated_meta)
@@ -336,8 +459,9 @@ class Field(eqx.Module, Generic[FDT, FMT]):
     def __repr__(self):
         info = f"name='{self.meta.name}'" if self.meta.name else "unnamed"
         shape = f"shape={self.data.shape}" if hasattr(
-            self.data, 'shape') else ""
-        return f"AbstractField({info}, {shape})"
+            self.data, 'shape'
+        ) else ""
+        return f"Field({info}, {shape})"
 
     def __len__(self) -> int:
         """Return length of the data array."""
@@ -383,6 +507,10 @@ class Field(eqx.Module, Generic[FDT, FMT]):
     ) -> Self:
         """Wrap a value in a new AbstractField instance with specified unit."""
         # Handle unxt.Quantity objects by extracting their value
+        if isinstance(self.meta, EmptyMetaData):
+            raise ValueError(
+                "Cannot wrap with unit when metadata is empty."
+            )
         meta = self.meta.wrap_unit(unit)
         instance = type(self)(
             data=self.data,
@@ -498,7 +626,7 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         as_quantity: bool = False
     ) -> Union["ArrayField[FMT]", "QuantityField[FMT]"]:
         """Create an empty AbstractField instance with default metadata."""
-        meta = FieldMetaData.create()
+        meta = EmptyMetaData()
         if as_quantity:
             quantity_data = ux.Quantity(
                 [], meta.units  # type: ignore
@@ -602,47 +730,6 @@ class Field(eqx.Module, Generic[FDT, FMT]):
         """Check if the underlying data is an AbstractQuantity."""
         return isinstance(self.data, ux.AbstractQuantity)
 
-    @overload
-    def wrap(self, data: Array) -> Self: ...
-
-    @overload
-    def wrap(self, data: ux.AbstractQuantity) -> Self: ...
-
-    def wrap(self, data: Union[Array, ux.AbstractQuantity]) -> Self:
-        """Wrap new data into a new AbstractField instance.
-        If the input data is a Quantity, it is converted to the field's unit.
-        If the input data is a raw array, it is wrapped as a Quantity with
-        the field's unit.
-
-        Args:
-            data: New data array or Quantity to wrap.
-
-        Returns:
-            A new AbstractField instance with the provided data.
-        """
-        if self.is_quantity():
-            if isinstance(data, ux.AbstractQuantity):
-                normalized = data.to(self.meta.units)
-            elif isinstance(data, Array):
-                normalized = ux.Quantity(
-                    jnp.asarray(data),  # type: ignore[arg-type]
-                    self.meta.units
-                )
-            else:
-                raise TypeError(
-                    "data must be either a JAX-like array or an unxt.AbstractQuantity"
-                )
-        else:
-            if isinstance(data, ux.AbstractQuantity):
-                normalized = data.to(self.meta.units).value
-            elif isinstance(data, Array):
-                normalized = jnp.asarray(data)
-            else:
-                raise TypeError(
-                    "data must be either a JAX-like array or an unxt.AbstractQuantity"
-                )
-        return self._wrap(normalized)
-
     def unwrap(self) -> FDT:
         """Unwrap and return the underlying data array."""
         if self.is_quantity() or self.is_array():
@@ -704,6 +791,10 @@ class Field(eqx.Module, Generic[FDT, FMT]):
             raise TypeError(
                 "Value is neither a Quantity nor a JAX array."
             )
+        if isinstance(self.meta, EmptyMetaData):
+            raise ValueError(
+                "Cannot convert to quantity when metadata is empty."
+            )
         meta = self.meta.wrap_unit(usys)
         return QuantityField(data=new_data, meta=meta)
 
@@ -726,13 +817,25 @@ class Field(eqx.Module, Generic[FDT, FMT]):
             raise TypeError(
                 "Value is neither a Quantity nor a JAX array."
             )
+        if isinstance(self.meta, EmptyMetaData):
+            raise ValueError(
+                "Cannot convert to array when metadata is empty."
+            )
         meta = self.meta.wrap_unit(usys)
         return ArrayField(data=jnp.asarray(new_data), meta=meta)
 
     def get_hori_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        if not isinstance(self.meta, FieldMetaData):
+            raise TypeError(
+                "meta must be an instance of FieldMetaData to get horizontal position"
+            )
         return self.meta.get_hori_position(coord)
 
     def get_vert_position(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> CoordinateInfo:
+        if not isinstance(self.meta, FieldMetaData):
+            raise TypeError(
+                "meta must be an instance of FieldMetaData to get vertical position"
+            )
         return self.meta.get_vert_position(coord)
 
     def to_ugrid(
@@ -759,6 +862,10 @@ class Field(eqx.Module, Generic[FDT, FMT]):
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.DataArray:
         """Convert the Field to an xarray.Dataset with UGRID format."""
+        if isinstance(self.meta, EmptyMetaData):
+            raise ValueError(
+                "Cannot convert to xarray when metadata is empty."
+            )
         return tuxr.format_terraflow2ugrid(
             self.data, self.meta.to_dict(), use_dual=use_dual
         )

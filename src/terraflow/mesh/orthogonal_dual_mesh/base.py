@@ -6,6 +6,8 @@ import equinox as eqx
 
 from terraflow.util import typing
 
+Float = typing.Float
+Int = typing.Int
 IntType = typing.IntType
 FloatType = typing.FloatType
 Array = typing.Array
@@ -16,12 +18,11 @@ class Point(eqx.Module):
     A point in 3D space, represented in both Cartesian and
     Latitude/Longitude formats.
     Attributes:
-        cartesian (Array): 3D Cartesian coordinates, shape (3,).
-        ltln (Array): Latitude and Longitude in radians,
-                      shape (2,) as [lat, lon].
+        cartesian (Float[Array, "npoint 3"])         : 3D Cartesian coordinates, shape (3,).
+        ltln      (Dict[str, Float[Array, "npoint"]]): Latitude and Longitude in radians.
     """
-    cart: Array
-    ltln: Dict[str, Array]
+    cart: Float[Array, "npoint 3"]
+    ltln: Dict[str, Float[Array, "npoint"]]
 
     @overload
     def __getitem__(self, indices: int) -> Self: ...
@@ -102,11 +103,11 @@ class Element(eqx.Module):
 class Cell(Element):
     """A Cell element in the mesh."""
     n_cell: IntType
-    area: Array
-    kite_area: Array
-    nb: Array
-    ed: Array
-    nr: Array
+    area: Float[Array, "ncell"]
+    kite_area: Float[Array, "ncell maxnnb"]
+    nb: Int[Array, "ncell maxnnb"]
+    ed: Int[Array, "ncell maxnnb"]
+    nr: Int[Array, "ncell maxnnb"]
     cc: Point
 
     @property
@@ -153,7 +154,11 @@ class Cell(Element):
 
         lax.cond(
             jnp.allclose(
-                jnp.sum(kite_area, axis=-1), self.area, rtol=1e-5, atol=1e-5),
+                jnp.sum(kite_area, dtype=jnp.float64, axis=-1),
+                self.area,
+                rtol=1e-5,
+                atol=1e-5
+            ),
             do_nothing,
             raise_error,
             None
@@ -163,9 +168,9 @@ class Cell(Element):
 class Edge(Element):
     """Edge element in the mesh."""
     n_edge: IntType
-    length: Array
-    nr: Array
-    tg: Array
+    length: Float[Array, "nedge"]
+    nr: Float[Array, "nedge 3"]
+    tg: Float[Array, "nedge 3"]
     mp: Point
 
     @property

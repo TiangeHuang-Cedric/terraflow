@@ -31,13 +31,14 @@ import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
 
-from terraflow.util import typing, uxarray as tuxr
+from terraflow.util import typing, device, uxarray as tuxr
 import terraflow.operator as op
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.field import (
-    AbstractFieldMetaData,
+    AbstractMetaData,
+    NumericMetaData,
     StaggeredFieldMetaData,
     Field,
     ArrayField,
@@ -60,7 +61,7 @@ PSO = TypeVar("PSO", bound="AbstractPrepareSpaceOperators")
 SOP = TypeVar("SOP", bound="AbstractSpaceOperators")
 ES = TypeVar("ES", bound="AbstractEquationSet")
 EQU = TypeVar("EQU", bound="AbstractEquationForm")
-FMT = TypeVar("FMT", bound=AbstractFieldMetaData)
+FMT = TypeVar("FMT", bound=AbstractMetaData)
 STATE = TypeVar("STATE", bound="AbstractFields")
 STATIC = TypeVar("STATIC", bound="AbstractFields")
 TEND = TypeVar("TEND", bound="AbstractFields")
@@ -300,10 +301,6 @@ class AbstractEquationTerm(
         *args: Any,
         **kwargs: Any
     ) -> tuple[BLOCK, STATE]:
-        raise NotImplementedError
-
-    @abstractmethod
-    def unwrap(self, block, itime: int) -> Field:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -781,10 +778,10 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
     def __init__(
         self,
         mode: AbstractEquationMode,
-        **fields: ArrayField[FMT] | Any,
+        **fields: ArrayField[FMT] | ArrayField[NumericMetaData] | Any,
     ):
         object.__setattr__(self, "mode", mode)
-        exist_fields: Dict[str, FMT] = {}
+        exist_fields: Dict[str, FMT | NumericMetaData] = {}
         for k, v in fields.items():
             if isinstance(v, Field):
                 if not v.is_empty():
@@ -902,7 +899,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         mode: AbstractEquationMode,
         *args,
         **kwargs
-    ) -> Dict[str, FMT]:
+    ) -> Dict[str, FMT | NumericMetaData] | Dict[str, FMT]:
         """Return default variable metadata dictionary."""
         return {}
 
@@ -912,15 +909,27 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         mode: AbstractEquationMode,
         *args,
         **kwargs
-    ) -> Dict[str, ArrayField[FMT]]:
+    ) -> Union[
+        Dict[
+            str,
+            ArrayField[FMT] | ArrayField[NumericMetaData]
+        ],
+        Dict[str, ArrayField[FMT]]
+    ]:
         """Return default variable field dictionary."""
-        return {
-            key: ArrayField[FMT](
-                data=jnp.zeros(()),
-                meta=field_meta
-            )
-            for key, field_meta in cls.default_meta(mode=mode).items()
-        }
+        fields = {}
+        for key, field_meta in cls.default_meta(mode=mode).items():
+            if isinstance(field_meta, NumericMetaData):
+                fields[key] = ArrayField[NumericMetaData](
+                    data=jnp.zeros(()),
+                    meta=field_meta
+                )
+            else:
+                fields[key] = ArrayField[FMT](
+                    data=jnp.zeros(()),
+                    meta=field_meta
+                )
+        return fields
 
     def existing_values(self) -> Dict[str, ArrayField[FMT]]:
         """Return existing variables."""
@@ -993,10 +1002,13 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         **kwargs
     ) -> Self:
         meta = cls.default_meta(mode=equation.mode)
-        exist_fields: Dict[str, ArrayField[FMT]] = {}
+        exist_fields: Dict[
+            str,
+            ArrayField[FMT] | ArrayField[NumericMetaData]
+        ] = {}
         for field_name in cls.get_all_fields():
             if field_name not in meta:
-                exist_fields[field_name] = Field.empty()
+                exist_fields[field_name] = ArrayField.empty()
             else:
                 exist_fields[field_name] = meta[field_name].zeros_like(coord)
         return cls(mode=equation.mode, **exist_fields)
@@ -1014,7 +1026,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
     def empty(cls, mode: AbstractEquationMode) -> Self:
         exist_fields: Dict[str, ArrayField[FMT]] = {}
         for field_name in cls.get_all_fields():
-            exist_fields[field_name] = Field.empty()
+            exist_fields[field_name] = ArrayField.empty()
         return cls(mode=mode, **exist_fields)
 
     def empty_like(self) -> Self:
@@ -1078,15 +1090,22 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
-        if not self.is_staggered():
-            raise TypeError(
-                "Variables are not all staggered Fields, cannot convert to UGRID format."
-            )
         var_ds: Dict[str, xr.DataArray] = {}
         for var in self.values():
-            var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
-                var.data, var.meta.to_dict(), use_dual=use_dual
-            )
+            if isinstance(var.meta, StaggeredFieldMetaData):
+                var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
+                    var.data,
+                    var.meta.to_dict(),
+                    is_numerical=False,
+                    use_dual=use_dual
+                )
+            elif isinstance(var.meta, NumericMetaData):
+                var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
+                    var.data,
+                    var.meta.to_dict(),
+                    is_numerical=True,
+                    use_dual=use_dual
+                )
         return xr.Dataset(data_vars=var_ds)
 
 
@@ -1334,15 +1353,22 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
 
     def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
-        if not self.is_staggered():
-            raise TypeError(
-                "Variables are not all staggered Fields, cannot convert to UGRID format."
-            )
         var_ds: Dict[str, xr.DataArray] = {}
         for key, var in self.items():
-            var_ds[key] = tuxr.format_terraflow2ugrid(
-                var.data, self.meta[key].to_dict(), use_dual=use_dual
-            )
+            if isinstance(var.meta, StaggeredFieldMetaData):
+                var_ds[key] = tuxr.format_terraflow2ugrid(
+                    var.data,
+                    self.meta[key].to_dict(),
+                    is_numerical=False,
+                    use_dual=use_dual
+                )
+            elif isinstance(var.meta, NumericMetaData):
+                var_ds[key] = tuxr.format_terraflow2ugrid(
+                    var.data,
+                    self.meta[key].to_dict(),
+                    is_numerical=True,
+                    use_dual=use_dual
+                )
         return xr.Dataset(data_vars=var_ds)
 
     @classmethod
@@ -1390,6 +1416,10 @@ class AbstractBlock(
     @abstractmethod
     def reset(self, *args, **kwargs) -> Self:
         raise NotImplementedError
+
+    @property
+    def dev(self) -> device.AbstractDevice:
+        return self.coord.dev
 
     @property
     def coord(self) -> CoordinateSystem[HM, VM, HLO, VLO]:

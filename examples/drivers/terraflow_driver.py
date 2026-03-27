@@ -54,8 +54,8 @@ block = equation.prepare_block(block)
 
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="0001-01-01T00:00:00",
-    end_time="0001-01-01T02:00:00",
-    save_interval="300 seconds",
+    end_time="0001-01-21T00:00:00",
+    save_interval="6 hours",
     dt_dyn="300 seconds",
 )
 
@@ -63,7 +63,7 @@ history = tf.util.history.UnstructuredHistoryset(
     coord=coord,
     time_manager=time_manager,
     case_name="terraflow" + "." + mesh.glevel,
-    output_h1=True,
+    output_h1=False,
     output_h2=False,
     dev=dev,
 ).setup(block)
@@ -72,6 +72,8 @@ solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     dev=dev,
+    with_jit=False,
+    forward_backward=True
 )
 
 integrate_fn = solver.io_callback(history=history)

@@ -444,15 +444,18 @@ class GristDualEdge(RefDualEdge):
         cc = Point(cart=cart, ltln=ltln)
         nr = jnp.array(
             get_array(ds, "edt_nr").T,
-            dtype=float_type, device=arch
+            dtype=float_type,
+            device=arch
         )
         tg = jnp.array(
             get_array(ds, "edt_tg").T,
-            dtype=float_type, device=arch
+            dtype=float_type,
+            device=arch
         )
         length = jnp.array(
             get_array(ds, "edt_len")[0, :].T,
-            dtype=float_type, device=arch
+            dtype=float_type,
+            device=arch
         )
         return cls(v, meta.ne, length, nr, tg, cc)
 

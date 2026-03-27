@@ -729,7 +729,11 @@ def calc_2nd_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_2nd = 2 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_2nd = 2 * jnp.sum(
+        fcoe * s,
+        dtype=jnp.float64,
+        axis=-1
+    ).astype(x_at_cell.dtype)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
 
@@ -777,7 +781,11 @@ def calc_4th_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_4th = 24 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_4th = 24 * jnp.sum(
+        fcoe * s,
+        dtype=jnp.float64,
+        axis=-1
+    ).astype(x_at_cell.dtype)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th
 
@@ -1050,12 +1058,14 @@ def get_lob_xy(
     p0pi = math.project_sphere2plane(op0, opi)  # (max_m, 3)
     local_x = jnp.sum(
         p0pi * tx[None, :],
+        dtype=jnp.float64,
         axis=-1
-    )  # (max_m,)
+    ).astype(op0.dtype)  # (max_m,)
     local_y = jnp.sum(
         p0pi * ty[None, :],
+        dtype=jnp.float64,
         axis=-1
-    )  # (max_m,)
+    ).astype(op0.dtype)  # (max_m,)
     # Mask out invalid stencil members
     local_x = jnp.where(is_valid_stencil, local_x, 0.0)  # (max_m,)
     local_y = jnp.where(is_valid_stencil, local_y, 0.0)  # (max_m,)

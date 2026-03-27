@@ -59,6 +59,16 @@ class AbstractImplicitExplicitODE(AbstractODE):
         raise NotImplementedError
 
 
+def repeated_once(step_fn: Callable) -> Callable[..., AbstractBlock]:
+
+    def wrapper(block: AbstractBlock) -> AbstractBlock:
+        new_block: AbstractBlock = step_fn(block)
+        new_block = new_block.swap_time_indices()
+        return new_block
+
+    return wrapper
+
+
 def repeated(
     fn: Callable,
     steps: int,
@@ -274,7 +284,7 @@ def io_callback(
             scan_fn=inner_scan_fn
         )
     else:
-        repeated_step_fn = step_fn
+        repeated_step_fn = repeated_once(step_fn)
 
     def inner_step_fn(carry_in, _):
         block, save_idx = carry_in
@@ -342,7 +352,7 @@ def trajectory_from_step(
             scan_fn=inner_scan_fn
         )
     else:
-        repeated_step_fn = step_fn
+        repeated_step_fn = repeated_once(step_fn)
 
     def inner_step_fn(block, _):
         block = repeated_step_fn(block)
@@ -382,7 +392,7 @@ def integrate(
             scan_fn=inner_scan_fn
         )
     else:
-        repeated_step_fn = step_fn
+        repeated_step_fn = repeated_once(step_fn)
 
     def inner_step_fn(block, _):
         block = repeated_step_fn(block)

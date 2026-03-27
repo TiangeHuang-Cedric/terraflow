@@ -140,6 +140,7 @@ class InterpMethod:
         half_dlev = coord.vert.half_dlev[:, None]
         dtype = x.dtype
         x_at_half_lev = jnp.zeros((nlev + 1, n_points), dtype=dtype)
+        # From half_kds + 1 to half_kde - 1
         a = full_dlev[:-1, :] / (2 * half_dlev[1:-1, :])
         b = full_dlev[1:, :] / (2 * half_dlev[1:-1, :])
         tmp = a * x[1:, :] + b * x[:-1, :]
@@ -152,14 +153,3 @@ class InterpMethod:
             tmp = x[-1, :]
             x_at_half_lev = x_at_half_lev.at[-1, :].set(tmp)
         return x_at_half_lev
-
-
-def exner_at_full_lev(
-    coord: CoordSys,
-    para: PlanetParameterSet,
-    mg: Float[Array, "nlev n_points"],
-) -> Float[Array, "nlev n_points"]:
-    rd = para.rd.unwrap()
-    cp = para.cp.unwrap()
-    p0 = coord.vert.p0
-    return (mg / p0) ** (rd / cp)

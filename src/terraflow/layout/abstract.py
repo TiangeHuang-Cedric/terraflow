@@ -4,7 +4,7 @@ import equinox as eqx
 import jax.numpy as jnp
 from loguru import logger
 
-from terraflow.util import typing
+from terraflow.util import typing, device
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 
@@ -102,6 +102,10 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
     @property
     def vert_layout(self) -> VLO:
         return self._vert_layout
+
+    @property
+    def dev(self) -> device.AbstractDevice:
+        return self.mesh.dev
 
     def zeros_like(
         self,

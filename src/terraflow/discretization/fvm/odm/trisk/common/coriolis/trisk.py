@@ -114,7 +114,11 @@ class TriSKCoriolisForceAtEdge(Operator):
             mfx_tile = mfn_e[ep_idx]  # (nedg, maxnnb*2)
             mfx_tile = jnp.where(ep_idx < 0, 0.0, mfx_tile)
             mfx_tile = mfx_tile * pv_eep
-            return jnp.sum(weight * lenp * mfx_tile, axis=-1) / edd_length
+            return jnp.sum(
+                weight * lenp * mfx_tile,
+                dtype=jnp.float64,
+                axis=-1
+            ).astype(block.dev.float_type) / edd_length
 
         dundt_coriolis = - jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(
             mfn_e, pv_e
@@ -177,12 +181,15 @@ def calc_trsk_weight(
                     """When iep > iee, return sum(riv[iep:nnb-1]) + sum(riv[0:iee])."""
                     mask1 = mask >= iep
                     mask2 = (mask <= iee - 1) & (mask >= 0)
-                    return jnp.sum(riv * mask1) + jnp.sum(riv * mask2)
+                    return (
+                        jnp.sum(riv * mask1, dtype=jnp.float64)
+                        + jnp.sum(riv * mask2, dtype=jnp.float64)
+                    ).astype(dtype)
 
                 def condition_less(_):
                     """When iep < iee, return sum(riv[iep:iee])."""
                     mask3 = (mask >= iep) & (mask <= iee - 1)
-                    return jnp.sum(riv * mask3)
+                    return jnp.sum(riv * mask3, dtype=jnp.float64).astype(dtype)
 
                 riv_sum = lax.cond(
                     iep > iee,

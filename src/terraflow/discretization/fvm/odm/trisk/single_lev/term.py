@@ -8,7 +8,6 @@ from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
 from terraflow.mesh.orthogonal_dual_mesh import operators as op
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem
-from terraflow.layout.field import Field
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.discretization.abstract import (
@@ -122,9 +121,6 @@ class TendencyOfDivergenceOfMassFlux(
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block, itime: int) -> Field:
-        return block.tend.dgzdt_dmf
-
 
 class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
     types.NonlinearCoriolisTermProtocol[FiniteVolumeMethod]
@@ -162,9 +158,6 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
     def prepare_block(self, block: Block) -> Block:
         return self.scheme.prepare_block(block)
 
-    def unwrap(self, block: Block, itime: int) -> Field:
-        return block.tend.dundt_coriolis
-
 
 class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
     types.PressureGradientForceTermProtocol[FiniteVolumeMethod]
@@ -198,9 +191,6 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
 
     def prepare_block(self, block: Block) -> Block:
         return block
-
-    def unwrap(self, block: Block, itime: int) -> Field:
-        return block.tend.dundt_pgf
 
 
 class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
@@ -239,9 +229,6 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     def prepare_block(self, block: Block) -> Block:
         return block
 
-    def unwrap(self, block: Block, itime: int) -> Field:
-        return block.tend.dundt_grad_ke
-
 
 class ExPrepareSpaceOperators(
     AbstractPrepareSpaceOperators[
@@ -262,7 +249,7 @@ class ExPrepareSpaceOperators(
             mode=mode
         )
         self.dmg = FluidThickness(disc=disc, method=method)
-        self.mf = common_op.NormalMassFluxAtEdge(
+        self.mfn = common_op.NormalMassFluxAtEdge(
             disc=disc, method=method, mode=mode
         )
         self.dmf = common_op.DivergenceOfMassFluxAtCell(
@@ -284,15 +271,15 @@ class ExPrepareSpaceOperators(
         )
 
     def first_call(self, block: BLOCK) -> BLOCK:
-        star_state = block.get_state(0)
+        star_state = block.get_state(block.old)
         block, star_state = self.dmg(block, star_state)
-        block, star_state = self.mf(block, star_state)
+        block, star_state = self.mfn(block, star_state)
         block, star_state = self.dmf(block, star_state)
         block, star_state = self.ut(block, star_state)
         block, star_state = self.vor(block, star_state)
         block, star_state = self.pv(block, star_state)
         block, star_state = self.ke(block, star_state)
-        block = block.set_state(itime=0, state=star_state)
+        block = block.set_state(itime=block.old, state=star_state)
         return block
 
     def __call__(
@@ -303,14 +290,14 @@ class ExPrepareSpaceOperators(
         explicit: bool
     ) -> tuple[BLOCK, State]:
         if pass_tag == "all_pass":
-            block, star_state = self.mf(block, star_state)
+            block, star_state = self.mfn(block, star_state)
             block, star_state = self.dmf(block, star_state)
             block, star_state = self.ut(block, star_state)
             block, star_state = self.vor(block, star_state)
             block, star_state = self.pv(block, star_state)
             block, star_state = self.ke(block, star_state)
         elif pass_tag == "forward_pass":
-            block, star_state = self.mf(block, star_state)
+            block, star_state = self.mfn(block, star_state)
             block, star_state = self.dmf(block, star_state)
             block, star_state = self.ut(block, star_state)
             block, star_state = self.vor(block, star_state)
@@ -326,7 +313,7 @@ class ExPrepareSpaceOperators(
     ) -> "ExPrepareSpaceOperators":
         if not self.has_built():
             self.dmg.build_default()
-            self.mf.build_default()
+            self.mfn.build_default()
             self.dmf.build_default()
             self.vor.build_default()
             self.ut.build_default(coriolis_scheme=coriolis_scheme)
@@ -337,7 +324,7 @@ class ExPrepareSpaceOperators(
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.dmg.prepare_block(block)
-        block = self.mf.prepare_block(block)
+        block = self.mfn.prepare_block(block)
         block = self.dmf.prepare_block(block)
         block = self.vor.prepare_block(block)
         block = self.ut.prepare_block(block)

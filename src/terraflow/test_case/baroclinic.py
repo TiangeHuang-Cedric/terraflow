@@ -1,7 +1,6 @@
 from loguru import logger
 from jax import numpy as jnp
 import jax
-import equinox as eqx
 
 from terraflow.util import typing, math, formula
 from terraflow.planet import PlanetParameterSet
@@ -30,7 +29,11 @@ class BaroclinicEquationTestCase(AbstractTestCase):
         u = self.init_u(lon, lat, eta)
         v = self.init_v(lon, lat, eta)
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
-        return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
+        return jnp.sum(
+            velocity_3d_cart * edge_normal,
+            dtype=jnp.float64,
+            axis=-1
+        ).astype(lon.dtype)
 
     def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
         """Initialize dry mass field at surface.
@@ -97,13 +100,13 @@ class BaroclinicEquationTestCase(AbstractTestCase):
 
 
 class SteadyStateTestCase(BaroclinicEquationTestCase):
-    alpha: float = eqx.field(default=0.0)
-    u0: float = eqx.field(default=35.0)  # m s-1
-    t0: float = eqx.field(default=288.0)  # K
-    gamma: float = eqx.field(default=0.005)  # K m-1
-    dt: float = eqx.field(default=4.8e5)  # K
-    eta0: float = eqx.field(default=0.252)
-    etat: float = eqx.field(default=0.2)  # Tropopause level
+    alpha: Array
+    u0: Array  # m s-1
+    t0: Array  # K
+    gamma: Array
+    dt: Array
+    eta0: Array
+    etat: Array  # Tropopause level
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
@@ -119,13 +122,29 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
             "A proposal for the NCAR ASP 2008 summer colloquium."
         )
         self.keywords = ("baroclinic", "steady state", "atmosphere")
-        self.alpha = 0.0
-        self.u0 = 35.0  # m s-1
-        self.t0 = 288.0  # K
-        self.gamma = 0.005  # K m-1
-        self.dt = 4.8e5  # K
-        self.eta0 = 0.252
-        self.etat = 0.2  # Tropopause level
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.alpha = jnp.array(
+            0.0, device=dev, dtype=float_type
+        )
+        self.u0 = jnp.array(
+            35.0, device=dev, dtype=float_type
+        )  # m s-1
+        self.t0 = jnp.array(
+            288.0, device=dev, dtype=float_type
+        )  # K
+        self.gamma = jnp.array(
+            0.005, device=dev, dtype=float_type
+        )  # K m-1
+        self.dt = jnp.array(
+            4.8e5, device=dev, dtype=float_type
+        )  # K
+        self.eta0 = jnp.array(
+            0.252, device=dev, dtype=float_type
+        )
+        self.etat = jnp.array(
+            0.2, device=dev, dtype=float_type
+        )  # Tropopause level
         logger.success("Initialized baroclinic steady state test case.")
 
     def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
@@ -220,15 +239,15 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
 
 class MountainWaveTestCase(BaroclinicEquationTestCase):
     """Baroclinic wave test case with a mountain perturbation."""
-    T0: float = eqx.field(default=288.0)  # K
-    h0: float = eqx.field(default=2000.0)  # m
-    d: float = eqx.field(default=1.5e6)  # m
-    u0: float = eqx.field(default=20.0)  # m s-1
-    lonc: float = eqx.field(default=jnp.pi / 2.0)  # rad
-    latc: float = eqx.field(default=jnp.pi / 6.0)  # rad
-    kap: float = eqx.field(default=2.0 / 7.0)
-    psp: float = eqx.field(default=93000.0)  # Pa
-    N: float = eqx.field(default=0.0182)  # s-1
+    T0: Array  # K
+    h0: Array  # m
+    d: Array  # m
+    u0: Array  # m s-1
+    lonc: Array  # rad
+    latc: Array  # rad
+    kap: Array
+    psp: Array  # Pa
+    N: Array  # s-1
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
@@ -240,15 +259,35 @@ class MountainWaveTestCase(BaroclinicEquationTestCase):
             "A proposal for the NCAR ASP 2008 summer colloquium.",
         )
         self.keywords = ("baroclinic", "mountain wave", "atmosphere")
-        self.T0 = 288.0  # K
-        self.h0 = 2000.0  # m
-        self.d = 1.5e6
-        self.u0 = 20.0  # m s-1
-        self.lonc = jnp.pi / 2.0
-        self.latc = jnp.pi / 6.0
-        self.kap = 2.0 / 7.0
-        self.psp = 93000.0  # Pa
-        self.N = 0.0182  # s-1
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.T0 = jnp.array(
+            288.0, device=dev, dtype=float_type
+        )  # K
+        self.h0 = jnp.array(
+            2000.0, device=dev, dtype=float_type
+        )  # m
+        self.d = jnp.array(
+            1.5e6, device=dev, dtype=float_type
+        )
+        self.u0 = jnp.array(
+            20.0, device=dev, dtype=float_type
+        )  # m s-1
+        self.lonc = jnp.array(
+            jnp.pi / 2.0, device=dev, dtype=float_type
+        )
+        self.latc = jnp.array(
+            jnp.pi / 6.0, device=dev, dtype=float_type
+        )
+        self.kap = jnp.array(
+            2.0 / 7.0, device=dev, dtype=float_type
+        )
+        self.psp = jnp.array(
+            93000.0, device=dev, dtype=float_type
+        )  # Pa
+        self.N = jnp.array(
+            0.0182, device=dev, dtype=float_type
+        )  # s-1
         logger.success("Initialized baroclinic mountain wave test case.")
 
     def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
@@ -290,11 +329,10 @@ class MountainWaveTestCase(BaroclinicEquationTestCase):
         kap = self.kap
         return psp * jnp.exp(
             (
-                -0.5 * radius * N**2 * u0 / g**2 / kap
-                * (u0 / radius + 2.0 * omega)
+                -0.5 * radius * N**2 * u0 / (g**2 * kap)
+                * (u0 / radius + 2.0 * omega) * (sin_lat**2 - 1.0)
             )
-            * (sin_lat**2 - 1.0)
-            - N**2 / g**2 / kap * gzs
+            - N**2 / (g**2 * kap) * gzs
         )
 
     def init_pt(self, lon: Array, lat: Array, eta: Array, p: Array) -> Array:

@@ -14,7 +14,7 @@ from terraflow.layout.abstract import (
     MeshEntity,
     VertLoc,
 )
-from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
+from terraflow.layout.field import ArrayField, StaggeredFieldMetaData, NumericMetaData
 from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
@@ -159,23 +159,298 @@ class Block(
             equaux=EquationTermAuxDataset.empty()
         )
 
-    def diagnose(self, itime: int) -> Self:
+    def diagnose(self, itime: int) -> "Block":
         state = self.get_state(itime)
+        # =======================================================
+        # Diagnose u and v from un
         uv = self.coord.mesh.reconstruct_vector(
             normal_u_at_edge=state.un.data,
         )
-        self = eqx.tree_at(
+        block: "Block" = eqx.tree_at(
             lambda b: (b.aux.u.data, b.aux.v.data),
             self,
             (uv["u"], uv["v"])
         )
-        return self
+        # =======================================================
+        # Diagnose total mass, total energy, total potential enstrophy
+        mesh = block.coord.mesh
+        edp_len = mesh.primal.edge.length
+        edd_len = mesh.dual.edge.length
+        gzs = block.static.gzs.unwrap()
+        mgs = state.mgs.unwrap()
+        dmg = state.dmg.unwrap()
+        un = state.un.unwrap()
+        tv = block.aux.tv.unwrap()
+        pt = state.pt.unwrap()
+        pv_e = block.aux.pv_e.unwrap()
+        g = block.para.gravity.unwrap()
+        cpd = block.para.cpd.unwrap()
+        float_type = block.dev.float_type
+
+        # Weighted area
+        primal_area = mesh.primal.cell.area
+        kite_area = edp_len * edd_len * 0.5
+
+        tm = jnp.array(0.0, dtype=jnp.float64)
+        te = jnp.array(0.0, dtype=jnp.float64)
+        tpe = jnp.array(0.0, dtype=jnp.float64)
+        tpt = jnp.array(0.0, dtype=jnp.float64)
+        tqv = jnp.array(0.0, dtype=jnp.float64)
+        te_ke = jnp.array(0.0, dtype=jnp.float64)
+        te_ie = jnp.array(0.0, dtype=jnp.float64)
+        te_pe = jnp.array(0.0, dtype=jnp.float64)
+
+        # =========================================
+        # Total mass
+        tm = tm + jnp.sum(
+            dmg * primal_area[None, :],
+            dtype=jnp.float64
+        ).astype(float_type)
+        # =========================================
+        # TODO: When processing moist dycore, this should be modified
+        # Total water vapor
+        # =========================================
+        # Total energy
+        # =================================
+        # Total energy due to kinetic energy
+        # TODO: nh dynamics kinetic energy
+        # Kinetic energy at edge
+        edd_v = mesh.dual.edge.endpoints
+        cell_0 = edd_v[:, 0]
+        cell_1 = edd_v[:, 1]
+        dmg_e = 0.5 * (dmg[:, cell_0] + dmg[:, cell_1])
+        te_ke = te_ke + jnp.sum(
+            0.5 * un**2 * dmg_e * kite_area[None, :],
+            dtype=jnp.float64
+        ).astype(float_type)
+        # ==================================
+        # Total energy due to internal energy
+        if self.mode.baroclinic:
+            te_ie = te_ie + jnp.sum(
+                dmg * cpd * tv * primal_area[None, :],
+                dtype=jnp.float64
+            ).astype(float_type)
+        # ==================================
+        # Total energy due to potential energy
+        if self.mode.baroclinic:
+            te_pe = te_pe + jnp.sum(
+                gzs * mgs * primal_area,
+                dtype=jnp.float64
+            ).astype(float_type)
+        else:
+            te_pe = te_pe + jnp.sum(
+                (dmg.squeeze()**2 * g * 0.5 + dmg.squeeze()*gzs) * primal_area,
+                dtype=jnp.float64
+            ).astype(float_type)
+        # ==================================
+        te = te_ke + te_ie + te_pe
+        # =========================================
+        # Total potential enstrophy
+        tpe = tpe + jnp.sum(
+            dmg_e * pv_e**2 * kite_area[None, :],
+            dtype=jnp.float64
+        ).astype(float_type)
+        # =========================================
+        # Total potential temperature
+        if self.mode.baroclinic:
+            tpt = tpt + jnp.sum(
+                dmg * pt * primal_area[None, :],
+                dtype=jnp.float64
+            ).astype(float_type)
+        # =========================================
+        # Wrap diagnosed variables into block
+        if self.mode.baroclinic:
+            state = eqx.tree_at(
+                lambda s: (
+                    s.tm.data, s.te.data, s.tpe.data, s.tpt.data,
+                    s.te_ke.data, s.te_ie.data, s.te_pe.data
+                ),
+                state,
+                (tm, te, tpe, tpt, te_ke, te_ie, te_pe)
+            )
+        else:
+            state = eqx.tree_at(
+                lambda s: (
+                    s.tm.data, s.te.data, s.tpe.data,
+                    s.te_ke.data, s.te_pe.data
+                ),
+                state,
+                (tm, te, tpe, te_ke, te_pe)
+            )
+        return block.set_state(itime, state)
 
     def reset(self, pass_tag: str) -> Self:
         return eqx.tree_at(
             lambda b: b.tend,
             self,
             replace=self.tend.reset(pass_tag=pass_tag),
+        )
+
+
+class State(AbstractFields[StaggeredFieldMetaData]):
+    mode: AbstractEquationMode = eqx.field(static=True)
+    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    un: FDT
+    gz: FDT
+    gz_lev: FDT
+    dmg: FDT
+    dmg_e: FDT
+    dmg_vtx: FDT
+    dmg_lev: FDT
+    mg: FDT
+    mg_lev: FDT
+    mgs: FDT
+    pt: FDT
+    ph: FDT
+    ph_lev: FDT
+    phs: FDT
+    # Nonhydrostatic variables
+    p: FDT
+    p_lev: FDT
+    tm: FDT
+    te: FDT
+    te_ke: FDT
+    te_ie: FDT
+    te_pe: FDT
+    tpe: FDT
+    tpt: FDT
+
+    @staticmethod
+    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
+        return default_state_meta(mode=mode)
+
+
+class Tendency(AbstractFields[StaggeredFieldMetaData]):
+    mode: AbstractEquationMode = eqx.field(static=True)
+    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    dgzdt: FDT
+    dgzdt_dmf: FDT
+    dmgsdt: FDT
+    dmgsdt_dmf: FDT
+    dptdt: FDT
+    dptdt_dptfn: FDT
+    dptdt_ptvf: FDT
+    dundt: FDT
+    dundt_coriolis: FDT
+    dundt_grad_ke: FDT
+    dundt_pgf: FDT
+    dundt_wedundeta: FDT
+
+    @staticmethod
+    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+        return default_tendency_meta(mode=mode)
+
+    def reset(self, pass_tag: str) -> Self:
+        if not self.mode.baroclinic:
+            if pass_tag == "all_pass":
+                return eqx.tree_at(
+                    lambda b: (b.dgzdt.data, b.dundt.data),
+                    self,
+                    (
+                        jnp.zeros_like(self.dgzdt.data),
+                        jnp.zeros_like(self.dundt.data)
+                    )
+                )
+            elif pass_tag == "forward_pass":
+                return eqx.tree_at(
+                    lambda b: b.dgzdt.data,
+                    self,
+                    jnp.zeros_like(self.dgzdt.data)
+                )
+            elif pass_tag == "backward_pass":
+                return eqx.tree_at(
+                    lambda b: b.dundt.data,
+                    self,
+                    jnp.zeros_like(self.dundt.data)
+                )
+            else:
+                raise ValueError(f"Invalid pass_tag: {pass_tag}")
+        if (
+            self.mode.baroclinic
+            and self.mode.hydrostatic
+            and not self.mode.nonhydrostatic
+            and self.mode.ideal_dry_core
+            and not self.mode.advection
+        ):
+            if pass_tag == "all_pass":
+                return eqx.tree_at(
+                    lambda b: (b.dmgsdt.data, b.dptdt.data, b.dundt.data),
+                    self,
+                    (
+                        jnp.zeros_like(self.dmgsdt.data),
+                        jnp.zeros_like(self.dptdt.data),
+                        jnp.zeros_like(self.dundt.data)
+                    )
+                )
+            elif pass_tag == "forward_pass":
+                return eqx.tree_at(
+                    lambda b: (b.dmgsdt.data, b.dptdt.data),
+                    self,
+                    (
+                        jnp.zeros_like(self.dmgsdt.data),
+                        jnp.zeros_like(self.dptdt.data)
+                    )
+                )
+            elif pass_tag == "backward_pass":
+                return eqx.tree_at(
+                    lambda b: b.dundt.data,
+                    self,
+                    jnp.zeros_like(self.dundt.data)
+                )
+            else:
+                raise ValueError(f"Invalid pass_tag: {pass_tag}")
+        else:
+            raise NotImplementedError
+
+
+class Static(AbstractFields[StaggeredFieldMetaData]):
+    mode: AbstractEquationMode = eqx.field(static=True)
+    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    gzs: FDT
+    ref_ps: FDT
+
+    @staticmethod
+    def default_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
+        return default_static_meta(mode=mode)
+
+
+class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
+    mode: AbstractEquationMode = eqx.field(static=True)
+    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    u: FDT
+    v: FDT
+    ut: FDT
+    vor: FDT
+    pv_vtx: FDT
+    pv_e: FDT
+    ke: FDT
+    mfn: FDT
+    mft: FDT
+    mfz_lev: FDT
+    dmf: FDT
+    t: FDT
+    tv: FDT
+    rhod: FDT
+
+    @staticmethod
+    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+        return default_auxiliary_meta(mode=mode)
+
+
+class EquationTermAuxDataset(AbstractEquationTermAuxiliaryDataset):
+    pgf: PressureGradientForceDataset
+    coriolis: CoriolisForceAtEdgeData
+    adv: AdvectionAuxiliaryDataset
+
+    @classmethod
+    def empty(cls) -> Self:
+        pgf = PressureGradientForceDataset.empty()
+        coriolis = CoriolisForceAtEdgeData.empty()
+        adv = AdvectionAuxiliaryDataset.empty()
+        return cls(
+            pgf=pgf,
+            coriolis=coriolis,
+            adv=adv
         )
 
 
@@ -317,16 +592,6 @@ def baroclinic_mountain_wave_case_init_fn(
     elements = baroclinic_block_element_init_fn(
         coord=coord, equation=equation
     )
-    tend = Tendency.from_coord(coord=coord, equation=equation)
-    static = Static.from_coord(coord=coord, equation=equation)
-    aux = Auxiliary.from_coord(coord=coord, equation=equation)
-    adv_batch_pt = AdvBatchType.from_coord(
-        name="pt",
-        batch_hori_loc=MeshEntity.Cell,
-        batch_vert_loc=VertLoc.Cell,
-        coord=coord,
-        equation=equation
-    )
     gzs = init_gzs_in_baroclinic_case(
         coord=coord, equation=equation, test=case
     )
@@ -362,6 +627,10 @@ def init_z_in_barotropic_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for gz variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     if horizontal_coord is None:
         raise ValueError(
@@ -380,6 +649,10 @@ def init_un_in_barotropic_case(
     test: ShallowWaterEquationTestCase,
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["un"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for un variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     if horizontal_coord is None:
         raise ValueError(
@@ -417,6 +690,10 @@ def init_mgs_in_baroclinic_case(
     gzs: Array
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["mgs"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for mgs variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     if horizontal_coord is None:
         raise ValueError(
@@ -456,6 +733,10 @@ def init_pt_in_baroclinic_case(
     p: Array
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["pt"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for pt variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     vertical_coord = meta.get_vert_position(coord).vertical_coord
     if horizontal_coord is None:
@@ -478,6 +759,10 @@ def init_un_in_baroclinic_case(
     test: BaroclinicEquationTestCase
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["un"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for un variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     vertical_coord = meta.get_vert_position(coord).vertical_coord
     if horizontal_coord is None:
@@ -520,6 +805,10 @@ def init_gz_in_baroclinic_case(
     test: BaroclinicEquationTestCase
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for gz variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     vertical_coord = meta.get_vert_position(coord).vertical_coord
     if horizontal_coord is None:
@@ -542,6 +831,10 @@ def init_gz_lev_in_case(
     test: BaroclinicEquationTestCase
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz_lev"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for gz_lev variable: {type(meta)}"
+        )
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
     vertical_coord = meta.get_vert_position(coord).vertical_coord
     if horizontal_coord is None:
@@ -558,8 +851,8 @@ def init_gz_lev_in_case(
     return test.init_gz(lon, lat, eta)
 
 
-def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-    meta: dict[str, StaggeredFieldMetaData] = {}
+def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
+    meta: dict[str, StaggeredFieldMetaData | NumericMetaData] = {}
     meta["un"] = StaggeredFieldMetaData(
         name="un",
         dims=(NLEV, NEDGE,) if mode.baroclinic else (NEDGE,),
@@ -848,33 +1141,63 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_prognostic=False,
             output="h0" if mode.nonhydrostatic else ""
         )
+    meta["tm"] = NumericMetaData(
+        name="tm",
+        long_name="Total mass",
+        description="Total mass",
+        units="kg",
+        is_static=False,
+        output="h0"
+    )
+    meta["tpe"] = NumericMetaData(
+        name="tpe",
+        long_name="Total potential energy",
+        description="Total potential energy",
+        units="J/kg",
+        is_static=False,
+        output="h0"
+    )
+    meta["te"] = NumericMetaData(
+        name="te",
+        long_name="Total energy",
+        description="Total energy",
+        is_static=False,
+        output="h0"
+    )
+    meta["te_ke"] = NumericMetaData(
+        name="te_ke",
+        long_name="Total energy due to kinetic energy",
+        description="Total energy due to kinetic energy",
+        units="J/kg",
+        is_static=False,
+        output="h0"
+    )
+    meta["te_pe"] = NumericMetaData(
+        name="te_pe",
+        long_name="Total energy due to potential energy",
+        description="Total energy due to potential energy",
+        units="J/kg",
+        is_static=False,
+        output="h0"
+    )
+    if mode.baroclinic:
+        meta["te_ie"] = NumericMetaData(
+            name="te_ie",
+            long_name="Total energy due to internal energy",
+            description="Total energy due to internal energy",
+            units="J/kg",
+            is_static=False,
+            output="h0"
+        )
+        meta["tpt"] = NumericMetaData(
+            name="tpt",
+            long_name="Total potential temperature",
+            description="Total potential temperature",
+            units="K",
+            is_static=False,
+            output="h0"
+        )
     return meta
-
-
-class State(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
-    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
-    un: FDT
-    gz: FDT
-    gz_lev: FDT
-    dmg: FDT
-    dmg_e: FDT
-    dmg_vtx: FDT
-    dmg_lev: FDT
-    mg: FDT
-    mg_lev: FDT
-    mgs: FDT
-    pt: FDT
-    ph: FDT
-    ph_lev: FDT
-    phs: FDT
-    # Nonhydrostatic variables
-    p: FDT
-    p_lev: FDT
-
-    @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-        return default_state_meta(mode=mode)
 
 
 def default_tendency_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
@@ -1065,89 +1388,6 @@ def default_tendency_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFiel
     return meta
 
 
-class Tendency(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
-    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
-    dgzdt: FDT
-    dgzdt_dmf: FDT
-    dmgsdt: FDT
-    dmgsdt_dmf: FDT
-    dptdt: FDT
-    dptdt_dptfn: FDT
-    dptdt_ptvf: FDT
-    dundt: FDT
-    dundt_coriolis: FDT
-    dundt_grad_ke: FDT
-    dundt_pgf: FDT
-    dundt_wedundeta: FDT
-
-    @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-        return default_tendency_meta(mode=mode)
-
-    def reset(self, pass_tag: str) -> Self:
-        if not self.mode.baroclinic:
-            if pass_tag == "all_pass":
-                return eqx.tree_at(
-                    lambda b: (b.dgzdt.data, b.dundt.data),
-                    self,
-                    (
-                        jnp.zeros_like(self.dgzdt.data),
-                        jnp.zeros_like(self.dundt.data)
-                    )
-                )
-            elif pass_tag == "forward_pass":
-                return eqx.tree_at(
-                    lambda b: b.dgzdt.data,
-                    self,
-                    jnp.zeros_like(self.dgzdt.data)
-                )
-            elif pass_tag == "backward_pass":
-                return eqx.tree_at(
-                    lambda b: b.dundt.data,
-                    self,
-                    jnp.zeros_like(self.dundt.data)
-                )
-            else:
-                raise ValueError(f"Invalid pass_tag: {pass_tag}")
-        if (
-            self.mode.baroclinic
-            and self.mode.hydrostatic
-            and not self.mode.nonhydrostatic
-            and self.mode.ideal_dry_core
-            and not self.mode.advection
-        ):
-            if pass_tag == "all_pass":
-                return eqx.tree_at(
-                    lambda b: (b.dmgsdt.data, b.dptdt.data, b.dundt.data),
-                    self,
-                    (
-                        jnp.zeros_like(self.dmgsdt.data),
-                        jnp.zeros_like(self.dptdt.data),
-                        jnp.zeros_like(self.dundt.data)
-                    )
-                )
-            elif pass_tag == "forward_pass":
-                return eqx.tree_at(
-                    lambda b: (b.dmgsdt.data, b.dptdt.data),
-                    self,
-                    (
-                        jnp.zeros_like(self.dmgsdt.data),
-                        jnp.zeros_like(self.dptdt.data)
-                    )
-                )
-            elif pass_tag == "backward_pass":
-                return eqx.tree_at(
-                    lambda b: b.dundt.data,
-                    self,
-                    jnp.zeros_like(self.dundt.data)
-                )
-            else:
-                raise ValueError(f"Invalid pass_tag: {pass_tag}")
-        else:
-            raise NotImplementedError
-
-
 def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
     meta["gzs"] = StaggeredFieldMetaData(
@@ -1184,17 +1424,6 @@ def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredField
             output="h1"
         )
     return meta
-
-
-class Static(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
-    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
-    gzs: FDT
-    ref_ps: FDT
-
-    @staticmethod
-    def default_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
-        return default_static_meta(mode=mode)
 
 
 def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
@@ -1381,6 +1610,21 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             is_prognostic=False,
             output="h0"
         )
+        meta["tv"] = StaggeredFieldMetaData(
+            name="tv",
+            dims=(NLEV, NCELL,),
+            long_name="Virtual temperature at primal cell center",
+            description="Virtual temperature at primal cell center",
+            units="K",
+            hori_location=MeshEntity.Cell,
+            vert_location=VertLoc.Cell,
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
+            staggered_kind="C",
+            mesh_name="primal",
+            is_prognostic=False,
+            output="h1"
+        )
         meta["rhod"] = StaggeredFieldMetaData(
             name="rhod",
             dims=(NLEV, NCELL,),
@@ -1397,42 +1641,3 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             output="h1"
         )
     return meta
-
-
-class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
-    fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
-    u: FDT
-    v: FDT
-    ut: FDT
-    vor: FDT
-    pv_vtx: FDT
-    pv_e: FDT
-    ke: FDT
-    mfn: FDT
-    mft: FDT
-    mfz_lev: FDT
-    dmf: FDT
-    t: FDT
-    rhod: FDT
-
-    @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-        return default_auxiliary_meta(mode=mode)
-
-
-class EquationTermAuxDataset(AbstractEquationTermAuxiliaryDataset):
-    pgf: PressureGradientForceDataset
-    coriolis: CoriolisForceAtEdgeData
-    adv: AdvectionAuxiliaryDataset
-
-    @classmethod
-    def empty(cls) -> Self:
-        pgf = PressureGradientForceDataset.empty()
-        coriolis = CoriolisForceAtEdgeData.empty()
-        adv = AdvectionAuxiliaryDataset.empty()
-        return cls(
-            pgf=pgf,
-            coriolis=coriolis,
-            adv=adv
-        )

@@ -3,7 +3,6 @@ from typing import TypeVar, Self, TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import equinox as eqx
-from plum import T
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
@@ -113,7 +112,11 @@ class TriSKTangentVelocityAtEdge(Term):
         ) -> Float[Array, "nEdge"]:
             wind_tile = un[ep_idx]  # (nedg, maxnnb*2)
             wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
-            return jnp.sum(weight * lenp * wind_tile, axis=-1) / edd_length
+            return jnp.sum(
+                weight * lenp * wind_tile,
+                dtype=jnp.float64,
+                axis=-1
+            ).astype(block.dev.float_type) / edd_length
 
         ut = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
         block = eqx.tree_at(

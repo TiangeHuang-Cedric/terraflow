@@ -84,17 +84,18 @@ class RefProfileData(AbstractEquationTermAuxiliaryData):
         para: PlanetParameterSet,
         ref_ps: Float[Array, "ncell"]
     ) -> Self:
-        a = 0.09923
-        b = 247.7874
-        c = -1.0385
-        ps0 = 1013.0  # hPa
+        float_type = coord.dev.float_type
+        a = jnp.array(0.09923, dtype=float_type)
+        b = jnp.array(247.7874, dtype=float_type)
+        c = jnp.array(-1.0385, dtype=float_type)
+        ps0 = jnp.array(1013.0, dtype=float_type)  # hPa
         rd = para.rd.unwrap()
         # =============================
         # For half lev
         p_lev = coord.vert.calc_mg_lev(ref_ps) / 100.0
         gz_lev = -rd * (
             a * (p_lev - ps0)
-            + b / (1 + c) * (p_lev**(1 + c) - ps0**(1 + c))
+            + b / (1.0 + c) * (p_lev**(1.0 + c) - ps0**(1.0 + c))
         )
         mg_lev = p_lev * 100.0
         # =============================
@@ -104,9 +105,9 @@ class RefProfileData(AbstractEquationTermAuxiliaryData):
         mg = p * 100.0
         gz = -rd * (
             a * (p - ps0)
-            + b / (1 + c) * (p**(1 + c) - ps0**(1 + c))
+            + b / (1.0 + c) * (p**(1.0 + c) - ps0**(1.0 + c))
         )
-        ad = rd * t / (p * 100.0)
+        ad = rd * (a + b * p**c) / 100.0
         mpt = formula.dry_potential_temperature(
             t=t,
             p=mg,
@@ -149,18 +150,25 @@ class PerturbationPressureGradientForce(Operator):
         p_lev = star_state.p_lev.unwrap()
         gz = star_state.gz.unwrap()
         rhod = block.aux.rhod.unwrap()
+        ad = 1.0 / rhod
 
         # perturbation quantities
         p_ptb = p - pro.mg
         gz_ptb = gz - pro.gz
         dp_ptb = (p_lev[1:, :] - p_lev[:-1, :]) - dmg
-        ad_ptb = 1.0 / rhod - pro.ad
+        ad_ptb = ad - pro.ad
 
         # compute pgf tendency
         # TODO: For ideal dry core, need to add mixing ratio effect
         L = 1
-        tmp1 = pro.dmgdn * 0.5 * (ad_ptb[:, cell_1] + ad_ptb[:, cell_2])
-        tmp2 = 0.5 * (1.0 / rhod[:, cell_1] + 1.0 / rhod[:, cell_2])
+        tmp1 = pro.dmgdn * 0.5 * (
+            jnp.take(ad_ptb, cell_1, axis=1)
+            + jnp.take(ad_ptb, cell_2, axis=1)
+        )
+        tmp2 = 0.5 * (
+            jnp.take(ad, cell_1, axis=1)
+            + jnp.take(ad, cell_2, axis=1)
+        )
         tmp2 = tmp2 * mesh_op.grad_at_dual_edge(
             x_at_primal_cell=p_ptb,
             coord=block.coord,
@@ -172,8 +180,8 @@ class PerturbationPressureGradientForce(Operator):
             para=block.para
         )
         tmp4 = 0.5 * (
-            dp_ptb[:, cell_1] / dmg[:, cell_1] +
-            dp_ptb[:, cell_2] / dmg[:, cell_2]
+            jnp.take(dp_ptb, cell_1, axis=1) / jnp.take(dmg, cell_1, axis=1) +
+            jnp.take(dp_ptb, cell_2, axis=1) / jnp.take(dmg, cell_2, axis=1)
         )
         tmp4 = tmp4 * mesh_op.grad_at_dual_edge(
             x_at_primal_cell=gz,

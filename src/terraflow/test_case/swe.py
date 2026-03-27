@@ -1,7 +1,5 @@
-from typing import Dict, Union
 from jax import numpy as jnp
 import jax
-import equinox as eqx
 import quadax
 from loguru import logger
 
@@ -31,7 +29,11 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
         u = self.init_u(lon, lat)
         v = self.init_v(lon, lat)
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
-        return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
+        return jnp.sum(
+            velocity_3d_cart * edge_normal,
+            dtype=jnp.float64,
+            axis=-1
+        ).astype(lon.dtype)
 
     def init_geopotential_height(
         self,
@@ -87,13 +89,13 @@ class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
     This test case simulates a zonal flow over an isolated mountain.
     All numerical parameters are stored as JAX-traceable attributes.
     """
-    alpha: float = eqx.field(default=0.0)
-    h0: float = eqx.field(default=5960.0)
-    hs0: float = eqx.field(default=2000.0)
-    u0: float = eqx.field(default=20.0)
-    clon: float = eqx.field(default=jnp.pi * 1.5)
-    clat: float = eqx.field(default=jnp.pi / 6.0)
-    mountain_radius: float = eqx.field(default=jnp.pi / 9.0)
+    alpha: Array
+    h0: Array
+    hs0: Array
+    u0: Array
+    clon: Array
+    clat: Array
+    mountain_radius: Array
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
@@ -108,13 +110,29 @@ class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
             "Journal of Computational Physics, 102(1), 211-224.",
         )
         self.keywords = ("shallow water", "mountain zonal flow", "atmosphere")
-        self.alpha = 0.0
-        self.h0 = 5960.0
-        self.hs0 = 2000.0
-        self.u0 = 20.0
-        self.clon = jnp.pi * 1.5
-        self.clat = jnp.pi / 6.0
-        self.mountain_radius = jnp.pi / 9.0
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.alpha = jnp.array(
+            0.0, device=dev, dtype=float_type
+        )
+        self.h0 = jnp.array(
+            5960.0, device=dev, dtype=float_type
+        )
+        self.hs0 = jnp.array(
+            2000.0, device=dev, dtype=float_type
+        )
+        self.u0 = jnp.array(
+            20.0, device=dev, dtype=float_type
+        )
+        self.clon = jnp.array(
+            jnp.pi * 1.5, device=dev, dtype=float_type
+        )
+        self.clat = jnp.array(
+            jnp.pi / 6.0, device=dev, dtype=float_type
+        )
+        self.mountain_radius = jnp.array(
+            jnp.pi / 9.0, device=dev, dtype=float_type
+        )
         logger.success("Initialized mountain zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:
@@ -165,10 +183,10 @@ class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
     atmosphere model.
     All numerical parameters are stored as JAX-traceable attributes.
     """
-    omg: float = eqx.field(default=7.848e-6)
-    K: float = eqx.field(default=7.848e-6)
-    h0: float = eqx.field(default=8000.0)
-    R: float = eqx.field(default=4)
+    omg: Array
+    K: Array
+    h0: Array
+    R: Array
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
@@ -183,10 +201,20 @@ class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
             "Journal of Computational Physics, 102(1), 211-224.",
         )
         self.keywords = ("shallow water", "Rossby-Haurwitz wave", "atmosphere")
-        self.omg = 7.848e-6
-        self.K = 7.848e-6
-        self.h0 = 8000.0
-        self.R = 4
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.omg = jnp.array(
+            7.848e-6, device=dev, dtype=float_type
+        )
+        self.K = jnp.array(
+            7.848e-6, device=dev, dtype=float_type
+        )
+        self.h0 = jnp.array(
+            8000.0, device=dev, dtype=float_type
+        )
+        self.R = jnp.array(
+            4, device=dev, dtype=float_type
+        )
         logger.success("Initialized Rossby-Haurwitz wave test case.")
 
     def init_topography(self, lon: Array, lat: Array) -> Array:
@@ -269,20 +297,16 @@ class JetZonalFlowTestCase(ShallowWaterEquationTestCase):
     This test case simulates a zonal jet flow in a shallow water atmosphere model.
     All numerical parameters are stored as JAX-traceable attributes.
     """
-    u_max: float = eqx.field(default=80.0)
-    lat0: float = eqx.field(default=jnp.pi / 7.0)
-    lat1: float = eqx.field(default=jnp.pi / 2.0 - jnp.pi / 7.0)
-    lat2: float = eqx.field(default=jnp.pi / 4.0)
-    en: Array = eqx.field(
-        default_factory=lambda: jnp.exp(
-            -4.0 / ((jnp.pi / 2.0 - jnp.pi / 7.0 - jnp.pi / 7.0) ** 2)
-        )
-    )
-    alpha: float = eqx.field(default=1.0 / 3.0)
-    beta: float = eqx.field(default=1.0 / 15.0)
-    h0: float = eqx.field(default=1.0e4)
-    hs0: float = eqx.field(default=0.0)
-    hd: float = eqx.field(default=120.0)
+    u_max: Array
+    lat0: Array
+    lat1: Array
+    lat2: Array
+    en: Array
+    alpha: Array
+    beta: Array
+    h0: Array
+    hs0: Array
+    hd: Array
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
@@ -297,16 +321,36 @@ class JetZonalFlowTestCase(ShallowWaterEquationTestCase):
             "Tellus A: Dynamic Meteorology and Oceanography, 56(5), 429-440.",
         )
         self.keywords = ("shallow water", "jet zonal flow", "atmosphere")
-        self.u_max = 80.0
-        self.lat0 = jnp.pi / 7.0
-        self.lat1 = jnp.pi / 2.0 - self.lat0
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.u_max = jnp.array(
+            80.0, device=dev, dtype=float_type
+        )
+        self.lat0 = jnp.array(
+            jnp.pi / 7.0, device=dev, dtype=float_type
+        )
+        self.lat1 = jnp.array(
+            jnp.pi / 2.0, device=dev, dtype=float_type
+        )
+        self.lat1 = self.lat1 - self.lat0
         self.en = jnp.exp(-4.0 / ((self.lat1 - self.lat0) ** 2))
-        self.lat2 = jnp.pi / 4.0
-        self.alpha = 1.0 / 3.0
-        self.beta = 1.0 / 15.0
-        self.h0 = 1.0e4
-        self.hs0 = 0.0
-        self.hd = 120.0
+        self.lat2 = jnp.array(
+            jnp.pi / 4.0, device=dev, dtype=float_type
+        )
+        self.alpha = jnp.array(
+            1.0 / 3.0, device=dev, dtype=float_type)
+        self.beta = jnp.array(
+            1.0 / 15.0, device=dev, dtype=float_type
+        )
+        self.h0 = jnp.array(
+            1.0e4, device=dev, dtype=float_type
+        )
+        self.hs0 = jnp.array(
+            0.0, device=dev, dtype=float_type
+        )
+        self.hd = jnp.array(
+            120.0, device=dev, dtype=float_type
+        )
         logger.success("Initialized jet zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:

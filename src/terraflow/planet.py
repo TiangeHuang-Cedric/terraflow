@@ -66,25 +66,29 @@ class GasType:
         self.gamma = self.cp / self.cv
         self.kappa = self.r / self.cp
 
+    @classmethod
     def from_gases(
-        self,
+        cls,
         name: str,
         gases: List[Self]
-    ):
-        self.name = name
+    ) -> Self:
+        self = cls.__new__(cls)
         # Calculate mean molecular mass
         sum_ratio = sum(g.v_ratio for g in gases)
         self.m = sum(g.v_ratio * g.m for g in gases) / sum_ratio
         self.r = ru / self.m
+
         # Calculate mass mixing ratio from volume mixing ratio
         for g in gases:
             g.m_ratio = (g.v_ratio * g.m) / self.m
+
         # Calculate cp and cv
         sum_ratio = sum(g.m_ratio for g in gases)
         self.cv = sum(g.m_ratio * g.cv for g in gases) / sum_ratio
         self.cp = self.cv + self.r
         self.gamma = self.cp / self.cv
         self.kappa = self.r / self.cp
+        return self
 
 
 class PlanetParameter(eqx.Module):
@@ -103,25 +107,26 @@ class PlanetParameter(eqx.Module):
         name: str,
         description: str,
         unit: str,
-        value: Numeric | ux.AbstractQuantity,
-        create_with_unit: bool = True,
+        data: Numeric | ux.AbstractQuantity,
+        create_with_unit: bool,
     ):
-        self.name = name
-        self.description = description
-        self.unit = unit
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "unit", unit)
 
         # Extract numeric value and store as plain float
         if create_with_unit:
-            if isinstance(value, ux.AbstractQuantity):
-                self.data = value.to(unit)
+            if isinstance(data, ux.AbstractQuantity):
+                object.__setattr__(self, "data", data.to(unit))
             else:
-                value_arr = jnp.asarray(value)
-                self.data = ux.Quantity(value_arr, unit)  # type: ignore
+                value_arr = jnp.asarray(data)
+                object.__setattr__(self, "data", ux.Quantity(
+                    value_arr, unit))  # type: ignore
         else:
-            if isinstance(value, ux.AbstractQuantity):
-                self.data = jnp.asarray(value.value)
+            if isinstance(data, ux.AbstractQuantity):
+                object.__setattr__(self, "data", jnp.asarray(data.value))
             else:
-                self.data = jnp.asarray(value)
+                object.__setattr__(self, "data", jnp.asarray(data))
 
     def __repr__(self):
         return (
@@ -142,65 +147,166 @@ class PlanetParameter(eqx.Module):
         import copy
         return copy.deepcopy(self)
 
+    def update(
+        self,
+        data: ArrayWithUnits,
+        unit: Optional[str] = ""
+    ) -> "PlanetParameter":
+        if unit:
+            return self._wrap_with_unit(data, unit)
+        else:
+            return self._wrap(data)
+
+    def _wrap(self, data: ArrayWithUnits) -> "PlanetParameter":
+        """Wrap the raw value with unit if needed."""
+        if isinstance(self.data, ux.AbstractQuantity):
+            create_with_unit = True
+            if isinstance(data, ux.AbstractQuantity):
+                data = data.to(self.unit)
+            elif isinstance(data, Array):
+                data = ux.Quantity(data, self.unit)  # type: ignore
+            else:
+                raise ValueError(
+                    f"Data should be an array or quantity, but got {type(data)}."
+                )
+        elif isinstance(self.data, Array):
+            create_with_unit = False
+            if isinstance(data, ux.AbstractQuantity):
+                data = jnp.asarray(data.value)
+            elif isinstance(data, Array):
+                data = jnp.asarray(data)
+            else:
+                raise ValueError(
+                    f"Data should be an array or quantity, but got {type(data)}."
+                )
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        return PlanetParameter(
+            name=self.name,
+            description=self.description,
+            unit=self.unit,
+            data=data,
+            create_with_unit=create_with_unit
+        )
+
+    def _wrap_with_unit(self, data: ArrayWithUnits, unit: str) -> "PlanetParameter":
+        """Wrap the raw value with unit."""
+        if isinstance(self.data, ux.AbstractQuantity):
+            create_with_unit = True
+            if isinstance(data, ux.AbstractQuantity):
+                data = data.to(unit)
+            elif isinstance(data, Array):
+                data = ux.Quantity(data, unit)  # type: ignore
+            else:
+                raise ValueError(
+                    f"Data should be an array or quantity, but got {type(data)}."
+                )
+        elif isinstance(self.data, Array):
+            create_with_unit = False
+            if isinstance(data, ux.AbstractQuantity):
+                data = jnp.asarray(data.value)
+            elif isinstance(data, Array):
+                data = jnp.asarray(data)
+            else:
+                raise ValueError(
+                    f"Data should be an array or quantity, but got {type(data)}."
+                )
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        return PlanetParameter(
+            name=self.name,
+            description=self.description,
+            unit=unit,
+            data=data,
+            create_with_unit=create_with_unit
+        )
+
     def unwrap(self) -> Array:
         """Return the raw value without unit."""
         if isinstance(self.data, ux.AbstractQuantity):
             return jnp.asarray(self.data.value)
         return self.data
 
-    def to(self, unit: str) -> Self:
+    def to(self, unit: str) -> "PlanetParameter":
         """Convert the parameter value to the specified unit and return it."""
         if isinstance(self.data, ux.AbstractQuantity):
-            self.data = self.data.to(unit)
-        else:
+            data = self.data.to(unit)
+        elif isinstance(self.data, Array):
             value = ux.Quantity(self.data, self.unit)  # type: ignore
-            self.data = value.to(unit).value
-        self.unit = unit
-        return self
+            data = value.to(unit).value
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        return self.update(data=data, unit=unit)
 
-    def decompose(self, usys: ux.AbstractUnitSystem) -> Self:
+    def decompose(self, usys: ux.AbstractUnitSystem) -> "PlanetParameter":
         """Decompose the parameter value and return it."""
         if isinstance(self.data, ux.AbstractQuantity):
-            self.data = self.data.decompose(usys)  # type: ignore
-        else:
-            self.data = ux.Quantity(
+            data = self.data.decompose(usys)  # type: ignore
+        elif isinstance(self.data, Array):
+            data = ux.Quantity(
                 self.data, self.unit  # type: ignore
             ).decompose(usys).value  # type: ignore
-        self.unit = self._unit_convert(usys)
-        return self
-
-    def to_unit(self) -> Self:
-        """Convert the parameter value to its internal unit and return it."""
-        if not isinstance(self.data, ux.AbstractQuantity):
-            self.data = ux.Quantity(
-                self.data, self.unit  # type: ignore
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
             )
-        return self
+        unit = self._unit_convert(usys)
+        return self.update(data=data, unit=unit)
 
-    def to_si(self) -> Self:
+    def to_si(self) -> "PlanetParameter":
         """Convert the parameter value to SI unit and return it."""
         if isinstance(self.data, ux.AbstractQuantity):
-            self.data = self.data.decompose(ux.unitsystems.si)  # type: ignore
-        else:
-            self.data = ux.Quantity(
+            data = self.data.decompose(ux.unitsystems.si)  # type: ignore
+        elif isinstance(self.data, Array):
+            data = ux.Quantity(
                 self.data, self.unit  # type: ignore
             ).decompose(ux.unitsystems.si).value  # type: ignore
-        self.unit = self._unit_convert(ux.unitsystems.si)
-        return self
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        unit = self._unit_convert(ux.unitsystems.si)
+        return self.update(data=data, unit=unit)
 
     def to_value(self) -> Self:
         """Convert the parameter value to its raw float representation."""
         if isinstance(self.data, ux.AbstractQuantity):
-            self.data = jnp.asarray(self.data.value)
-        return self
+            data = jnp.asarray(self.data.value)
+        elif isinstance(self.data, Array):
+            data = self.data
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        return eqx.tree_at(
+            lambda x: x.data,
+            self,
+            data
+        )
 
     def to_quantity(self) -> Self:
         """Convert the parameter value to a Quantity object."""
-        if not isinstance(self.data, ux.AbstractQuantity):
-            self.data = ux.Quantity(
+        if isinstance(self.data, Array):
+            data = ux.Quantity(
                 self.data, self.unit  # type: ignore
             )
-        return self
+        elif isinstance(self.data, ux.AbstractQuantity):
+            data = self.data
+        else:
+            raise ValueError(
+                f"Data should be an array or quantity, but got {type(self.data)}."
+            )
+        return eqx.tree_at(
+            lambda x: x.data,
+            self,
+            data
+        )
 
 
 class PlanetParameterSet(eqx.Module):
@@ -213,22 +319,25 @@ class PlanetParameterSet(eqx.Module):
     component: str = eqx.field(static=True)
     parameters: Dict[str, PlanetParameter]
     default: Dict[str, PlanetParameter]
+    dev: device.AbstractDevice = eqx.field(static=True)
 
     def __init__(
         self,
         planet: str,
         component: str,
-        parameters: Dict[str, PlanetParameter] = {},
-        default: Dict[str, PlanetParameter] = {}
+        parameters: Dict[str, PlanetParameter],
+        dev: device.AbstractDevice,
+        default: Dict[str, PlanetParameter] = {},
     ):
-        self.planet = planet
-        self.component = component
-        self.parameters = parameters
+        object.__setattr__(self, "planet", planet)
+        object.__setattr__(self, "component", component)
+        object.__setattr__(self, "parameters", parameters)
+        object.__setattr__(self, "dev", dev)
         if default:
-            self.default = default
+            object.__setattr__(self, "default", default)
         else:
             import copy
-            self.default = copy.deepcopy(parameters)
+            object.__setattr__(self, "default", copy.deepcopy(parameters))
 
     def __getitem__(self, name: str) -> PlanetParameter:
         param = self.parameters.get(name)
@@ -245,19 +354,57 @@ class PlanetParameterSet(eqx.Module):
         return len(self.parameters)
 
     @classmethod
-    def from_dict(cls, parasets: Dict[str, Union[str, Dict[str, PlanetParameter]]]) -> Self:
+    def from_dict(cls, parasets: Dict[str, Union[str, Dict[str, PlanetParameter]]], dev: device.AbstractDevice) -> Self:
         planet = parasets.get("planet")
         component = parasets.get("component")
         parameters = parasets.get("parameters")
+        if planet is None:
+            raise ValueError(
+                f"Planet name is missing in the input: {parasets}"
+            )
+        if component is None:
+            raise ValueError(
+                f"Component name is missing in the input: {parasets}"
+            )
+        if parameters is None:
+            raise ValueError(
+                f"Parameters dictionary is missing in the input: {parasets}"
+            )
+        if isinstance(parameters, str):
+            raise ValueError(
+                f"Parameters should be a dictionary of PlanetParameter, but got string: {parameters}"
+            )
+        for k, v in parameters.items():
+            if not isinstance(v, PlanetParameter):
+                raise ValueError(
+                    f"All parameters should be of type PlanetParameter, but got {type(v)} in {parameters}"
+                )
+            if isinstance(v.data, Array):
+                data = v.data
+            elif isinstance(v.data, ux.AbstractQuantity):
+                data = v.data.value
+            else:
+                raise ValueError(
+                    f"Parameter value should be a numeric type or array, but got {type(v.data)} in {parameters}"
+                )
+            if isinstance(data, (jnp.ndarray, float)):
+                data = jnp.asarray(data, dtype=dev.float_type)
+            elif isinstance(data, (jnp.ndarray, int)):
+                data = jnp.asarray(data, dtype=dev.int_type)
+            else:
+                raise ValueError(
+                    f"Parameter value should be a numeric type or array, but got {type(v.data)} in {parameters}"
+                )
+            parameters[k] = v.update(data)
         if isinstance(planet, str) and isinstance(component, str) and isinstance(parameters, dict):
-            return cls(planet, component, parameters)
+            return cls(planet=planet, component=component, parameters=parameters, dev=dev)
         else:
             raise ValueError(
                 f"Invalid dictionary format {parasets} for PlanetParameterSet."
             )
 
     @classmethod
-    def from_si(cls, planet: str, component: str, dev: device.AbstractDevice) -> Self:
+    def from_si(cls, planet: str, component: str, dev: device.AbstractDevice, create_with_unit: bool = False) -> Self:
         """Create a PlanetParameterSet for Earth with specified component."""
         if planet not in ["earth"]:
             raise ValueError(
@@ -268,7 +415,9 @@ class PlanetParameterSet(eqx.Module):
                 f"Component '{component}' is not supported for Earth."
             )
         if planet == "earth" and component == "atmosphere":
-            parasets = earth_atmosphere_parameters(dev)
+            parasets = earth_atmosphere_parameters(
+                dev=dev, create_with_unit=create_with_unit
+            )
         else:
             raise NotImplementedError(
                 f"Component '{component}' is not implemented yet."
@@ -276,7 +425,7 @@ class PlanetParameterSet(eqx.Module):
         logger.success(
             f"Initialized planet parameters for {planet} - {component} in SI units."
         )
-        return cls.from_dict(parasets)
+        return cls.from_dict(parasets=parasets, dev=dev)
 
     def parameter_names(self) -> list[str]:
         return list(self.parameters.keys())
@@ -306,51 +455,57 @@ class PlanetParameterSet(eqx.Module):
         import copy
         return copy.deepcopy(self)
 
+    def update(self, parameters: Dict[str, PlanetParameter]) -> Self:
+        """Update the parameter set with new parameters."""
+        return eqx.tree_at(
+            lambda x: x.parameters,
+            self,
+            parameters
+        )
+
     def decompose(self, usys: ux.AbstractUnitSystem) -> Self:
         """Decompose all parameters to the specified unit system and return it."""
+        parameters = {}
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
-                self.parameters[key] = param.decompose(usys)
-        return self
-
-    def to_unit(self) -> Self:
-        """Convert all parameters to its unit system."""
-        for key, param in zip(self.keys(), self.values()):
-            if not isinstance(param, str):
-                self.parameters[key] = param.to_unit()
-        return self
+                parameters[key] = param.decompose(usys)
+        return self.update(parameters=parameters)
 
     def to_si(self) -> Self:
         """Convert all parameters to SI units."""
+        parameters = {}
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
-                self.parameters[key] = param.to_si()
-        return self
+                parameters[key] = param.to_si()
+        return self.update(parameters=parameters)
 
     def to_values(self) -> Self:
         """Convert all parameters to its raw float representation."""
+        parameters = {}
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
-                self.parameters[key] = param.to_value()
-        return self
+                parameters[key] = param.to_value()
+        return self.update(parameters=parameters)
 
     def to_quantities(self) -> Self:
         """Convert all parameters to Quantity objects."""
+        parameters = {}
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
-                self.parameters[key] = param.to_quantity()
-        return self
+                parameters[key] = param.to_quantity()
+        return self.update(parameters=parameters)
 
     def to_default(self) -> Self:
         """Convert all parameters to the default unit system."""
         default = self.default
+        parameters = {}
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
                 default_param = default[key]
                 if isinstance(default_param, PlanetParameter):
                     default_unit = default_param.unit
-                    self.parameters[key] = param.to(default_unit)
-        return self
+                    parameters[key] = param.to(default_unit)
+        return self.update(parameters=parameters)
 
     @property
     def gravity(self) -> PlanetParameter:
@@ -369,64 +524,242 @@ class PlanetParameterSet(eqx.Module):
         return self["rd"]
 
     @property
-    def cp(self) -> PlanetParameter:
-        return self["cp"]
+    def rv(self) -> PlanetParameter:
+        return self["rv"]
 
     @property
-    def cv(self) -> PlanetParameter:
-        return self["cv"]
+    def cpd(self) -> PlanetParameter:
+        return self["cpd"]
+
+    @property
+    def cpv(self) -> PlanetParameter:
+        return self["cpv"]
+
+    @property
+    def cvd(self) -> PlanetParameter:
+        return self["cvd"]
+
+    @property
+    def cvv(self) -> PlanetParameter:
+        return self["cvv"]
+
+    @property
+    def lv(self) -> PlanetParameter:
+        return self["lv"]
+
+    @property
+    def lapse_rate(self) -> PlanetParameter:
+        return self["lapse_rate"]
+
+    @property
+    def rd_o_rv(self) -> PlanetParameter:
+        return self["rd_o_rv"]
+
+    @property
+    def rv_o_rd(self) -> PlanetParameter:
+        return self["rv_o_rd"]
 
     @property
     def p0(self) -> PlanetParameter:
         return self["p0"]
 
+    @property
+    def rd_o_g(self) -> PlanetParameter:
+        return self["rd_o_g"]
 
-def earth_atmosphere_parameters(dev: device.AbstractDevice) -> Dict[str, Union[str, Dict[str, PlanetParameter]]]:
+    @property
+    def rd_o_cpd(self) -> PlanetParameter:
+        return self["rd_o_cpd"]
+
+    @property
+    def cpd_o_cvd(self) -> PlanetParameter:
+        return self["cpd_o_cvd"]
+
+    @property
+    def cvd_o_cpd(self) -> PlanetParameter:
+        return self["cvd_o_cpd"]
+
+    @property
+    def pk0(self) -> PlanetParameter:
+        return self["pk0"]
+
+
+def earth_atmosphere_parameters(
+    dev: device.AbstractDevice,
+    create_with_unit: bool
+) -> Dict[str, Union[str, Dict[str, PlanetParameter]]]:
+    gases_list = [
+        GasType(
+            name="n2", n_atom=2, m=m_n2, v_ratio=0.7808, dof=5.00607939581368
+        ),
+        GasType(
+            name="o2", n_atom=2, m=m_o2, v_ratio=0.2095, dof=5.07260684628201
+        ),
+        GasType(
+            name="ar", n_atom=1, m=m_ar, v_ratio=0.0093, dof=3.02464704198518
+        ),
+        GasType(
+            name="co2", n_atom=3, m=m_co2, v_ratio=0.000385, dof=6.93407411251379
+        ),
+        GasType(
+            name="h2o", n_atom=3, m=m_h2o, v_ratio=999.0, dof=6.0
+        )
+    ]
+    major_gas = GasType.from_gases(name="dry_air", gases=gases_list[:-1])
+    minor_gas = GasType.from_gases(name="water_vapor", gases=[gases_list[-1]])
+
+    # Testing fixed constants
+    major_gas.r = 287.0
+    major_gas.cp = 1004.5
+    major_gas.cv = 717.0
+    major_gas.gamma = major_gas.cp / major_gas.cv
+    major_gas.kappa = major_gas.r / major_gas.cp
+    minor_gas.r = 461.5
+    minor_gas.cp = 1810.0
+    minor_gas.cv = 1348.5
+    minor_gas.gamma = minor_gas.cp / minor_gas.cv
+    minor_gas.kappa = minor_gas.r / minor_gas.cp
+    minor_gas.l = 2.5e6
+
+    consts: Dict[str, Union[str, Dict[str, PlanetParameter]]] = {}
+    consts["planet"] = "earth"
+    consts["component"] = "atm"
+    parameters: Dict[str, PlanetParameter] = {}
+    parameters["gravity"] = PlanetParameter(
+        name="gravity",
+        description="Gravity Acceleration of Earth",
+        unit="m/s**2",
+        data=jnp.array(9.80616, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["radius"] = PlanetParameter(
+        name="radius",
+        description="Radius of Earth",
+        unit="m",
+        data=jnp.array(6.37122e6, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["omega"] = PlanetParameter(
+        name="omega",
+        description="Angular Velocity of Earth's Rotation",
+        unit="rad/s",
+        data=jnp.array(7.2921e-5, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["rd"] = PlanetParameter(
+        name="rd",
+        description="Gas Constant for Dry Air",
+        unit="J/(kg*K)",
+        data=jnp.array(major_gas.r, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["rv"] = PlanetParameter(
+        name="rv",
+        description="Gas Constant for Moist Air",
+        unit="J/(kg*K)",
+        data=jnp.array(minor_gas.r, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["cpd"] = PlanetParameter(
+        name="cpd",
+        description="Specific heat capacity under constant pressure",
+        unit="J/(kg*K)",
+        data=jnp.array(major_gas.cp, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["cpv"] = PlanetParameter(
+        name="cpv",
+        description="Specific heat capacity of moist air under constant pressure",
+        unit="J/(kg*K)",
+        data=jnp.array(minor_gas.cp, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["cvd"] = PlanetParameter(
+        name="cvd",
+        description="Specific heat capacity under constant volume",
+        unit="J/(kg*K)",
+        data=jnp.array(major_gas.cv, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["cvv"] = PlanetParameter(
+        name="cvv",
+        description="Specific heat capacity of moist air under constant volume",
+        unit="J/(kg*K)",
+        data=jnp.array(minor_gas.cv, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["lv"] = PlanetParameter(
+        name="lv",
+        description="Latent heat rate of moist air",
+        unit="J/kg",
+        data=jnp.array(minor_gas.l, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["lapse_rate"] = PlanetParameter(
+        name="lapse_rate",
+        description="Lapse rate of temperature",
+        unit="K/m",
+        data=jnp.array(0.0065, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["rd_o_rv"] = PlanetParameter(
+        name="rd_o_rv",
+        description="Constant rd / rv",
+        unit="1",
+        data=parameters["rd"].unwrap() / parameters["rv"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["rv_o_rd"] = PlanetParameter(
+        name="rv_o_rd",
+        description="Constant rv / rd",
+        unit="1",
+        data=parameters["rv"].unwrap() / parameters["rd"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["p0"] = PlanetParameter(
+        name="p0",
+        description="Reference Pressure",
+        unit="Pa",
+        data=jnp.array(1.0e5, dtype=dev.float_type),
+        create_with_unit=create_with_unit
+    )
+    parameters["rd_o_g"] = PlanetParameter(
+        name="rd_o_g",
+        description="Constant rd / g",
+        unit="kg/(m*s**2*K)",
+        data=parameters["rd"].unwrap() / parameters["gravity"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["rd_o_cpd"] = PlanetParameter(
+        name="rd_o_cpd",
+        description="Constant rd / cpd",
+        unit="1",
+        data=parameters["rd"].unwrap() / parameters["cpd"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["cpd_o_cvd"] = PlanetParameter(
+        name="cpd_o_cvd",
+        description="Constant cpd / cvd",
+        unit="1",
+        data=parameters["cpd"].unwrap() / parameters["cvd"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["cvd_o_cpd"] = PlanetParameter(
+        name="cvd_o_cpd",
+        description="Constant cvd / cpd",
+        unit="1",
+        data=parameters["cvd"].unwrap() / parameters["cpd"].unwrap(),
+        create_with_unit=create_with_unit
+    )
+    parameters["pk0"] = PlanetParameter(
+        name="pk0",
+        description="Constant p0 ** (rd / cpd)",
+        unit="Pa",
+        data=parameters["p0"].unwrap() ** (parameters["rd_o_cpd"].unwrap()),
+        create_with_unit=create_with_unit
+    )
     return {
-        "planet": "earth",
-        "component": "atm",
-        "parameters": {
-            "gravity": PlanetParameter(
-                name="gravity",
-                description="Gravity Acceleration of Earth",
-                unit="m/s**2",
-                value=jnp.array(9.80616, dtype=dev.float_type)
-            ),
-            "radius": PlanetParameter(
-                name="radius",
-                description="Radius of Earth",
-                unit="m",
-                value=jnp.array(6.37122e6, dtype=dev.float_type)
-            ),
-            "omega": PlanetParameter(
-                name="omega",
-                description="Angular Velocity of Earth's Rotation",
-                unit="rad/s",
-                value=jnp.array(7.2921e-5, dtype=dev.float_type)
-            ),
-            "rd": PlanetParameter(
-                name="rd",
-                description="Gas Constant for Dry Air",
-                unit="J/(kg*K)",
-                value=jnp.array(287.0, dtype=dev.float_type)
-            ),
-            "cp": PlanetParameter(
-                name="cp",
-                description="Specific heat capacity under constant pressure",
-                unit="J/(kg*K)",
-                value=jnp.array(1004.5, dtype=dev.float_type)
-            ),
-            "cv": PlanetParameter(
-                name="cv",
-                description="Specific heat capacity under constant volume",
-                unit="J/(kg*K)",
-                value=jnp.array(717.5, dtype=dev.float_type)
-            ),
-            "p0": PlanetParameter(
-                name="p0",
-                description="Reference Pressure",
-                unit="Pa",
-                value=jnp.array(1.0e5, dtype=dev.float_type)
-            ),
-        }
+        "planet": consts["planet"],
+        "component": consts["component"],
+        "parameters": parameters
     }
