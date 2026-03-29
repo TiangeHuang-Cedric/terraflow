@@ -130,9 +130,8 @@ def correct_normal_vectors(
     )  # (n_cell, maxnnb, 3)
     product = jnp.sum(
         (p1_tile - p0_tile) * (p1_tile + p0_tile),
-        dtype=jnp.float64,
         axis=-1
-    ).astype(p0.dtype)  # (n_cell, maxnnb)
+    )  # (n_cell, maxnnb)
     product = jnp.where(mask, product, 0.0)
 
     def error_msg_1(_):
@@ -150,9 +149,8 @@ def correct_normal_vectors(
 
     tmp = jnp.sum(
         (p1_tile - p0_tile) * nr_ed01,
-        dtype=jnp.float64,
         axis=-1
-    ).astype(p0.dtype)  # (n_cell, maxnnb)
+    )  # (n_cell, maxnnb)
     # To prevent non-zero values in padding values in nr
     tmp = jnp.where(mask, tmp, 0.0)
     nr = jnp.where(

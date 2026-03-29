@@ -34,7 +34,6 @@ def div_at_primal_cell(
     para: PlanetParameterSet,
 ) -> Float[Array, "nlev nPrimal_cell"]:
     """Divergence operator at primal cell center."""
-    float_type = coord.dev.float_type
     plg_ed = coord.mesh.primal.cell.edges  # (nplg, maxnnb)
     plg_nr = coord.mesh.primal.cell.orient  # (nplg, maxnnb)
     plg_area = coord.mesh.primal.cell.area  # (nplg,)
@@ -50,9 +49,8 @@ def div_at_primal_cell(
         x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
         return jnp.sum(
             plg_nr * leng_tile * x_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / (plg_area * radius)
+        ) / (plg_area * radius)
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_edge)
 
@@ -87,7 +85,6 @@ def curl_at_dual_cell(
     para: PlanetParameterSet,
 ) -> Float[Array, "nlev nDual_cell"]:
     """Curl operator at dual cell center."""
-    float_type = coord.dev.float_type
     dua_ed = coord.mesh.dual.cell.edges  # (ndua, maxnnb)
     dua_nr = coord.mesh.dual.cell.orient  # (ndua, maxnnb)
     dua_area = coord.mesh.dual.cell.area  # (ndua,)
@@ -105,9 +102,8 @@ def curl_at_dual_cell(
         edpTg_eddNr_tile = edptg_eddnr[ed_idx]  # (nDual_cell, maxnnb)
         return jnp.sum(
             x_tile * edpTg_eddNr_tile * dua_nr * leng_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / (dua_area * radius)
+        ) / (dua_area * radius)
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_dual_edge)
 
@@ -118,7 +114,6 @@ def interp_weighted_add_edp2plg(
     coord: CoordSys,
 ) -> Float[Array, "nlev nPrimal_cell"]:
     """Interpolation from primal edge to primal cell."""
-    float_type = coord.dev.float_type
 
     def _wrap(
         x_at_primal_edge: Float[Array, "nEdge"],
@@ -133,9 +128,8 @@ def interp_weighted_add_edp2plg(
         x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
         return jnp.sum(
             Ae * x_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / plg_area
+        ) / plg_area
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_primal_edge)
 
@@ -146,7 +140,6 @@ def interp_weighted_add_edd2dua(
     coord: CoordSys,
 ) -> Float[Array, "nlev nDual_cell"]:
     """Interpolation from dual edge to dual cell."""
-    float_type = coord.dev.float_type
 
     def _wrap(
         x_at_dual_edge: Float[Array, "nEdge"],
@@ -161,9 +154,8 @@ def interp_weighted_add_edd2dua(
         x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
         return jnp.sum(
             Ae * x_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / dua_area
+        ) / dua_area
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_dual_edge)
 
@@ -174,7 +166,6 @@ def interp_weighted_add_plg2dua(
     coord: CoordSys,
 ) -> Float[Array, "nlev nDual_cell"]:
     """Interpolation from primal cell to dual cell."""
-    float_type = coord.dev.float_type
 
     def _wrap(
         x_at_primal_cell: Float[Array, "nPrimal_cell"],
@@ -188,9 +179,8 @@ def interp_weighted_add_plg2dua(
         Adv = dua_kite_area
         return jnp.sum(
             Adv * x_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / dua_area
+        ) / dua_area
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_primal_cell)
 
@@ -201,7 +191,6 @@ def interp_weighted_add_dua2plg(
     coord: CoordSys,
 ) -> Float[Array, "nlev nPrimal_cell"]:
     """Interpolation from dual cell to primal cell."""
-    float_type = coord.dev.float_type
 
     def _wrap(
         x_at_dual_cell: Float[Array, "nDual_cell"],
@@ -215,8 +204,7 @@ def interp_weighted_add_dua2plg(
         Adv = plg_kite_area
         return jnp.sum(
             Adv * x_tile,
-            dtype=jnp.float64,
             axis=-1
-        ).astype(float_type) / plg_area
+        ) / plg_area
 
     return jax.vmap(_wrap, in_axes=0, out_axes=0)(x_at_dual_cell)

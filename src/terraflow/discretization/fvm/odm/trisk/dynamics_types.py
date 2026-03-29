@@ -185,7 +185,6 @@ class Block(
         pv_e = block.aux.pv_e.unwrap()
         g = block.para.gravity.unwrap()
         cpd = block.para.cpd.unwrap()
-        float_type = block.dev.float_type
 
         # Weighted area
         primal_area = mesh.primal.cell.area
@@ -202,10 +201,7 @@ class Block(
 
         # =========================================
         # Total mass
-        tm = tm + jnp.sum(
-            dmg * primal_area[None, :],
-            dtype=jnp.float64
-        ).astype(float_type)
+        tm = tm + jnp.sum(dmg * primal_area[None, :])
         # =========================================
         # TODO: When processing moist dycore, this should be modified
         # Total water vapor
@@ -219,44 +215,28 @@ class Block(
         cell_0 = edd_v[:, 0]
         cell_1 = edd_v[:, 1]
         dmg_e = 0.5 * (dmg[:, cell_0] + dmg[:, cell_1])
-        te_ke = te_ke + jnp.sum(
-            0.5 * un**2 * dmg_e * kite_area[None, :],
-            dtype=jnp.float64
-        ).astype(float_type)
+        te_ke = te_ke + jnp.sum(0.5 * un**2 * dmg_e * kite_area[None, :])
         # ==================================
         # Total energy due to internal energy
         if self.mode.baroclinic:
-            te_ie = te_ie + jnp.sum(
-                dmg * cpd * tv * primal_area[None, :],
-                dtype=jnp.float64
-            ).astype(float_type)
+            te_ie = te_ie + jnp.sum(dmg * cpd * tv * primal_area[None, :])
         # ==================================
         # Total energy due to potential energy
         if self.mode.baroclinic:
-            te_pe = te_pe + jnp.sum(
-                gzs * mgs * primal_area,
-                dtype=jnp.float64
-            ).astype(float_type)
+            te_pe = te_pe + jnp.sum(gzs * mgs * primal_area)
         else:
             te_pe = te_pe + jnp.sum(
                 (dmg.squeeze()**2 * g * 0.5 + dmg.squeeze()*gzs) * primal_area,
-                dtype=jnp.float64
-            ).astype(float_type)
+            )
         # ==================================
         te = te_ke + te_ie + te_pe
         # =========================================
         # Total potential enstrophy
-        tpe = tpe + jnp.sum(
-            dmg_e * pv_e**2 * kite_area[None, :],
-            dtype=jnp.float64
-        ).astype(float_type)
+        tpe = tpe + jnp.sum(dmg_e * pv_e**2 * kite_area[None, :])
         # =========================================
         # Total potential temperature
         if self.mode.baroclinic:
-            tpt = tpt + jnp.sum(
-                dmg * pt * primal_area[None, :],
-                dtype=jnp.float64
-            ).astype(float_type)
+            tpt = tpt + jnp.sum(dmg * pt * primal_area[None, :])
         # =========================================
         # Wrap diagnosed variables into block
         if self.mode.baroclinic:
@@ -1151,8 +1131,8 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
     )
     meta["tpe"] = NumericMetaData(
         name="tpe",
-        long_name="Total potential energy",
-        description="Total potential energy",
+        long_name="Total potential vorticity enstrophy",
+        description="Total potential vorticity enstrophy",
         units="J/kg",
         is_static=False,
         output="h0"
@@ -1170,7 +1150,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total energy due to kinetic energy",
         units="J/kg",
         is_static=False,
-        output="h0"
+        output=""
     )
     meta["te_pe"] = NumericMetaData(
         name="te_pe",
@@ -1178,7 +1158,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total energy due to potential energy",
         units="J/kg",
         is_static=False,
-        output="h0"
+        output=""
     )
     if mode.baroclinic:
         meta["te_ie"] = NumericMetaData(
@@ -1187,7 +1167,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             description="Total energy due to internal energy",
             units="J/kg",
             is_static=False,
-            output="h0"
+            output=""
         )
         meta["tpt"] = NumericMetaData(
             name="tpt",

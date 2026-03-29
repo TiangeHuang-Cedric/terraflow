@@ -188,10 +188,9 @@ def arclength(u1: Array, u2: Array, axis=-1) -> Array:
     """
     dot_product = jnp.sum(
         (u1 + u2) * (u1 + u2),
-        dtype=jnp.float64,
         axis=axis,
         keepdims=False
-    ).astype(u1.dtype)
+    )
     return jnp.where(
         dot_product == 0.0, jnp.pi,
         jnp.where(
@@ -306,16 +305,8 @@ def convert_vector_cart2ltln(
         [-x * z / rho, -y * z / rho, rho],
         axis=-1
     )  # (n_point, 3)
-    u = jnp.sum(
-        uxyz * eaz,
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(uxyz.dtype)  # (n_point,)
-    v = jnp.sum(
-        uxyz * eel,
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(uxyz.dtype)  # (n_point,)
+    u = jnp.sum(uxyz * eaz, axis=-1)  # (n_point,)
+    v = jnp.sum(uxyz * eel, axis=-1)  # (n_point,)
     mask = rho < 10 * jnp.finfo(uxyz.dtype).eps  # (n_point,)
     u = jnp.where(mask, uxyz[:, 1], u)
     v = jnp.where(mask, uxyz[:, 0], v)

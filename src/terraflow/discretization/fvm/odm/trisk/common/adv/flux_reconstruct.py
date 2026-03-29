@@ -1,6 +1,15 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Callable, TypeVar, Generic, Tuple, TYPE_CHECKING
+from typing import (
+    Callable,
+    TypeVar,
+    Generic,
+    Tuple,
+    TYPE_CHECKING,
+    Union,
+    overload,
+    Literal
+)
 from functools import partial
 import jax.numpy as jnp
 import jax
@@ -112,9 +121,40 @@ class FluxReconstructAtEdgeOnPrimalMesh:
         self._built = True
         return self.scheme
 
-    def wrf3(self) -> "WRF3AtEdgeOnPrimalMesh":
+    @overload
+    def wrf3(
+        self,
+        *,
+        optimized: Literal[False],
+    ) -> "WRF3AtEdgeOnPrimalMesh":
+        ...
+
+    @overload
+    def wrf3(
+        self,
+        *,
+        optimized: Literal[True] = True,
+    ) -> "WRFPure3AtEdgeOnPrimalMesh":
+        ...
+
+    @overload
+    def wrf3(
+        self,
+        *,
+        optimized: bool = True
+    ) -> Union["WRF3AtEdgeOnPrimalMesh", "WRFPure3AtEdgeOnPrimalMesh"]:
+        ...
+
+    def wrf3(
+        self,
+        *,
+        optimized: bool = True
+    ) -> Union["WRF3AtEdgeOnPrimalMesh", "WRFPure3AtEdgeOnPrimalMesh"]:
         self.scheme_name = "wrf3"
-        self.scheme = WRF3AtEdgeOnPrimalMesh()
+        if optimized:
+            self.scheme = WRFPure3AtEdgeOnPrimalMesh()
+        else:
+            self.scheme = WRF3AtEdgeOnPrimalMesh()
         self._built = True
         return self.scheme
 
@@ -187,9 +227,44 @@ class FluxReconstructAtEdgeOnDualMesh:
         self._built = True
         return self.scheme
 
-    def wrf3(self, use_mbs: bool = True) -> "WRF3AtEdgeOnDualMesh":
+    @overload
+    def wrf3(
+        self,
+        use_mbs: bool = True,
+        *,
+        optimized: Literal[False],
+    ) -> "WRF3AtEdgeOnDualMesh":
+        ...
+
+    @overload
+    def wrf3(
+        self,
+        use_mbs: bool = True,
+        *,
+        optimized: Literal[True] = True,
+    ) -> "WRFPure3AtEdgeOnDualMesh":
+        ...
+
+    @overload
+    def wrf3(
+        self,
+        use_mbs: bool = True,
+        *,
+        optimized: bool,
+    ) -> Union["WRF3AtEdgeOnDualMesh", "WRFPure3AtEdgeOnDualMesh"]:
+        ...
+
+    def wrf3(
+        self,
+        use_mbs: bool = True,
+        *,
+        optimized: bool = True
+    ) -> Union["WRF3AtEdgeOnDualMesh", "WRFPure3AtEdgeOnDualMesh"]:
         self.scheme_name = "wrf3"
-        self.scheme = WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
+        if optimized:
+            self.scheme = WRFPure3AtEdgeOnDualMesh(use_mbs=use_mbs)
+        else:
+            self.scheme = WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
         self._built = True
         return self.scheme
 
@@ -285,6 +360,43 @@ class CentralDifference2AtEdgeOnDualMesh:
         )(x_at_dual_cell, coord.mesh.primal.edge.endpoints)
 
     def prepare_block(self, block: Block) -> Block:
+        return block
+
+
+class WRFPure3AtEdgeOnPrimalMesh:
+
+    def __call__(
+        self,
+        x_at_primal_cell: Float[Array, "nlev nCell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
+    ) -> Float[Array, "nlev nEdge"]:
+        mesh = coord.mesh
+        return jax.vmap(
+            wrf_pure_3rd_order,
+            in_axes=(0, 0, None, None, None, None, None),
+            out_axes=0
+        )(
+            x_at_primal_cell,
+            normal_u_at_edge,
+            mesh.dual.edge.endpoints,
+            mesh.dual.edge.length,
+            mesh.aux.edpnr_eddtg,
+            aux.edd2nd.stencil_idxes,
+            aux.edd2nd.wgt
+        )
+
+    def prepare_block(self, block: Block) -> Block:
+        if not block.equaux.adv.edd2nd.has_initialized():
+            edd2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "primal", 2
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edd2nd,
+                block,
+                edd2nd
+            )
         return block
 
 
@@ -415,6 +527,49 @@ class HybridWRF56AtEdgeOnPrimalMesh(AbstractWRF56AtEdgeOnPrimalMesh):
 
     def __init__(self, beta: FloatType):
         super().__init__(beta=beta)
+
+
+class WRFPure3AtEdgeOnDualMesh:
+
+    def __init__(self, use_mbs: bool = True):
+        self.use_mbs = use_mbs
+
+    def __call__(
+        self,
+        x_at_dual_cell: Float[Array, "nlev nCell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        aux: AdvectionAuxiliaryDataset
+    ) -> Float[Array, "nlev nEdge"]:
+        mesh = coord.mesh
+        return jax.vmap(
+            wrf_pure_3rd_order,
+            in_axes=(0, 0, None, None, None, None, None),
+            out_axes=0
+        )(
+            x_at_dual_cell,
+            tangent_u_at_edge,
+            mesh.primal.edge.endpoints,
+            mesh.primal.edge.length,
+            mesh.aux.edp12_edptg,
+            aux.edp2nd.stencil_idxes,
+            aux.edp2nd.wgt
+        )
+
+    def prepare_block(
+        self,
+        block: Block,
+    ) -> Block:
+        if not block.equaux.adv.edp2nd.has_initialized():
+            edp2nd = FluxReconstructAuxiliaryData.from_coord(
+                block.coord, "dual", 2, use_mbs=self.use_mbs
+            )
+            block = eqx.tree_at(
+                lambda b: b.equaux.adv.edp2nd,
+                block,
+                edp2nd
+            )
+        return block
 
 
 class AbstractWRF34AtEdgeOnDualMesh:
@@ -564,6 +719,29 @@ def central_difference_2nd_order(
     return 0.5 * (x1 + x2)
 
 
+def wrf_pure_3rd_order(
+    x_at_cell: Float[Array, "nCell"],
+    normal_u: Float[Array, "nEdge"],
+    edd_v: Int[Array, "nEdge 2"],
+    edd_leng: Float[Array, "nEdge"],
+    direction_marker: Int[Array, "nEdge"],
+    stencil_2nd_idx: Int[Array, "nCell max_m"],
+    edd_2nd_v_fcoe: Float[Array, "nEdge 2 max_m"],
+) -> Float[Array, "nEdge"]:
+    nedge = edd_v.shape[0]
+    v1 = edd_v[:, 0]
+    v2 = edd_v[:, 1]
+    wind = normal_u * direction_marker
+    local_iv = (-0.5 * jnp.sign(wind) + 0.5).astype(jnp.int32)
+    vtx_upwind = edd_v[jnp.arange(nedge), local_iv]  # (nEdge, )
+    dx_2nd = calc_2nd_derivative_upwind(
+        vtx_upwind, local_iv, x_at_cell, edd_leng, stencil_2nd_idx, edd_2nd_v_fcoe
+    )
+    return operator_pure_3rd_order_formula(
+        x_at_cell[v1], x_at_cell[v2], dx_2nd
+    )
+
+
 def wrf_3rd4th_order(
     x_at_cell: Float[Array, "nCell"],
     normal_u: Float[Array, "nEdge"],
@@ -585,7 +763,7 @@ def wrf_3rd4th_order(
     dx2_2nd = calc_2nd_derivative(
         v2_idx, 1, x_at_cell, edd_leng, stencil_2nd_idx, edd_2nd_v_fcoe
     )
-    return operator_3rd4th_order_formular(
+    return operator_3rd4th_order_formula(
         x1, x2, dx1_2nd, dx2_2nd, wind, beta
     )
 
@@ -619,7 +797,7 @@ def wrf_5th6th_order(
     dx2_4th = calc_4th_derivative(
         v2_idx, 1, x_at_cell, edd_leng, stencil_4th_idx, edd_4th_v_fcoe
     )
-    return operator_5th6th_order_formular(
+    return operator_5th6th_order_formula(
         x1, x2, dx1_2nd, dx2_2nd, dx1_4th, dx2_4th, wind, beta
     )
 
@@ -716,6 +894,25 @@ class FluxReconstructInfoAtDualMesh(AbstractFluxReconstructInfo[DualMeshEntity])
         return self.stencil_fn(mesh_entity)
 
 
+def calc_2nd_derivative_upwind(
+    global_iv: Int[Array, "nEdge"],
+    local_iv: Int[Array, "nEdge"],
+    x_at_cell: Float[Array, "nCell"],
+    leng: Float[Array, "nEdge"],
+    stencil_idx: Int[Array, "nCell max_m"],
+    edd_v_fcoe: Float[Array, "nEdge 2 max_m"],
+) -> Float[Array, "nEdge"]:
+    nedge = edd_v_fcoe.shape[0]
+    q0 = x_at_cell[global_iv]  # (nEdge)
+    fcoe = edd_v_fcoe[jnp.arange(nedge), local_iv, :]  # (nEdge, max_m)
+    idx = stencil_idx[global_iv]  # (nEdge, max_m)
+    q = x_at_cell[idx]  # (nEdge, max_m)
+    s = q - q0[:, None]  # (nEdge, max_m)
+    dqdx_2nd = 2 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
+    return dq_2nd
+
+
 def calc_2nd_derivative(
     global_iv: Int[Array, "nEdge"],
     local_iv: IntType,
@@ -729,16 +926,22 @@ def calc_2nd_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_2nd = 2 * jnp.sum(
-        fcoe * s,
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(x_at_cell.dtype)  # (nEdge)
+    dqdx_2nd = 2 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
 
 
-def operator_3rd4th_order_formular(
+def operator_pure_3rd_order_formula(
+    q1: Float[Array, "nEdge"],
+    q2: Float[Array, "nEdge"],
+    dq_2nd: Float[Array, "nEdge"],
+) -> Float[Array, "nEdge"]:
+    qe = 0.5 * (q1 + q2)
+    qe = qe - dq_2nd / 6.0
+    return qe
+
+
+def operator_3rd4th_order_formula(
     q1: Float[Array, "nEdge"],
     q2: Float[Array, "nEdge"],
     dq1_2nd: Float[Array, "nEdge 2"],
@@ -752,7 +955,7 @@ def operator_3rd4th_order_formular(
     return qe
 
 
-def operator_5th6th_order_formular(
+def operator_5th6th_order_formula(
     q1: Float[Array, "nEdge"],
     q2: Float[Array, "nEdge"],
     dq1_2nd: Float[Array, "nEdge 2"],
@@ -768,6 +971,25 @@ def operator_5th6th_order_formular(
     return qe
 
 
+def calc_4th_derivative_upwind(
+    global_iv: Int[Array, "nEdge"],
+    local_iv: Int[Array, "nEdge"],
+    x_at_cell: Float[Array, "nCell"],
+    leng: Float[Array, "nEdge"],
+    stencil_idx: Int[Array, "nCell max_m"],
+    edd_v_fcoe: Float[Array, "nEdge 2 max_m"],
+) -> Float[Array, "nEdge"]:
+    nedge = edd_v_fcoe.shape[0]
+    q0 = x_at_cell[global_iv]  # (nEdge)
+    fcoe = edd_v_fcoe[jnp.arange(nedge), local_iv, :]  # (nEdge, max_m)
+    idx = stencil_idx[global_iv]  # (nEdge, max_m)
+    q = x_at_cell[idx]  # (nEdge, max_m)
+    s = q - q0[:, None]  # (nEdge, max_m)
+    dqdx_4th = 24 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dq_4th = dqdx_4th * leng ** 4  # (nEdge)
+    return dq_4th
+
+
 def calc_4th_derivative(
     global_iv: Int[Array, "nEdge"],
     local_iv: IntType,
@@ -781,11 +1003,7 @@ def calc_4th_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_4th = 24 * jnp.sum(
-        fcoe * s,
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(x_at_cell.dtype)  # (nEdge)
+    dqdx_4th = 24 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th
 
@@ -1056,16 +1274,8 @@ def get_lob_xy(
     is_valid_stencil: Float[Array, "max_m"]
 ) -> Tuple[Float[Array, "max_m"], Float[Array, "max_m"]]:
     p0pi = math.project_sphere2plane(op0, opi)  # (max_m, 3)
-    local_x = jnp.sum(
-        p0pi * tx[None, :],
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(op0.dtype)  # (max_m,)
-    local_y = jnp.sum(
-        p0pi * ty[None, :],
-        dtype=jnp.float64,
-        axis=-1
-    ).astype(op0.dtype)  # (max_m,)
+    local_x = jnp.sum(p0pi * tx[None, :], axis=-1)  # (max_m,)
+    local_y = jnp.sum(p0pi * ty[None, :], axis=-1)  # (max_m,)
     # Mask out invalid stencil members
     local_x = jnp.where(is_valid_stencil, local_x, 0.0)  # (max_m,)
     local_y = jnp.where(is_valid_stencil, local_y, 0.0)  # (max_m,)
@@ -1213,7 +1423,7 @@ def _init_bmatrix_at_edge(
     mesh: OrthogonalDualMesh,
     recon_builder: AbstractFluxReconstructInfo,
     location: str,
-) -> Tuple[Int[Array, "nedge max_m"], Float[Array, "nedge 2 max_m"]]:
+) -> Tuple[Int[Array, "ncell max_m"], Float[Array, "nedge 2 max_m"]]:
     if location == "primal":
         primal_entity = mesh.primal
         dual_entity = mesh.dual
@@ -1279,7 +1489,7 @@ def _init_bmatrix_at_edge(
 def init_primal_bmatrix_at_dual_edge(
     mesh: OrthogonalDualMesh,
     polynomial_order: int,
-) -> Tuple[Int[Array, "nedge max_m"], Float[Array, "nedge 2 max_m"]]:
+) -> Tuple[Int[Array, "nprimal_cell max_m"], Float[Array, "nedge 2 max_m"]]:
     recon_builder = FluxReconstructInfoAtPrimalMesh(polynomial_order)
     return _init_bmatrix_at_edge(
         mesh,
@@ -1292,7 +1502,7 @@ def init_dual_bmatrix_at_primal_edge(
     mesh: OrthogonalDualMesh,
     polynomial_order: int,
     use_mbs: bool
-) -> Tuple[Int[Array, "nedge max_m"], Float[Array, "nedge 2 max_m"]]:
+) -> Tuple[Int[Array, "ndual_cell max_m"], Float[Array, "nedge 2 max_m"]]:
     recon_builder = FluxReconstructInfoAtDualMesh(polynomial_order, use_mbs)
     return _init_bmatrix_at_edge(
         mesh,

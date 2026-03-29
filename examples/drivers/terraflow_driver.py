@@ -41,7 +41,8 @@ equation = tf.dynamics.DryHydrostaticEquation.from_model(
     ode_kind="explicit",
 )
 
-equation.space_operators.prepare.pv.interp.upwind(3)
+equation.space_operators.prepare.pv.interp.pure_upwind(3)
+equation.space_operators.dptdt.div_mft.adv_scheme.upwind(3)
 equation.space_operators.dptdt.adv_vert.adv_scheme.upwind(3)
 
 equation.build_default()
@@ -72,8 +73,6 @@ solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     dev=dev,
-    with_jit=False,
-    forward_backward=True
 )
 
 integrate_fn = solver.io_callback(history=history)

@@ -382,7 +382,7 @@ class PotentialTemperatureHorizontalAdvection(Operator):
         mode: types.AbstractBaroclinicEquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
-        self.adv_scheme = adv.schemes.HorizontalAdvectionScheme()
+        self.adv_scheme = adv.schemes.HorizontalAdvectionSchemeAtCell()
 
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         pt = star_state.pt.unwrap()
@@ -402,8 +402,8 @@ class PotentialTemperatureHorizontalAdvection(Operator):
         )
         return block, star_state
 
-    def upwind(self, order: int = 3) -> adv.upwind.UpwindHorizontalAdvection:
-        self.adv_scheme.upwind(order=order)
+    def upwind(self, order: int = 3, optimized: bool = True) -> adv.upwind.UpwindHorizontalAdvectionAtCell:
+        self.adv_scheme.upwind(order=order, optimized=optimized)
         return self.adv_scheme.scheme
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
@@ -465,11 +465,7 @@ class TendencyOfDryAirMassAtSurface(
     def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
         dmf = block.aux.dmf.unwrap()
         dmgsdt = block.tend.dmgsdt.unwrap()
-        dmgsdt_dmf = - jnp.sum(
-            dmf,
-            dtype=jnp.float64,
-            axis=0
-        ).astype(block.dev.float_type)
+        dmgsdt_dmf = - jnp.sum(dmf, axis=0)
         dmgsdt = dmgsdt + dmgsdt_dmf
         block = eqx.tree_at(
             lambda b: (b.tend.dmgsdt.data, b.tend.dmgsdt_dmf.data),

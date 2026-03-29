@@ -26,19 +26,19 @@ if TYPE_CHECKING:
     from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
 
 
-class UpwindHorizontalAdvection:
+class UpwindHorizontalAdvectionAtCell:
 
-    def __init__(self, order: int):
+    def __init__(self, order: int, optimized: bool = True):
         self.order = order
         if self.order == 0:
-            self.adv_hflx_at_cell = fr.CentralDifference2AtEdgeOnPrimalMesh()
-            self.adv_hflx_at_vtx = fr.CentralDifference2AtEdgeOnDualMesh()
+            self.scheme = fr.CentralDifference2AtEdgeOnPrimalMesh()
         elif self.order == 3:
-            self.adv_hflx_at_cell = fr.WRF3AtEdgeOnPrimalMesh()
-            self.adv_hflx_at_vtx = fr.WRF3AtEdgeOnDualMesh()
+            if optimized:
+                self.scheme = fr.WRFPure3AtEdgeOnPrimalMesh()
+            else:
+                self.scheme = fr.WRF3AtEdgeOnPrimalMesh()
         elif self.order == 5:
-            self.adv_hflx_at_cell = fr.WRF5AtEdgeOnPrimalMesh()
-            self.adv_hflx_at_vtx = fr.WRF5AtEdgeOnDualMesh()
+            self.scheme = fr.WRF5AtEdgeOnPrimalMesh()
         else:
             raise NotImplementedError(
                 f"Upwind advection of order {self.order} is not implemented."
@@ -51,40 +51,9 @@ class UpwindHorizontalAdvection:
         coord: CoordSys,
         aux: types.AdvectionAuxiliaryDataset
     ) -> batch.AdvBatchType:
-        if batch.hori_loc == "cell":
-            return self.calc_at_cell(
-                q=q,
-                batch=batch,
-                coord=coord,
-                aux=aux
-            )
-        elif batch.hori_loc == "vtx":
-            return self.calc_at_vtx(
-                q=q,
-                batch=batch,
-                coord=coord,
-                aux=aux
-            )
-        else:
-            raise NotImplementedError(
-                f"Horizontal location {batch.hori_loc} is not implemented."
-            )
-
-    def prepare_block(self, block: Block) -> Block:
-        block = self.adv_hflx_at_cell.prepare_block(block)
-        block = self.adv_hflx_at_vtx.prepare_block(block)
-        return block
-
-    def calc_at_cell(
-        self,
-        q: Array,
-        batch: batch.AdvBatchType,
-        coord: CoordSys,
-        aux: types.AdvectionAuxiliaryDataset
-    ) -> batch.AdvBatchType:
         mfn = batch.mfn.unwrap()
         un = batch.un.unwrap()
-        qmfn = self.adv_hflx_at_cell(
+        qmfn = self.scheme(
             x_at_primal_cell=q,
             normal_u_at_edge=un,
             coord=coord,
@@ -96,7 +65,30 @@ class UpwindHorizontalAdvection:
             qmfn
         )
 
-    def calc_at_vtx(
+    def prepare_block(self, block: Block) -> Block:
+        block = self.scheme.prepare_block(block)
+        return block
+
+
+class UpwindHorizontalAdvectionAtVtx:
+
+    def __init__(self, order: int, use_mbs: bool = False, optimized: bool = True):
+        self.order = order
+        if self.order == 0:
+            self.scheme = fr.CentralDifference2AtEdgeOnDualMesh()
+        elif self.order == 3:
+            if optimized:
+                self.scheme = fr.WRFPure3AtEdgeOnDualMesh(use_mbs=use_mbs)
+            else:
+                self.scheme = fr.WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
+        elif self.order == 5:
+            self.scheme = fr.WRF5AtEdgeOnDualMesh(use_mbs=use_mbs)
+        else:
+            raise NotImplementedError(
+                f"Upwind advection of order {self.order} is not implemented."
+            )
+
+    def __call__(
         self,
         q: Array,
         batch: batch.AdvBatchType,
@@ -105,7 +97,7 @@ class UpwindHorizontalAdvection:
     ) -> batch.AdvBatchType:
         ut = batch.ut.unwrap()
         mft = batch.mft.unwrap()
-        qmfn = self.adv_hflx_at_vtx(
+        qmfn = self.scheme(
             x_at_dual_cell=q,
             tangent_u_at_edge=ut,
             coord=coord,
@@ -116,6 +108,10 @@ class UpwindHorizontalAdvection:
             batch,
             qmfn
         )
+
+    def prepare_block(self, block: Block) -> Block:
+        block = self.scheme.prepare_block(block)
+        return block
 
 
 class UpwindVerticalAdvection:

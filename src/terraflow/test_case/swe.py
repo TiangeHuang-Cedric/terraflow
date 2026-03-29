@@ -29,11 +29,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
         u = self.init_u(lon, lat)
         v = self.init_v(lon, lat)
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
-        return jnp.sum(
-            velocity_3d_cart * edge_normal,
-            dtype=jnp.float64,
-            axis=-1
-        ).astype(lon.dtype)
+        return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
     def init_geopotential_height(
         self,

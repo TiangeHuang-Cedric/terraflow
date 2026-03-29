@@ -24,7 +24,7 @@ CoordSys = CoordinateSystem[
 ]
 
 
-class HorizontalAdvectionScheme:
+class HorizontalAdvectionSchemeAtCell:
 
     def __init__(self):
         self._built = False
@@ -43,8 +43,57 @@ class HorizontalAdvectionScheme:
             aux=aux
         )
 
-    def upwind(self, order: int = 3) -> upwind.UpwindHorizontalAdvection:
-        self.scheme = upwind.UpwindHorizontalAdvection(order=order)
+    def upwind(
+        self,
+        order: int = 3,
+        optimized: bool = True
+    ) -> upwind.UpwindHorizontalAdvectionAtCell:
+        self.scheme = upwind.UpwindHorizontalAdvectionAtCell(
+            order=order, optimized=optimized
+        )
+        self._built = True
+        return self.scheme
+
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
+
+    def build_default(self) -> Self:
+        if not self._built:
+            self.upwind()
+            self._built = True
+        return self
+
+
+class HorizontalAdvectionSchemeAtVtx:
+
+    def __init__(self):
+        self._built = False
+
+    def __call__(
+        self,
+        q: Array,
+        batch: batch.AdvBatchType,
+        coord: CoordSys,
+        aux: types.AdvectionAuxiliaryDataset,
+    ) -> batch.AdvBatchType:
+        return self.scheme(
+            q=q,
+            batch=batch,
+            coord=coord,
+            aux=aux
+        )
+
+    def upwind(
+        self,
+        order: int = 3,
+        use_mbs: bool = True,
+        optimized: bool = True
+    ) -> upwind.UpwindHorizontalAdvectionAtVtx:
+        self.scheme = upwind.UpwindHorizontalAdvectionAtVtx(
+            order=order,
+            use_mbs=use_mbs,
+            optimized=optimized
+        )
         self._built = True
         return self.scheme
 

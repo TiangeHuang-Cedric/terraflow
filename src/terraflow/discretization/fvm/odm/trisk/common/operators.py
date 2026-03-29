@@ -114,9 +114,8 @@ class TriSKTangentVelocityAtEdge(Term):
             wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
             return jnp.sum(
                 weight * lenp * wind_tile,
-                dtype=jnp.float64,
                 axis=-1
-            ).astype(block.dev.float_type) / edd_length
+            ) / edd_length
 
         ut = jax.vmap(_wrap, in_axes=0, out_axes=0)(un)
         block = eqx.tree_at(
@@ -288,12 +287,18 @@ class InterpPotentialVorticityUpwind(Term):
         method: FiniteVolumeMethod,
         mode: AbstractEquationMode,
         order: int = 3,
-        use_mbs: bool = True
+        use_mbs: bool = True,
+        optimized: bool = True
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.central_difference_scheme = fr.CentralDifference2AtEdgeOnDualMesh()
         if order == 3:
-            self.recon_scheme = fr.WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
+            if optimized:
+                self.recon_scheme = fr.WRFPure3AtEdgeOnDualMesh(
+                    use_mbs=use_mbs
+                )
+            else:
+                self.recon_scheme = fr.WRF3AtEdgeOnDualMesh(use_mbs=use_mbs)
         elif order == 5:
             self.recon_scheme = fr.WRF5AtEdgeOnDualMesh(use_mbs=use_mbs)
         else:
@@ -346,12 +351,13 @@ class InterpPotentialVorticityPureUpwind(Term):
         method: FiniteVolumeMethod,
         mode: AbstractEquationMode,
         order: int = 3,
-        use_mbs: bool = True
+        use_mbs: bool = True,
+        optimized: bool = True
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.recon_scheme = fr.FluxReconstructAtEdgeOnDualMesh()
         if order == 3:
-            self.recon_scheme.wrf3(use_mbs=use_mbs)
+            self.recon_scheme.wrf3(use_mbs=use_mbs, optimized=optimized)
         elif order == 5:
             self.recon_scheme.wrf5(use_mbs=use_mbs)
         else:
@@ -407,24 +413,36 @@ class InterpPotentialVorticityAtDualEdge(Term):
         self._built = True
         return self
 
-    def upwind(self, order: int, use_mbs: bool = True) -> Self:
+    def upwind(
+        self,
+        order: int,
+        use_mbs: bool = True,
+        optimized: bool = True
+    ) -> Self:
         self.adv_scheme = InterpPotentialVorticityUpwind(
             disc=self._disc,
             method=self.method,
             mode=self.mode,
             order=order,
-            use_mbs=use_mbs
+            use_mbs=use_mbs,
+            optimized=optimized
         )
         self._built = True
         return self
 
-    def pure_upwind(self, order: int, use_mbs: bool = True) -> Self:
+    def pure_upwind(
+        self,
+        order: int,
+        use_mbs: bool = True,
+        optimized: bool = True
+    ) -> Self:
         self.adv_scheme = InterpPotentialVorticityPureUpwind(
             disc=self._disc,
             method=self.method,
             mode=self.mode,
             order=order,
-            use_mbs=use_mbs
+            use_mbs=use_mbs,
+            optimized=optimized
         )
         self._built = True
         return self
