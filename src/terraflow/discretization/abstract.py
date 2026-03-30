@@ -1096,15 +1096,14 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                 var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
                     var.data,
                     var.meta.to_dict(),
-                    is_numerical=False,
                     use_dual=use_dual
                 )
             elif isinstance(var.meta, NumericMetaData):
-                var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
-                    var.data,
-                    var.meta.to_dict(),
-                    is_numerical=True,
-                    use_dual=use_dual
+                continue
+            else:
+                raise TypeError(
+                    f"Variable '{var.meta.name}' metadata is not of type StaggeredFieldMetaData, "
+                    "which is required for UGRID format conversion."
                 )
         return xr.Dataset(data_vars=var_ds)
 
@@ -1359,15 +1358,14 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
                 var_ds[key] = tuxr.format_terraflow2ugrid(
                     var.data,
                     self.meta[key].to_dict(),
-                    is_numerical=False,
                     use_dual=use_dual
                 )
             elif isinstance(var.meta, NumericMetaData):
-                var_ds[key] = tuxr.format_terraflow2ugrid(
-                    var.data,
-                    self.meta[key].to_dict(),
-                    is_numerical=True,
-                    use_dual=use_dual
+                continue
+            else:
+                raise TypeError(
+                    f"Variable '{key}' metadata is not of type StaggeredFieldMetaData, "
+                    "which is required for UGRID format conversion."
                 )
         return xr.Dataset(data_vars=var_ds)
 

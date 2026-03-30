@@ -42,7 +42,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
         """
         return self.init_height(lon, lat)
 
-    def init_topography(self, lon: Array, lat: Array) -> Array:
+    def init_topography(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
         """Initialize topography field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -51,7 +51,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
             "Topography initialization is not implemented."
         )
 
-    def init_u(self, lon: Array, lat: Array) -> Array:
+    def init_u(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
         """Initialize zonal (u) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -60,7 +60,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
             "U velocity initialization is not implemented."
         )
 
-    def init_v(self, lon: Array, lat: Array,) -> Array:
+    def init_v(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
         """Initialize meridional (v) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -69,7 +69,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
             "V velocity initialization is not implemented."
         )
 
-    def init_height(self, lon: Array, lat: Array,) -> Array:
+    def init_height(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
         """Initialize height field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.

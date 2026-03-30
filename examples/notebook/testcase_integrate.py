@@ -81,8 +81,8 @@ block = equation.prepare_block(block)
 
 # %%
 time_manager = tf.util.datetime.DateTimeManager(
-    start_time="0001-01-01T00:00:00",
-    end_time="0001-01-21T00:00:00",
+    start_time="2000-01-01T00:00:00",
+    end_time="2000-01-21T00:00:00",
     save_interval="6 hours",
     dt_dyn="300 seconds",
 )
@@ -211,7 +211,8 @@ cbar = plt.colorbar(
 )
 cbar.ax.tick_params(labelsize=10)
 cbar.set_label(
-    f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
+    f"{da.attrs['name']} at primal cell ({da.attrs['units']})"
+)
 plt.tight_layout()
 
 # %%

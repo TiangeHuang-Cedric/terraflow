@@ -1401,7 +1401,6 @@ class UGRIDDataset:
 def format_terraflow2ugrid(
     value: Array | unxt.AbstractQuantity,
     meta: Dict[str, Any],
-    is_numerical: bool = False,
     use_dual: bool = False,
 ):
     """
@@ -1425,82 +1424,69 @@ def format_terraflow2ugrid(
     else:
         raise TypeError(f"Variable has unsupported type.")
 
-    if not is_numerical:
-        # Convert mesh_name and location
-        mesh_name = meta["mesh_name"]
-        if mesh_name not in ["primal", "dual"]:
-            raise ValueError(
-                f"mesh_name must be 'primal' or 'dual', got {mesh_name}."
-            )
-        location = meta["hori_location"]
-        if location not in ["cell", "edge", "vtx"]:
-            raise ValueError(
-                f"hori_location must be 'cell', 'edge' or 'vtx', got {location}."
-            )
-        if location == "cell":
-            location = "face"
-        elif location == "vtx":
+    # Convert mesh_name and location
+    mesh_name = meta["mesh_name"]
+    if mesh_name not in ["primal", "dual"]:
+        raise ValueError(
+            f"mesh_name must be 'primal' or 'dual', got {mesh_name}."
+        )
+    location = meta["hori_location"]
+    if location not in ["cell", "edge", "vtx"]:
+        raise ValueError(
+            f"hori_location must be 'cell', 'edge' or 'vtx', got {location}."
+        )
+    if location == "cell":
+        location = "face"
+    elif location == "vtx":
+        location = "node"
+    else:
+        location = location
+
+    # Rename mesh and location if use_dual is True
+    if use_dual:
+        mesh_name = "dual" if mesh_name == "primal" else "primal"
+        if location == "face":
             location = "node"
+        elif location == "node":
+            location = "face"
         else:
             location = location
 
-        # Rename mesh and location if use_dual is True
-        if use_dual:
-            mesh_name = "dual" if mesh_name == "primal" else "primal"
-            if location == "face":
-                location = "node"
-            elif location == "node":
-                location = "face"
-            else:
-                location = location
-
-        # Determine dims and coordinates
-        if len(meta["dims"]) == 1:
-            dims = (f"n_{location}",)
-            if len(var.shape) == 2:
-                var = var.squeeze()
-        elif len(meta["dims"]) == 2:
-            # Only squeeze level dimension
-            if meta["dims"][0] == "time" and len(var.shape) == 3:
-                var = var.squeeze(axis=1)
-            dims = (meta["dims"][0], f"n_{location}")
-        elif len(meta["dims"]) == 3:
-            dims = (
-                meta["dims"][0],
-                meta["dims"][1],
-                f"n_{location}",
-            )
-        else:
-            raise ValueError(
-                f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
-            )
-        coordinates = f"{location}_lon {location}_lat"
-
-        return xr.DataArray(
-            data=np.asarray(var),
-            dims=dims,
-            attrs={
-                "name": meta["name"],
-                "mesh": mesh_name,
-                "location": location,
-                "coordinates": coordinates,
-                "units": units,
-                "long_name": meta["long_name"],
-                "description": meta["description"],
-                "is_prognostic": meta["is_prognostic"],
-                "is_static": meta["is_static"],
-                "output": meta["output"],
-            }
+    # Determine dims and coordinates
+    if len(meta["dims"]) == 1:
+        dims = (f"n_{location}",)
+        if len(var.shape) == 2:
+            var = var.squeeze()
+    elif len(meta["dims"]) == 2:
+        # Only squeeze level dimension
+        if meta["dims"][0] == "time" and len(var.shape) == 3:
+            var = var.squeeze(axis=1)
+        dims = (meta["dims"][0], f"n_{location}")
+    elif len(meta["dims"]) == 3:
+        dims = (
+            meta["dims"][0],
+            meta["dims"][1],
+            f"n_{location}",
         )
     else:
-        return xr.DataArray(
-            data=np.asarray(var),
-            attrs={
-                "name": meta["name"],
-                "units": units,
-                "long_name": meta["long_name"],
-                "description": meta["description"],
-                "is_static": meta["is_static"],
-                "output": meta["output"],
-            }
+        raise ValueError(
+            f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
         )
+    coordinates = f"{location}_lon {location}_lat"
+
+    return xr.DataArray(
+        data=np.asarray(var),
+        dims=dims,
+        attrs={
+            "name": meta["name"],
+            "mesh": mesh_name,
+            "location": location,
+            "coordinates": coordinates,
+            "units": units,
+            "long_name": meta["long_name"],
+            "description": meta["description"],
+            "is_prognostic": meta["is_prognostic"],
+            "is_static": meta["is_static"],
+            "output": meta["output"],
+        }
+    )

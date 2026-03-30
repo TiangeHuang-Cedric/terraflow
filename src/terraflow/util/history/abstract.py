@@ -818,7 +818,6 @@ class Unstructured2StructuredHistory(AbstractHistory):
             staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
                 value=field.data,
                 meta=field.meta.to_dict(),
-                is_numerical=False,
             )
         if staggered_var_ds:
             staggered_ds = xr.Dataset(data_vars=staggered_var_ds)
@@ -880,7 +879,6 @@ class Unstructured2StructuredHistory(AbstractHistory):
             staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
                 value=field.data,
                 meta=field.meta.to_dict(),
-                is_numerical=False,
             )
         if staggered_var_ds:
             staggered_ds = xr.Dataset(data_vars=staggered_var_ds)

@@ -26,6 +26,7 @@ from terraflow.test_case.baroclinic import (
     BaroclinicEquationTestCase,
     SteadyStateTestCase,
     MountainWaveTestCase,
+    RossbyHaurwitzWaveTestCase
 )
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
@@ -50,6 +51,20 @@ CoordSys = CoordinateSystem[
     VM,
     TriSKBasedCGridStaggeringLayout,
     VLO
+]
+
+CoordSysOneLayer = CoordinateSystem[
+    OrthogonalDualMesh,
+    OneLayerVertCoordinate,
+    TriSKBasedCGridStaggeringLayout,
+    OneLayerVertCoordLayout
+]
+
+CoordSysHybrid = CoordinateSystem[
+    OrthogonalDualMesh,
+    HybridVertCoordinate,
+    TriSKBasedCGridStaggeringLayout,
+    HybridVertCoordLayout
 ]
 
 NLEVP = "ilev"
@@ -117,6 +132,10 @@ class Block(
                 )
             elif isinstance(case, MountainWaveTestCase):
                 elements = baroclinic_mountain_wave_case_init_fn(
+                    coord=coord, para=para, equation=equation, case=case
+                )
+            elif isinstance(case, RossbyHaurwitzWaveTestCase):
+                elements = baroclinic_rossby_wave_case_init_fn(
                     coord=coord, para=para, equation=equation, case=case
                 )
             else:
@@ -435,7 +454,7 @@ class EquationTermAuxDataset(AbstractEquationTermAuxiliaryDataset):
 
 
 def barotropic_block_element_init_fn(
-    coord: CoordSys,
+    coord: CoordSysOneLayer,
     equation: AbstractEquationSet,
 ) -> Dict[str, Element]:
     state = State.from_coord(coord=coord, equation=equation)
@@ -453,7 +472,7 @@ def barotropic_block_element_init_fn(
 
 
 def barotropic_case_init_fn(
-    coord: CoordSys,
+    coord: CoordSysOneLayer,
     para: PlanetParameterSet,
     equation: AbstractEquationSet,
     *,
@@ -486,7 +505,7 @@ def barotropic_case_init_fn(
 
 
 def baroclinic_block_element_init_fn(
-    coord: CoordSys,
+    coord: CoordSysHybrid,
     equation: AbstractEquationSet,
 ) -> Dict[str, Element]:
     state = State.from_coord(coord=coord, equation=equation)
@@ -510,7 +529,7 @@ def baroclinic_block_element_init_fn(
 
 
 def baroclinic_steady_state_case_init_fn(
-    coord: CoordSys,
+    coord: CoordSysHybrid,
     para: PlanetParameterSet,
     equation: AbstractEquationSet,
     *,
@@ -563,7 +582,7 @@ def baroclinic_steady_state_case_init_fn(
 
 
 def baroclinic_mountain_wave_case_init_fn(
-    coord: CoordSys,
+    coord: CoordSysHybrid,
     para: PlanetParameterSet,
     equation: AbstractEquationSet,
     *,
@@ -580,7 +599,7 @@ def baroclinic_mountain_wave_case_init_fn(
     )
     mg = coord.vert.calc_mg(mgs)
     pt = init_pt_in_baroclinic_case(
-        coord=coord, equation=equation, test=case, p=mg
+        coord=coord, equation=equation, test=case, mg=mg
     )
     un = init_un_in_baroclinic_case(
         coord=coord, equation=equation, test=case
@@ -601,10 +620,60 @@ def baroclinic_mountain_wave_case_init_fn(
     return elements
 
 
+def baroclinic_rossby_wave_case_init_fn(
+    coord: CoordSysHybrid,
+    para: PlanetParameterSet,
+    equation: AbstractEquationSet,
+    *,
+    case: RossbyHaurwitzWaveTestCase,
+) -> Dict[str, Element]:
+    elements = baroclinic_block_element_init_fn(
+        coord=coord, equation=equation
+    )
+    un = init_un_in_baroclinic_case(
+        coord=coord, equation=equation, test=case
+    )
+    gzs = init_gzs_in_baroclinic_case(
+        coord=coord, equation=equation, test=case
+    )
+    mgs = init_mgs_in_baroclinic_case(
+        coord=coord, equation=equation, test=case, gzs=gzs
+    )
+    mg = coord.vert.calc_mg(mgs)
+    mg_lev = coord.vert.calc_mg_lev(mgs)
+    pt = init_pt_in_baroclinic_case(
+        coord=coord, equation=equation, test=case, mg=mg
+    )
+    gz = init_gz_in_baroclinic_case(
+        coord=coord, equation=equation, test=case, mg=mg
+    )
+    gz_lev = init_gz_lev_in_case(
+        coord=coord, equation=equation, test=case, mg=mg_lev
+    )
+    ref_ps = mgs
+    elements["state"] = eqx.tree_at(
+        lambda s: (
+            s.mgs.data, s.mg.data, s.mg_lev.data,
+            s.gz.data, s.gz_lev.data,
+            s.un.data, s.pt.data
+        ),
+        elements["state"],
+        (mgs, mg, mg_lev, gz, gz_lev, un, pt)
+    )
+    elements["static"] = eqx.tree_at(
+        lambda s: (s.gzs.data, s.ref_ps.data),
+        elements["static"],
+        (gzs, ref_ps)
+    )
+    return elements
+
+
 def init_z_in_barotropic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
     test: ShallowWaterEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -627,6 +696,8 @@ def init_un_in_barotropic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
     test: ShallowWaterEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["un"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -651,6 +722,8 @@ def init_zs_in_barotropic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
     test: ShallowWaterEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_static_meta(mode=equation.mode)["gzs"]
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
@@ -667,7 +740,9 @@ def init_mgs_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
     test: BaroclinicEquationTestCase,
-    gzs: Array
+    gzs: Array,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["mgs"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -687,7 +762,9 @@ def init_mgs_in_baroclinic_case(
 def init_t_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
-    test: BaroclinicEquationTestCase
+    test: BaroclinicEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_auxiliary_meta(mode=equation.mode)["t"]
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
@@ -710,7 +787,9 @@ def init_pt_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
     test: BaroclinicEquationTestCase,
-    p: Array
+    mg: Array,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["pt"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -730,13 +809,15 @@ def init_pt_in_baroclinic_case(
     lon = horizontal_coord["lon"]
     lat = horizontal_coord["lat"]
     eta = vertical_coord
-    return test.init_pt(lon, lat, eta, p)
+    return test.init_pt(lon, lat, eta, mg)
 
 
 def init_un_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
-    test: BaroclinicEquationTestCase
+    test: BaroclinicEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["un"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -766,7 +847,9 @@ def init_un_in_baroclinic_case(
 def init_gzs_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
-    test: BaroclinicEquationTestCase
+    test: BaroclinicEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_static_meta(mode=equation.mode)["gzs"]
     horizontal_coord = meta.get_hori_position(coord).horizontal_coord
@@ -782,7 +865,9 @@ def init_gzs_in_baroclinic_case(
 def init_gz_in_baroclinic_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
-    test: BaroclinicEquationTestCase
+    test: BaroclinicEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -802,13 +887,15 @@ def init_gz_in_baroclinic_case(
     lon = horizontal_coord["lon"]
     lat = horizontal_coord["lat"]
     eta = vertical_coord
-    return test.init_gz(lon, lat, eta)
+    return test.init_gz(lon, lat, eta, *args, **kwargs)
 
 
 def init_gz_lev_in_case(
     coord: CoordSys,
     equation: AbstractEquationSet,
-    test: BaroclinicEquationTestCase
+    test: BaroclinicEquationTestCase,
+    *args,
+    **kwargs
 ) -> Array:
     meta = default_state_meta(mode=equation.mode)["gz_lev"]
     if not isinstance(meta, StaggeredFieldMetaData):
@@ -828,7 +915,7 @@ def init_gz_lev_in_case(
     lon = horizontal_coord["lon"]
     lat = horizontal_coord["lat"]
     eta = vertical_coord
-    return test.init_gz(lon, lat, eta)
+    return test.init_gz(lon, lat, eta, *args, **kwargs)
 
 
 def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:

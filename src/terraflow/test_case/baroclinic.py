@@ -6,8 +6,8 @@ from terraflow.util import typing, math, formula
 from terraflow.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractTestCase
 
-FloatType = typing.FloatType
 Float = typing.Float
+Int = typing.Int
 Array = typing.Array
 
 
@@ -31,7 +31,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
-    def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
+    def init_mgs(self, lon: Array, lat: Array, gzs: Array, *args, **kwargs) -> Array:
         """Initialize dry mass field at surface.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -40,7 +40,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Dry mass surface initialization is not implemented."
         )
 
-    def init_gzs(self, lon: Array, lat: Array) -> Array:
+    def init_gzs(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
         """Initialize geopotential surface field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -49,7 +49,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Geopotential surface initialization is not implemented."
         )
 
-    def init_gz(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_gz(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize geopotential field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -58,7 +58,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Geopotential initialization is not implemented."
         )
 
-    def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_u(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize zonal (u) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -67,7 +67,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "U velocity initialization is not implemented."
         )
 
-    def init_v(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_v(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize meridional (v) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -76,7 +76,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "V velocity initialization is not implemented."
         )
 
-    def init_t(self, lon: Array, lat: Array, eta: Array) -> Array:
+    def init_t(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize temperature field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -85,7 +85,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
             "Temperature initialization is not implemented."
         )
 
-    def init_pt(self, lon: Array, lat: Array, eta: Array, p: Array) -> Array:
+    def init_pt(self, lon: Array, lat: Array, eta: Array, mg: Array,  *args, **kwargs) -> Array:
         """Initialize potential temperature field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -331,10 +331,136 @@ class MountainWaveTestCase(BaroclinicEquationTestCase):
             - N**2 / (g**2 * kap) * gzs
         )
 
-    def init_pt(self, lon: Array, lat: Array, eta: Array, p: Array) -> Array:
+    def init_pt(self, lon: Array, lat: Array, eta: Array, mg: Array) -> Array:
         """Initialize potential temperature field for mountain wave test case."""
         return formula.dry_potential_temperature(
             t=jnp.array(288.0, dtype=lon.dtype),
-            p=p,
+            p=mg,
             para=self.para,
         )
+
+
+class RossbyHaurwitzWaveTestCase(BaroclinicEquationTestCase):
+    """3D Rossby-Haurwitz wave test case."""
+    n: Int[Array, ""]
+    u0: Float[Array, ""]  # m s-1
+    t0: Float[Array, ""]  # K
+    gamma: Float[Array, ""]  # K m-1
+    pref: Float[Array, ""]  # Pa
+    M: Float[Array, ""]
+
+    def __init__(self, para: PlanetParameterSet):
+        self._para = para
+        self.name = "3D Rossby-Haurwitz Wave"
+        self.description = "3D Rossby-Haurwitz wave test case for baroclinic dynamics."
+        self.references = (
+            "Jablonowski, C., Lauritzen, P., Nair, R. & Taylor, M. "
+            "Idealized test cases for the dynamical cores of Atmospheric General Circulation Models: "
+            "A proposal for the NCAR ASP 2008 summer colloquium.",
+        )
+        self.keywords = ("baroclinic", "Rossby-Haurwitz wave", "atmosphere")
+        dev = para.dev()
+        int_type = para.dev.int_type
+        float_type = para.dev.float_type
+        self.n = jnp.array(
+            4, device=dev, dtype=int_type
+        )
+        self.u0 = jnp.array(
+            50, device=dev, dtype=float_type
+        )
+        self.t0 = jnp.array(
+            288, device=dev, dtype=float_type
+        )  # K
+        self.gamma = jnp.array(
+            0.0065, device=dev, dtype=float_type
+        )  # K m-1
+        self.pref = jnp.array(
+            955e2, device=dev, dtype=float_type
+        )  # Pa
+        self.M = jnp.array(
+            self.u0 / (self.n * self.para.radius.unwrap()), device=dev, dtype=float_type
+        )
+        logger.success("Initialized 3D Rossby-Haurwitz wave test case.")
+
+    def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize zonal (u) velocity component for Rossby-Haurwitz wave test case."""
+        n = self.n
+        M = self.M
+        a = self.para.radius.unwrap()
+        cos_lat = jnp.cos(lat)
+        sin_lat = jnp.sin(lat)
+        u = (
+            a * M * cos_lat
+            + a * M * cos_lat**(n - 1) * jnp.cos(n * lon) *
+            (n * sin_lat**2 - cos_lat**2)
+        )
+        u = jnp.expand_dims(u, axis=0)
+        return jnp.tile(u, (eta.shape[0], 1))
+
+    def init_v(self, lon: Array, lat: Array, eta: Array) -> Array:
+        """Initialize meridional (v) velocity component for Rossby-Haurwitz wave test case."""
+        n = self.n
+        M = self.M
+        a = self.para.radius.unwrap()
+        cos_lat = jnp.cos(lat)
+        sin_lat = jnp.sin(lat)
+        v = - a * M * n * cos_lat**(n - 1) * sin_lat * jnp.sin(n * lon)
+        v = jnp.expand_dims(v, axis=0)
+        return jnp.tile(v, (eta.shape[0], 1))
+
+    def init_gzs(self, lon: Array, lat: Array) -> Array:
+        """Initialize geopotential surface field for Rossby-Haurwitz wave test case."""
+        return jnp.zeros_like(lon)
+
+    def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
+        """Initialize dry mass field for Rossby-Haurwitz wave test case."""
+        g = self.para.gravity.unwrap()
+        omega = self.para.omega.unwrap()
+        a = self.para.radius.unwrap()
+        rd = self.para.rd.unwrap()
+        n = self.n
+        t0 = self.t0
+        pref = self.pref
+        gamma = self.gamma
+        M = self.M
+        cos_lat = jnp.cos(lat)
+        a_lat = (
+            M * (2 * omega + M) / 2 * cos_lat**2
+            + M**2 / 4 * cos_lat**(2 * n) * (
+                (n + 1) * cos_lat**2 + (2 * n**2 - n - 2)
+            )
+            - n**2 * M**2 / 2 * cos_lat**(2 * (n - 1))
+        )
+        b_lat = (
+            2 * (omega + M) * M / (n + 1) / (n + 2) * cos_lat**n *
+            ((n**2 + 2 * n + 2) - (n + 1)**2 * cos_lat**2)
+        )
+        c_lat = M**2 / 4 * cos_lat**(2 * n) * ((n + 1) * cos_lat**2 - (n + 2))
+        phi_p = a**2 * (
+            a_lat + b_lat * jnp.cos(n * lon)
+            + c_lat * jnp.cos(2 * n * lon)
+        )
+        return pref * (1 + gamma / g / t0 * phi_p)**(g / gamma / rd)
+
+    def init_pt(self, lon: Array, lat: Array, eta: Array, mg: Array) -> Array:
+        """Initialize potential temperature field for Rossby-Haurwitz wave test case."""
+        g = self.para.gravity.unwrap()
+        rd = self.para.rd.unwrap()
+        t0 = self.t0
+        gamma = self.gamma
+        pref = self.pref
+        t = t0 * (mg / pref)**(gamma * rd / g)
+        return formula.dry_potential_temperature(
+            t=t,
+            p=mg,
+            para=self.para,
+        )
+
+    def init_gz(self, lon: Array, lat: Array, eta: Array, mg: Array) -> Array:
+        """Initialize geopotential field for Rossby-Haurwitz wave test case."""
+        g = self.para.gravity.unwrap()
+        rd = self.para.rd.unwrap()
+        t0 = self.t0
+        gamma = self.gamma
+        pref = self.pref
+        return g * t0 / gamma * (1 - (mg / pref) ** (gamma * rd / g))
