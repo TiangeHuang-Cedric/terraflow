@@ -104,14 +104,16 @@ class MultiStepWithHistory:
 
     def __init__(
         self,
-        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
+        operator_prepare_fn: Callable,
+        diagnose_fn: Callable,
         history: hy.abstract.AbstractHistoryset,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
         self.operator_prepare_fn = operator_prepare_fn
+        self.diagnose_fn = diagnose_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
         self.history = history
@@ -138,7 +140,10 @@ class MultiStepWithHistory:
     ) -> AbstractBlock:
         self.history.output_prepare(0)
         new_block: AbstractBlock = self.operator_prepare_fn(old_block)
-        new_block = new_block.diagnose(itime=new_block.old)
+        new_block: AbstractBlock = self.diagnose_fn(
+            new_block,
+            itime=new_block.old
+        )
         self.history.output(
             block=new_block,
             itime=new_block.old,
@@ -160,17 +165,17 @@ class MultiStepWithTrajectory:
 
     def __init__(
         self,
-        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
         outer_steps: int,
+        operator_prepare_fn: Callable,
         start_with_input: bool = False,
         post_process_fn: Callable = lambda x: x.get_state(x.new),
         outer_scan_fn: Callable = jax.lax.scan,
     ):
-        self.operator_prepare_fn = operator_prepare_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
+        self.operator_prepare_fn = operator_prepare_fn
         self.outer_steps = outer_steps
         self.start_with_input = start_with_input
         self.post_process_fn = post_process_fn
@@ -224,15 +229,17 @@ class MultiStepWithIntegration:
 
     def __init__(
         self,
-        operator_prepare_fn: Callable,
         step_fn: Callable,
         inner_step_fn: Callable,
+        operator_prepare_fn: Callable,
+        diagnose_fn: Callable,
         outer_steps: int,
         outer_scan_fn: Callable = jax.lax.scan,
     ):
-        self.operator_prepare_fn = operator_prepare_fn
         self.step_fn = step_fn
         self.inner_step_fn = inner_step_fn
+        self.operator_prepare_fn = operator_prepare_fn
+        self.diagnose_fn = diagnose_fn
         self.outer_steps = outer_steps
         self.outer_scan_fn = outer_scan_fn
 
@@ -263,14 +270,15 @@ class MultiStepWithIntegration:
             xs=None,
             length=self.outer_steps
         )[0]
-        return final_block.diagnose(itime=final_block.new)
+        return self.diagnose_fn(final_block, itime=final_block.new)
 
 
 def io_callback(
-    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    operator_prepare_fn: Callable,
+    diagnose_fn: Callable,
     *,
     with_jit: bool = True,
     outer_scan_fn: Callable = jax.lax.scan,
@@ -290,7 +298,7 @@ def io_callback(
         block, save_idx = carry_in
         history.output_prepare(save_idx)
         block = repeated_step_fn(block)
-        block = block.diagnose(itime=block.new)
+        block = diagnose_fn(block, itime=block.new)
         history.output(
             block=block,
             itime=block.new,
@@ -299,9 +307,10 @@ def io_callback(
         return (block, save_idx + 1), None
 
     return_fn = MultiStepWithHistory(
-        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
+        operator_prepare_fn=operator_prepare_fn,
+        diagnose_fn=diagnose_fn,
         history=history,
         outer_steps=outer_steps,
         outer_scan_fn=outer_scan_fn
@@ -314,10 +323,10 @@ def io_callback(
 
 
 def trajectory_from_step(
-    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    operator_prepare_fn: Callable,
     *,
     with_jit: bool = True,
     start_with_input: bool = False,
@@ -360,10 +369,10 @@ def trajectory_from_step(
         return block, post_process_fn(block)
 
     return_fn = MultiStepWithTrajectory(
-        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
         outer_steps=outer_steps,
+        operator_prepare_fn=operator_prepare_fn,
         start_with_input=start_with_input,
         post_process_fn=post_process_fn,
         outer_scan_fn=outer_scan_fn
@@ -376,10 +385,11 @@ def trajectory_from_step(
 
 
 def integrate(
-    operator_prepare_fn: Callable,
     step_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    operator_prepare_fn: Callable,
+    diagnose_fn: Callable,
     *,
     with_jit: bool = True,
     outer_scan_fn: Callable = jax.lax.scan,
@@ -399,9 +409,10 @@ def integrate(
         return block, None
 
     return_fn = MultiStepWithIntegration(
-        operator_prepare_fn=operator_prepare_fn,
         step_fn=step_fn,
         inner_step_fn=inner_step_fn,
+        operator_prepare_fn=operator_prepare_fn,
+        diagnose_fn=diagnose_fn,
         outer_steps=outer_steps,
         outer_scan_fn=outer_scan_fn
     )
@@ -571,6 +582,9 @@ class AbstractSolver(Generic[ODE], ABC):
     def operator_prepare_fn(self) -> Callable:
         return self.equation._space_operators.prepare.first_call
 
+    def diagnose_fn(self) -> Callable:
+        return self.equation._space_operators.diagnose
+
     def io_callback(
         self,
         history: hy.abstract.AbstractHistoryset,
@@ -608,11 +622,14 @@ class AbstractSolver(Generic[ODE], ABC):
         else:
             operator_prepare_fn = self.operator_prepare_fn()
 
+        diagnose_fn = self.diagnose_fn()
+
         return io_callback(
-            operator_prepare_fn=operator_prepare_fn,
             step_fn=stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
+            operator_prepare_fn=operator_prepare_fn,
+            diagnose_fn=diagnose_fn,
             with_jit=self.with_jit,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
@@ -705,11 +722,14 @@ class AbstractSolver(Generic[ODE], ABC):
         else:
             operator_prepare_fn = self.operator_prepare_fn()
 
+        diagnose_fn = self.diagnose_fn()
+
         return integrate(
-            operator_prepare_fn=operator_prepare_fn,
             step_fn=stepper,
             outer_steps=outer_steps,
             inner_steps=inner_steps,
+            operator_prepare_fn=operator_prepare_fn,
+            diagnose_fn=diagnose_fn,
             with_jit=self.with_jit,
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,

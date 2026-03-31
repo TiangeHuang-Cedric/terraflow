@@ -553,6 +553,16 @@ class AbstractSpaceOperators(
     ) -> BLOCK:
         raise NotImplementedError
 
+    @abstractmethod
+    def diagnose(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        """Optional diagnostic function to be called after space operators."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def update_state(self, state: Any, tend: Any, *args, **kwargs) -> Any:
+        """Update the state of the block after applying space operators."""
+        raise NotImplementedError
+
     @property
     def prepare(self) -> PSO:
         return self._operators_prepare
@@ -577,11 +587,6 @@ class AbstractSpaceOperators(
         choice = "prepare_space_operators"
         id_val = disc + "::" + choice
         return navigate("equaux", id_col=id_col, id_val=id_val)[0]
-
-    @abstractmethod
-    def update_state(self, state: Any, tend: Any, *args, **kwargs) -> Any:
-        """Update the state of the block after applying space operators."""
-        raise NotImplementedError
 
 
 class AbstractEquationSet(

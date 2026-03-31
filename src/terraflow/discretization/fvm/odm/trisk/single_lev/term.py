@@ -258,6 +258,9 @@ class ExPrepareSpaceOperators(
         self.ut = common_op.TangentVelocityAtEdge(
             disc=disc, method=method, mode=mode
         )
+        self.div = common_op.DivergenceOfVelocityAtCell(
+            disc=disc, method=method, mode=mode
+        )
         self.vor = common_op.RelativeVorticityAtDualCell(
             disc=disc, method=method, mode=mode
         )
@@ -315,6 +318,7 @@ class ExPrepareSpaceOperators(
             self.dmg.build_default()
             self.mfn.build_default()
             self.dmf.build_default()
+            self.div.build_default()
             self.vor.build_default()
             self.ut.build_default(coriolis_scheme=coriolis_scheme)
             self.pv.build_default()
@@ -326,6 +330,7 @@ class ExPrepareSpaceOperators(
         block = self.dmg.prepare_block(block)
         block = self.mfn.prepare_block(block)
         block = self.dmf.prepare_block(block)
+        block = self.div.prepare_block(block)
         block = self.vor.prepare_block(block)
         block = self.ut.prepare_block(block)
         block = self.pv.prepare_block(block)
@@ -425,6 +430,17 @@ class ExSpaceOperators(
             # ==================================================
         else:
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
+        return block
+
+    def diagnose(
+        self,
+        block: BLOCK,
+        itime: int,
+    ) -> BLOCK:
+        state = block.get_state(itime)
+        block, state = self.prepare.div(block, state)
+        block = block.set_state(itime=itime, state=state)
+        block = block.diagnose(itime=itime)
         return block
 
     def _update_gz(

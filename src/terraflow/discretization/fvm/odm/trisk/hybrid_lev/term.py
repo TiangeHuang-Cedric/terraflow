@@ -787,6 +787,9 @@ class ExPrepareSpaceOperators(
         self.ut = common_op.TangentVelocityAtEdge(
             disc=disc, method=method, mode=mode
         )
+        self.div = common_op.DivergenceOfVelocityAtCell(
+            disc=disc, method=method, mode=mode
+        )
         self.vor = common_op.RelativeVorticityAtDualCell(
             disc=disc, method=method, mode=mode
         )
@@ -869,6 +872,7 @@ class ExPrepareSpaceOperators(
             self.p.build_default()
             self.t.build_default()
             self.gz.build_default()
+            self.div.build_default()
             self.vor.build_default()
             self.ut.build_default(coriolis_scheme=coriolis_scheme)
             self.pv.build_default()
@@ -887,6 +891,7 @@ class ExPrepareSpaceOperators(
         block = self.p.prepare_block(block)
         block = self.t.prepare_block(block)
         block = self.gz.prepare_block(block)
+        block = self.div.prepare_block(block)
         block = self.vor.prepare_block(block)
         block = self.ut.prepare_block(block)
         block = self.pv.prepare_block(block)
@@ -1003,24 +1008,15 @@ class ExSpaceOperators(
             )
         return block
 
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.mfz_lev.build_default()
-            self.dmgsdt.build_default()
-            self.dptdt.build_default()
-            self.dundt.build_default()
-            self.prepare.build_default(
-                coriolis_scheme=self.dundt.coriolis.scheme
-            )
-            self._built = True
-        return self
-
-    def prepare_block(self, block: BLOCK) -> BLOCK:
-        block = self.dmgsdt.prepare_block(block)
-        block = self.dptdt.prepare_block(block)
-        block = self.dundt.prepare_block(block)
-        block = self.mfz_lev.prepare_block(block)
-        block = self.prepare.prepare_block(block)
+    def diagnose(
+        self,
+        block: BLOCK,
+        itime: int,
+    ) -> BLOCK:
+        state = block.get_state(itime)
+        block, state = self.prepare.div(block, state)
+        block = block.set_state(itime=itime, state=state)
+        block = block.diagnose(itime=itime)
         return block
 
     def _update_mgs(
@@ -1144,3 +1140,23 @@ class ExSpaceOperators(
         )
         # ================================================
         return new_state
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self.mfz_lev.build_default()
+            self.dmgsdt.build_default()
+            self.dptdt.build_default()
+            self.dundt.build_default()
+            self.prepare.build_default(
+                coriolis_scheme=self.dundt.coriolis.scheme
+            )
+            self._built = True
+        return self
+
+    def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.dmgsdt.prepare_block(block)
+        block = self.dptdt.prepare_block(block)
+        block = self.dundt.prepare_block(block)
+        block = self.mfz_lev.prepare_block(block)
+        block = self.prepare.prepare_block(block)
+        return block

@@ -120,6 +120,12 @@ def set_parser() -> argparse.ArgumentParser:
         help="Vertical dimension name, default lev"
     )
     parser.add_argument(
+        "--complevel",
+        type=int,
+        default=4,
+        help="Compression level for output netCDF (0-9), default 4"
+    )
+    parser.add_argument(
         "--output",
         default=None,
         help="Output netCDF file path. Default: <input_stem>_plev.nc",
@@ -242,8 +248,11 @@ def output(
     ds[args.lev_dim].attrs["description"] = "Pressure levels interpolated from model levels"
     ds[args.lev_dim].attrs["units"] = "Pa"
 
+    comp = dict(zlib=True, complevel=args.complevel)
+    encoding = {v: comp for v in ds.data_vars}
+
     ds_input.close()
-    ds.to_netcdf(output_path)
+    ds.to_netcdf(output_path, engine="netcdf4", encoding=encoding)
     logger.success(f"Interpolation finished. Saved file: {output_path}")
 
 

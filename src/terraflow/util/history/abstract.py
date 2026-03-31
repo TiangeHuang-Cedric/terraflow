@@ -417,7 +417,7 @@ class UnstructuredHistoryset(
             output_h0=output_h0,
             output_h1=output_h1,
             output_h2=output_h2,
-            h0_opt={"with_vtx": False},
+            h0_opt={"with_vtx": True},
             h1_opt={"with_vtx": True},
             h2_opt={},
             dev=dev,

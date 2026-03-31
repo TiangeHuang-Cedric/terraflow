@@ -83,6 +83,40 @@ class RelativeVorticityAtDualCell(Term):
         return block
 
 
+class DivergenceOfVelocityAtCell(Term):
+    def __init__(
+        self,
+        disc: DiscretizationInfo,
+        method: FiniteVolumeMethod,
+        mode: AbstractEquationMode,
+    ):
+        super().__init__(disc=disc, method=method, mode=mode)
+
+    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+        coord = block.coord
+        para = block.para
+        un = star_state.un.unwrap()
+        div = op.div_at_primal_cell(
+            x_at_edge=un,
+            coord=coord,
+            para=para
+        )
+        block = eqx.tree_at(
+            lambda b: b.aux.div.data,
+            block,
+            replace=div
+        )
+        return block, star_state
+
+    def build_default(self) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
+    def prepare_block(self, block: Block) -> Block:
+        return block
+
+
 class TriSKTangentVelocityAtEdge(Term):
 
     def __init__(

@@ -419,6 +419,7 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
     u: FDT
     v: FDT
     ut: FDT
+    div: FDT
     vor: FDT
     pv_vtx: FDT
     pv_e: FDT
@@ -1540,6 +1541,21 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
         is_prognostic=False,
         output="h1"
     )
+    meta["div"] = StaggeredFieldMetaData(
+        name="div",
+        dims=(NLEV, NCELL,) if mode.baroclinic else (NCELL,),
+        long_name="Divergence at primal cell center",
+        description="Divergence at primal cell center",
+        units="1/s",
+        hori_location=MeshEntity.Cell,
+        vert_location=VertLoc.Cell if mode.baroclinic else "",
+        basis=Basis.Scalar,
+        coordinates="lon_cell lat_cell",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h0"
+    )
     meta["vor"] = StaggeredFieldMetaData(
         name="vor",
         dims=(NLEV, NVTX,) if mode.baroclinic else (NVTX,),
@@ -1553,7 +1569,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
         staggered_kind="C",
         mesh_name="primal",
         is_prognostic=False,
-        output="h1"
+        output="h0"
     )
     meta["pv_vtx"] = StaggeredFieldMetaData(
         name="pv_vtx",
