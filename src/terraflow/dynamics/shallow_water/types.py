@@ -11,9 +11,8 @@ from typing import (
     Generic,
 )
 import inspect
-from loguru import logger
 
-from terraflow.util import typing
+from terraflow.util import typing, log
 from terraflow.test_case.swe import ShallowWaterEquationTestCase
 from terraflow.planet import PlanetParameterSet
 from terraflow.operator import AbstractDiscretizationMethod
@@ -25,12 +24,12 @@ import terraflow.discretization.abstract as disc_types
 
 if TYPE_CHECKING:
     from terraflow.operator import FiniteVolumeMethod
-    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
-    import terraflow.discretization.fvm.odm.trisk.single_lev.term as fvm_odm_trisk_1lev_terms
+    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_odm_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_odm_trisk_1lev_terms
 
     Array = typing.Array
 
@@ -430,7 +429,7 @@ class ExVifShallowWaterEquationSet4UGRID(
     def build_block_from_testcase(
         self,
         coord: CoordinateSystem[
-            OrthogonalDualMesh,
+            SphericalCentroidVoronoiTessellations,
             OneLayerVertCoordinate,
             TriSKBasedCGridStaggeringLayout,
             OneLayerVertCoordLayout
@@ -459,22 +458,22 @@ class ExVifShallowWaterEquationSet4UGRID(
         case: Optional[ShallowWaterEquationTestCase] = None
     ) -> disc_types.AbstractBlock:
         from terraflow.operator import FiniteVolumeMethod
-        from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+        from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
         from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-        from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+        from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
         from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
         if (
             isinstance(self.method, FiniteVolumeMethod) and
-            isinstance(coord.mesh, OrthogonalDualMesh) and
+            isinstance(coord.mesh, SphericalCentroidVoronoiTessellations) and
             isinstance(coord.vert, OneLayerVertCoordinate) and
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, OneLayerVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
             block_cls = Block
             coord_specialized = cast(
                 CoordinateSystem[
-                    OrthogonalDualMesh,
+                    SphericalCentroidVoronoiTessellations,
                     OneLayerVertCoordinate,
                     TriSKBasedCGridStaggeringLayout,
                     OneLayerVertCoordLayout
@@ -500,7 +499,7 @@ class ExVifShallowWaterEquationSet4UGRID(
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self._space_operators.prepare_block(block)
-        logger.success("Prepared auxiliary and data.")
+        log.logger.success("Prepared auxiliary and data.")
         return block
 
     def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
@@ -518,7 +517,7 @@ class ShallowWaterEquationBuilder:
     def from_model(
         cls,
         coord: CoordinateSystem[
-            OrthogonalDualMesh,
+            SphericalCentroidVoronoiTessellations,
             OneLayerVertCoordinate,
             TriSKBasedCGridStaggeringLayout,
             OneLayerVertCoordLayout

@@ -8,21 +8,21 @@ import uxarray as ux
 from terraflow.util.history.setup.base import AbstractHistorySetup
 
 if TYPE_CHECKING:
-    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 
 
 class AbstractMeshHistorySetup(AbstractHistorySetup):
     pass
 
 
-class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
+class SCVTHistorySetup(AbstractMeshHistorySetup):
     file_path: str
-    mesh: OrthogonalDualMesh
+    mesh: SphericalCentroidVoronoiTessellations
 
     def __init__(
         self,
         file_path: str,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         output_type: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
@@ -87,8 +87,8 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         )
         ds.createDimension("two", int(2))
         # Create variables
-        int_type = self.nc_int_type
-        float_type = self.nc_float_type
+        int_type = "i4"
+        float_type = "f8"
         mesh = ds.createVariable(mesh_name, int_type, ())
         face_lon = ds.createVariable("face_lon", float_type, ("n_face",))
         face_lat = ds.createVariable("face_lat", float_type, ("n_face",))
@@ -230,7 +230,7 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
             ds.createDimension("vtx", int(self.mesh.dual.cell.shape[0]))
         ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
         # Create variables
-        float_type = self.nc_float_type
+        float_type = "f8"
         ds.createVariable("lon_cell", float_type, ("cell",))
         ds.createVariable("lat_cell", float_type, ("cell",))
         if with_vtx:
@@ -304,7 +304,7 @@ class OrthogonalDualMeshHistorySetup(AbstractMeshHistorySetup):
         ds.createDimension("lon", lon_data.shape[1])
         ds.createDimension("lat", lat_data.shape[0])
         # Create variables
-        float_type = self.nc_float_type
+        float_type = "f8"
         lon = ds.createVariable("lon", float_type, ("lon",))
         lat = ds.createVariable("lat", float_type, ("lat",))
         lon[:] = lon_data[1, :]

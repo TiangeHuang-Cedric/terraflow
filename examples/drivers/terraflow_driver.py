@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from loguru import logger
 import time
 import jax
 import jax.numpy as jnp
@@ -14,7 +13,7 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
-mesh = tf.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file=grist_0d_file,
     grist_2d_file=grist_2d_file,
     n_dual=3,
@@ -66,7 +65,6 @@ history = tf.util.history.UnstructuredHistoryset(
     case_name="terraflow" + "." + mesh.glevel,
     output_h1=False,
     output_h2=False,
-    dev=dev,
 ).setup(block)
 
 solver = tf.solver.ExRungeKutta3Solver(
@@ -77,14 +75,14 @@ solver = tf.solver.ExRungeKutta3Solver(
 
 integrate_fn = solver.io_callback(history=history)
 
-logger.info("Start integrating...")
+tf.util.log.logger.info("Start integrating...")
 t1 = time.perf_counter()
 final = integrate_fn(block)
 jax.block_until_ready(final)
 t2 = time.perf_counter()
-logger.success(f"Integration time cost {t2 - t1} seconds.")
+tf.util.log.logger.success(f"Integration time cost {t2 - t1} seconds.")
 
-logger.success(f"Total time cost {t2 - t0} seconds.")
+tf.util.log.logger.success(f"Total time cost {t2 - t0} seconds.")
 
 tf.util.post_process.CDOPostProcesser.remap_history(
     history=history,

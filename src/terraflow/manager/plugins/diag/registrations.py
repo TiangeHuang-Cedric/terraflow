@@ -14,9 +14,9 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    import terraflow.discretization.fvm.odm.trisk.single_lev.diag as diag
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.diag as diag
 
-    belong_key = "earth::atm::swe::vif::explicit::fvm::triskC::odm::1level"
+    belong_key = "earth::atm::swe::vif::explicit::fvm::triskC::scvt::1level"
 
     # Register vertical coordinate
     model.diag.register(

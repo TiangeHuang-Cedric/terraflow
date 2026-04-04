@@ -1,9 +1,8 @@
 from jax import numpy as jnp
 import jax
 import quadax
-from loguru import logger
 
-from terraflow.util import typing, math
+from terraflow.util import typing, math, log
 from terraflow.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractTestCase
 
@@ -129,7 +128,7 @@ class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
         self.mountain_radius = jnp.array(
             jnp.pi / 9.0, device=dev, dtype=float_type
         )
-        logger.success("Initialized mountain zonal flow test case.")
+        log.logger.success("Initialized mountain zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:
         """Initialize mountain topography."""
@@ -211,7 +210,7 @@ class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
         self.R = jnp.array(
             4, device=dev, dtype=float_type
         )
-        logger.success("Initialized Rossby-Haurwitz wave test case.")
+        log.logger.success("Initialized Rossby-Haurwitz wave test case.")
 
     def init_topography(self, lon: Array, lat: Array) -> Array:
         """Initialize topography (flat for Rossby-Haurwitz wave)."""
@@ -347,7 +346,7 @@ class JetZonalFlowTestCase(ShallowWaterEquationTestCase):
         self.hd = jnp.array(
             120.0, device=dev, dtype=float_type
         )
-        logger.success("Initialized jet zonal flow test case.")
+        log.logger.success("Initialized jet zonal flow test case.")
 
     def init_topography(self, lon: Array, lat: Array,) -> Array:
         """Initialize topography (flat for jet zonal flow)."""

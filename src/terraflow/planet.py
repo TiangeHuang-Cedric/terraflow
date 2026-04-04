@@ -2,9 +2,8 @@ from typing import Self, Dict, Union, Optional, List
 import unxt as ux
 import jax.numpy as jnp
 import equinox as eqx
-from loguru import logger
 
-from terraflow.util import typing, device
+from terraflow.util import typing, device, log
 
 Numeric = typing.Numeric
 Array = typing.Array
@@ -422,7 +421,7 @@ class PlanetParameterSet(eqx.Module):
             raise NotImplementedError(
                 f"Component '{component}' is not implemented yet."
             )
-        logger.success(
+        log.logger.success(
             f"Initialized planet parameters for {planet} - {component} in SI units."
         )
         return cls.from_dict(parasets=parasets, dev=dev)

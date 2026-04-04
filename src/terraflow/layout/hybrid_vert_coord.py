@@ -10,6 +10,7 @@ from terraflow.layout.abstract import VertLoc
 from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 
+IntType = typing.IntType
 Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -71,3 +72,39 @@ class HybridVertCoordLayout(AbstractLayout):
         return CoordinateInfo(
             vertical_coord=vert_point,
         )
+
+    def get_idx(
+        self,
+        coord: CoordinateSystem[
+            HM,
+            HybridVertCoordinate,
+            HLO,
+            "HybridVertCoordLayout"
+        ],
+        loc: str,
+        domain: str,
+    ) -> tuple[IntType, IntType]:
+        if loc == VertLoc.Cell:
+            if domain == "domain":
+                return (coord.vert.full_kds, coord.vert.full_kde)
+            elif domain == "memory":
+                return (coord.vert.full_kms, coord.vert.full_kme)
+            else:
+                raise NotImplementedError(
+                    f"Unsupported domain {domain} for hybrid vertical coordinate layout cell index retrieval!"
+                )
+        elif loc == VertLoc.Lev:
+            if domain == "domain":
+                return (coord.vert.half_kds, coord.vert.half_kde)
+            elif domain == "memory":
+                return (coord.vert.half_kms, coord.vert.half_kme)
+            else:
+                raise NotImplementedError(
+                    f"Unsupported domain {domain} for hybrid vertical coordinate layout level index retrieval!"
+                )
+        elif loc == VertLoc.Sfc:
+            return (0, 0)
+        else:
+            raise ValueError(
+                f"Unsupported vertical location {loc} for hybrid vertical coordinate layout index retrieval!"
+            )

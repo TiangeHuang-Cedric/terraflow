@@ -22,11 +22,11 @@ from typing import (
     get_args,
     TYPE_CHECKING
 )
-import types
+from dataclasses import dataclass
 import equinox as eqx
+import types
 import jax
 import unxt as ux
-from dataclasses import dataclass
 import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
@@ -47,6 +47,7 @@ from terraflow.layout.field import (
 from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
+
 
 Numeric = typing.Numeric
 Array = typing.Array
@@ -1600,7 +1601,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
 
 if TYPE_CHECKING:
-    from terraflow.discretization import fvm
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.diag import DiagnosticsTools as fvm_odm_trisk_1lev_diag
     from terraflow.dynamics.shallow_water.types import ExVif_SWE_ODM_TriSKCGrid_FVM
 
 
@@ -1640,7 +1641,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
-    ) -> "fvm.odm.trisk.single_lev.diag.DiagnosticsTools":
+    ) -> "fvm_odm_trisk_1lev_diag":
         ...
 
     @overload

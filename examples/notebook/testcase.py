@@ -34,7 +34,7 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-mesh = tf.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file=grist_0d_file,
     grist_2d_file=grist_2d_file,
     n_dual=3,
@@ -121,6 +121,8 @@ trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
 )
 
 # %%
+final = diag_tools.cast_state(final)
+
 diag_vars = diag_tools.compute(
     coord=coord,
     para=para,

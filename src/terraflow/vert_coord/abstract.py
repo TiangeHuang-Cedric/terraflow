@@ -8,6 +8,7 @@ from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 
 if TYPE_CHECKING:
     import numpy as np
+    from terraflow.util.typing import Array
 
 
 VMST = TypeVar("VMST", bound=AbstractVertHistorySetup)
@@ -38,6 +39,10 @@ class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
         **kwargs
     ) -> VMST:
         raise NotImplementedError
+
+    def fill_halo(self, field: Array, is_index: bool = False, *args, **kwargs) -> Array:
+        """Fill the halo regions of the mesh."""
+        return field
 
 
 class AbstractMultiLayerVertCoordinate(AbstractVertCoordinate):

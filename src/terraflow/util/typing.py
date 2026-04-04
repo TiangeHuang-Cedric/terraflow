@@ -3,14 +3,14 @@ import jax.numpy as jnp
 import numpy as np
 import unxt as ux
 import jaxtyping
-from typing import TypeVar, Any
+from typing import TypeVar
 import os
 
 # Enable runtime type checking for unxt
 os.environ["UNXT_ENABLE_RUNTIME_TYPECHECKING"] = "beartype.beartype"
 
 
-Array = jaxtyping.Array | np.ndarray
+Array = jaxtyping.Array
 ArrayWithUnits = jaxtyping.Array | ux.AbstractQuantity
 Float = jaxtyping.Float
 Int = jaxtyping.Int
@@ -23,4 +23,4 @@ NoneType = type(None)
 
 DateTime = TypeVar("DateTime", bound=datetime.datetime)
 
-PyTree = Any
+PyTree = jaxtyping.PyTree

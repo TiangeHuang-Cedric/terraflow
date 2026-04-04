@@ -1,8 +1,7 @@
-from loguru import logger
 from jax import numpy as jnp
 import jax
 
-from terraflow.util import typing, math, formula
+from terraflow.util import typing, math, formula, log
 from terraflow.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractTestCase
 
@@ -141,7 +140,7 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
         self.etat = jnp.array(
             0.2, device=dev, dtype=float_type
         )  # Tropopause level
-        logger.success("Initialized baroclinic steady state test case.")
+        log.logger.success("Initialized baroclinic steady state test case.")
 
     def init_mgs(self, lon: Array, lat: Array, gzs: Array) -> Array:
         """Initialize dry mass field for steady state test case."""
@@ -284,7 +283,7 @@ class MountainWaveTestCase(BaroclinicEquationTestCase):
         self.N = jnp.array(
             0.0182, device=dev, dtype=float_type
         )  # s-1
-        logger.success("Initialized baroclinic mountain wave test case.")
+        log.logger.success("Initialized baroclinic mountain wave test case.")
 
     def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
         """Initialize zonal (u) velocity component for mountain wave test case."""
@@ -380,7 +379,7 @@ class RossbyHaurwitzWaveTestCase(BaroclinicEquationTestCase):
         self.M = jnp.array(
             self.u0 / (self.n * self.para.radius.unwrap()), device=dev, dtype=float_type
         )
-        logger.success("Initialized 3D Rossby-Haurwitz wave test case.")
+        log.logger.success("Initialized 3D Rossby-Haurwitz wave test case.")
 
     def init_u(self, lon: Array, lat: Array, eta: Array) -> Array:
         """Initialize zonal (u) velocity component for Rossby-Haurwitz wave test case."""

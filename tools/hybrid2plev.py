@@ -14,14 +14,13 @@ Example:
 
 from __future__ import annotations
 import argparse
-from loguru import logger
 import numpy as np
 import xarray as xr
 from xarray.coders import CFDatetimeCoder
 import unxt as ux
 import jax
 import jax.numpy as jnp
-import terraflow as tf
+import terraflow.core as tf
 
 
 LON_NAME = ["lon", "ilon", "lon_cell", "lon_edge", "lon_vtx"]
@@ -58,7 +57,7 @@ def interp_hybrid2pressure(
     plev: jnp.ndarray,
 ) -> xr.DataArray:
     field_out = jax.vmap(
-        lambda x, mlev: tf.vert_coord.hybrid_coord.interp2plev(
+        lambda x, mlev: tf.vert_coord.hybrid_interp2plev(
             x,
             mlev,
             plev,
@@ -163,7 +162,7 @@ def parse_target_levels(args: argparse.Namespace) -> jnp.ndarray:
         jnp.array(level_values),
         unit="Pa" if args.levels_unit.lower() == "pa" else "hPa"
     )
-    logger.info(
+    tf.util.log.logger.info(
         f"Target levels (plev) shape: {plev.shape}, values: {plev.value}, unit: {plev.unit}"
     )
     return plev.decompose(ux.unitsystems.si).value
@@ -190,26 +189,27 @@ def interp_run(
     out_vars: dict[str, xr.DataArray] = {}
     for var_name in candidate_names:
         if var_name == args.pres_varname:
-            logger.warning(f"Skipping pressure variable itself: {var_name}")
+            tf.util.log.logger.warning(
+                f"Skipping pressure variable itself: {var_name}")
             continue
         if var_name == args.lev_dim:
-            logger.warning(
+            tf.util.log.logger.warning(
                 f"Skipping vertical coordinate variable itself: {var_name}"
             )
             continue
 
         field = ds[var_name]
         if field.ndim == 0:
-            logger.warning(f"Skipping scalar variable: {var_name}")
+            tf.util.log.logger.warning(f"Skipping scalar variable: {var_name}")
             out_vars[str(var_name)] = field
             continue
         if args.lev_dim not in field.dims:
-            logger.warning(
+            tf.util.log.logger.warning(
                 f"Skipping variable without vertical dimension '{args.lev_dim}': {var_name}"
             )
             continue
 
-        logger.info(f"Interpolating variable: {var_name}")
+        tf.util.log.logger.info(f"Interpolating variable: {var_name}")
         interp_da = interp_hybrid2pressure(
             field=field,
             mlev=mlev,
@@ -253,7 +253,9 @@ def output(
 
     ds_input.close()
     ds.to_netcdf(output_path, engine="netcdf4", encoding=encoding)
-    logger.success(f"Interpolation finished. Saved file: {output_path}")
+    tf.util.log.logger.success(
+        f"Interpolation finished. Saved file: {output_path}"
+    )
 
 
 parser = set_parser()

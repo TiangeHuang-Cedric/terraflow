@@ -45,7 +45,7 @@ import polars as pl
 
 df = m.view("equterm")
 
-df = df.filter(pl.col("group_id") == "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::odm::1level::nonlinear_coriolis")
+df = df.filter(pl.col("group_id") == "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::scvt::1level::nonlinear_coriolis")
 
 df["factory"].to_list()
 

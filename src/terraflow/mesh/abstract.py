@@ -51,6 +51,10 @@ class AbstractMesh(eqx.Module, ABC):
         """Get history builder for the mesh."""
         raise NotImplementedError
 
+    def fill_halo(self, field: Array, *args, **kwargs) -> Array:
+        """Fill the halo regions of the mesh."""
+        return field
+
 
 class AbstractStructuredMesh(AbstractMesh):
     pass

@@ -8,11 +8,11 @@ from typing import (
     overload,
     TYPE_CHECKING
 )
-from loguru import logger
 
+from terraflow.util import log
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh.abstract import AbstractUnstructuredMesh
-from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 from terraflow.operator import AbstractDiscretizationMethod
@@ -23,12 +23,12 @@ import terraflow.discretization.abstract as disc_types
 
 if TYPE_CHECKING:
     from terraflow.operator import FiniteVolumeMethod
-    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-    from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    import terraflow.discretization.fvm.odm.trisk.hybrid_lev.term as fvm_odm_trisk_terms
-    import terraflow.discretization.fvm.odm.trisk.dynamics_types as fvm_odm_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.term as fvm_odm_trisk_terms
+    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_odm_trisk_vars
 
 
 HM = TypeVar("HM", bound=AbstractUnstructuredMesh)
@@ -75,7 +75,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
     def build_block_from_testcase(
         self,
         coord: CoordinateSystem[
-            OrthogonalDualMesh,
+            SphericalCentroidVoronoiTessellations,
             HybridVertCoordinate,
             TriSKBasedCGridStaggeringLayout,
             HybridVertCoordLayout
@@ -104,22 +104,22 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         case: Optional[BaroclinicEquationTestCase] = None
     ) -> disc_types.AbstractBlock:
         from terraflow.operator import FiniteVolumeMethod
-        from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+        from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
         from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-        from terraflow.layout.orthogonal_dual_mesh import TriSKBasedCGridStaggeringLayout
+        from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
         from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
         if (
             isinstance(self.method, FiniteVolumeMethod) and
-            isinstance(coord.mesh, OrthogonalDualMesh) and
+            isinstance(coord.mesh, SphericalCentroidVoronoiTessellations) and
             isinstance(coord.vert, HybridVertCoordinate) and
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, HybridVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.odm.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
             block_cls = Block
             coord_specialized = cast(
                 CoordinateSystem[
-                    OrthogonalDualMesh,
+                    SphericalCentroidVoronoiTessellations,
                     HybridVertCoordinate,
                     TriSKBasedCGridStaggeringLayout,
                     HybridVertCoordLayout
@@ -145,7 +145,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.space_operators.prepare_block(block)
-        logger.success("Prepared auxiliary and data.")
+        log.logger.success("Prepared auxiliary and data.")
         return block
 
     def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
@@ -164,7 +164,7 @@ class DryHydrostaticEquationBuilder:
     def from_model(
         cls,
         coord: CoordinateSystem[
-            OrthogonalDualMesh,
+            SphericalCentroidVoronoiTessellations,
             HybridVertCoordinate,
             TriSKBasedCGridStaggeringLayout,
             HybridVertCoordLayout

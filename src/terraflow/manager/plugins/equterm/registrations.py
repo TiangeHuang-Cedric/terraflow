@@ -14,9 +14,9 @@ def register(model: Catalog) -> None:
 
     assert isinstance(model, Catalog)
 
-    from terraflow.discretization.fvm.odm.trisk.single_lev import term
+    from terraflow.discretization.fvm.scvt.trisk.single_lev import term
 
-    belong_key = "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::odm::1level"
+    belong_key = "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::scvt::1level"
 
     model.equterm.register(
         belong_key,
@@ -39,7 +39,7 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge
     )
 
-    belong_key = "earth::atm::swe::vif::continuity_equ::explicit::fvm::triskC::odm::1level"
+    belong_key = "earth::atm::swe::vif::continuity_equ::explicit::fvm::triskC::scvt::1level"
 
     model.equterm.register(
         belong_key,
@@ -48,9 +48,9 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfDivergenceOfMassFlux
     )
 
-    from terraflow.discretization.fvm.odm.trisk.hybrid_lev import term
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import term
 
-    belong_key = "earth::atm::dry_hdc::vif::continuity_equ::explicit::fvm::triskC::odm::hybrid"
+    belong_key = "earth::atm::dry_hdc::vif::continuity_equ::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,
@@ -59,7 +59,7 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfDryAirMassAtSurface
     )
 
-    belong_key = "earth::atm::dry_hdc::vif::thermodynamic_equ::explicit::fvm::triskC::odm::hybrid"
+    belong_key = "earth::atm::dry_hdc::vif::thermodynamic_equ::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,
@@ -75,7 +75,7 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfPotentialTemperatureDueToVerticalAdvection
     )
 
-    belong_key = "earth::atm::dry_hdc::vif::normal_momentum_equ::explicit::fvm::triskC::odm::hybrid"
+    belong_key = "earth::atm::dry_hdc::vif::normal_momentum_equ::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,

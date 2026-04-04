@@ -2,13 +2,13 @@ from abc import ABC, abstractmethod
 from typing import TypeVar, Dict, Generic, Optional
 import equinox as eqx
 import jax.numpy as jnp
-from loguru import logger
 
-from terraflow.util import typing, device
+from terraflow.util import typing, device, log
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 
 
+IntType = typing.IntType
 Array = typing.Array
 ArrayWithUnits = typing.ArrayWithUnits
 
@@ -85,7 +85,7 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
             _vert_layout = vert_layout
         self._hori_layout = _hori_layout
         self._vert_layout = _vert_layout
-        logger.success("Initialized coordinate system.")
+        log.logger.success("Initialized coordinate system.")
 
     @property
     def mesh(self) -> HM:
@@ -106,6 +106,17 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
     @property
     def dev(self) -> device.AbstractDevice:
         return self.mesh.dev
+
+    def fill_halo(
+        self,
+        field: Array,
+        hori_loc: str,
+        vert_loc: str,
+        is_index: bool = False,
+    ) -> Array:
+        field = self.mesh.fill_halo(field, loc=hori_loc, is_index=is_index)
+        field = self.vert.fill_halo(field, loc=vert_loc, is_index=is_index)
+        return field
 
     def zeros_like(
         self,
@@ -182,6 +193,17 @@ class AbstractLayout(eqx.Module, Generic[HM, VM, HLO, VLO], ABC):
         *args,
         **kwargs,
     ) -> CoordinateInfo:
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_idx(
+        self,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        loc: str,
+        domain: str,
+        *args,
+        **kwargs,
+    ) -> tuple[IntType, IntType]:
         raise NotImplementedError
 
 

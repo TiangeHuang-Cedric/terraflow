@@ -8,7 +8,9 @@ Usage: python Fluida2Latlon.py -N 1 -w input.nc output.nc
 import argparse
 import pathlib
 from loguru import logger
-from terraflow.util.post_process import CDOPostProcesser as cdo
+from terraflow.core.util import post_process
+
+cdo = post_process.CDOPostProcesser
 
 
 def parse_commandline():

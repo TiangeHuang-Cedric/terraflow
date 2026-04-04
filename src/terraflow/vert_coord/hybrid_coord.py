@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Self, Optional, TYPE_CHECKING
 import jax.numpy as jnp
 import jax
+import equinox as eqx
 
 from terraflow.util import typing, device
 from terraflow.vert_coord.abstract import AbstractLorenzCoordinate
@@ -11,6 +12,7 @@ if TYPE_CHECKING:
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     import numpy as np
 
+IntType = typing.IntType
 Float = typing.Float
 Array = typing.Array
 
@@ -19,1065 +21,597 @@ LOCAL_PTOP = 0.0
 HYBRID_COORD_P0 = 1.0e5
 
 
-def hybrid_coord_test_l15(dev: device.AbstractDevice) -> tuple[Array, Array]:
+class HybridVertCoordinate(AbstractLorenzCoordinate):
     """
-    Generate hybrid vertical coordinate coefficients for a test case with 15 levels.
-
-    Args:
-        dev (AbstractDevice): The device to create arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
+    HybridVertCoordinate represents a vertical coordinate system following the hybrid staggering.
     """
-    hyai = [
-        0.205483425561605010000,  # 1
-        0.198607222026186530000,  # 2
-        0.191027709059461540000,  # 3
-        0.182691132328313470000,  # 4
-        0.173540955657235100000,  # 5
-        0.163517782676016660000,  # 6
-        0.152559278028386370000,  # 7
-        0.140600088148627570000,  # 8
-        0.127571761612939540000,  # 9
-        0.113402669072066420000,  # 10
-        9.8017922771487132E-002,  # 11
-        8.1339295665243672E-002,  # 12
-        6.3285140129278439E-002,  # 13
-        4.3770306279956372E-002,  # 14
-        2.2706059903264464E-002,  # 15
-        0.000000000000000000000   # 16
-    ]
-    hybi = [
-        0.000000000000000000000,  # 1
-        3.3463543429963785E-002,  # 2
-        7.0349793238236480E-002,  # 3
-        0.110920348787247050000,  # 4
-        0.155450347477263550000,  # 5
-        0.204228846053604610000,  # 6
-        0.257559204050507200000,  # 7
-        0.315759469337467620000,  # 8
-        0.379162765735123360000,  # 9
-        0.448117682668923050000,  # 10
-        0.522988666829963590000,  # 11
-        0.604156415813412060000,  # 12
-        0.692018273705948260000,  # 13
-        0.786988628594602720000,  # 14
-        0.889499311970263770000,  # 15
-        1.000000000000000000000   # 16
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    hw: IntType = eqx.field(static=True)
+    full_kds: IntType = eqx.field(static=True)
+    full_kde: IntType = eqx.field(static=True)
+    full_kms: IntType = eqx.field(static=True)
+    full_kme: IntType = eqx.field(static=True)
+    half_kds: IntType = eqx.field(static=True)
+    half_kde: IntType = eqx.field(static=True)
+    half_kms: IntType = eqx.field(static=True)
+    half_kme: IntType = eqx.field(static=True)
+    p0: Float[Array, "1"]
+    ptop: Float[Array, "1"]
+    hyai: Float[Array, "nlev+1"]
+    hybi: Float[Array, "nlev+1"]
+    hyam: Float[Array, "nlev"]
+    hybm: Float[Array, "nlev"]
+    full_lev: Float[Array, "nlev"]
+    half_lev: Float[Array, "nlev+1"]
+    full_dlev: Float[Array, "nlev"]
+    half_dlev: Float[Array, "nlev+1"]
 
+    def __init__(
+        self,
+        hw: IntType,
+        full_kds: IntType,
+        full_kde: IntType,
+        full_kms: IntType,
+        full_kme: IntType,
+        half_kds: IntType,
+        half_kde: IntType,
+        half_kms: IntType,
+        half_kme: IntType,
+        p0: Float[Array, "1"],
+        ptop: Float[Array, "1"],
+        hyai: Float[Array, "nlev+1"],
+        hybi: Float[Array, "nlev+1"],
+        hyam: Float[Array, "nlev"],
+        hybm: Float[Array, "nlev"],
+        full_lev: Float[Array, "nlev"],
+        half_lev: Float[Array, "nlev+1"]
+    ):
+        self.hw = hw
+        self.full_kds = full_kds
+        self.full_kde = full_kde
+        self.full_kms = full_kms
+        self.full_kme = full_kme
+        self.half_kds = half_kds
+        self.half_kde = half_kde
+        self.half_kms = half_kms
+        self.half_kme = half_kme
+        self.p0 = p0
+        self.ptop = ptop
+        self.hyai = hyai
+        self.hybi = hybi
+        self.hyam = hyam
+        self.hybm = hybm
+        self.full_lev = full_lev
+        self.half_lev = half_lev
+        # =========================================================
+        # full dlev
+        full_dlev = self.half_lev[1:] - self.half_lev[:-1]
+        # =========================================================
+        # half dlev
+        half_dlev = jnp.zeros_like(self.half_lev)
+        # =========================================
+        # k = 1
+        tmp = self.full_lev[0] - self.half_lev[0]
+        half_dlev = half_dlev.at[0].set(tmp)
+        # =========================================
+        # k = 2, ..., nlev
+        tmp = self.full_lev[1:]-self.full_lev[:-1]
+        half_dlev = half_dlev.at[1:-1].set(tmp)
+        # =========================================
+        # k = nlev + 1
+        tmp = self.half_lev[-1] - self.full_lev[-1]
+        half_dlev = half_dlev.at[-1].set(tmp)
+        # =========================================================
+        self.full_dlev = full_dlev
+        self.half_dlev = half_dlev
 
-def hybrid_coord_test_l15_2(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate alternative hybrid vertical coordinate coefficients for a test case with 15 levels.
+    @staticmethod
+    def alias_name() -> str:
+        """Return the alias name of the hybrid vertical coordinate system."""
+        return "hybrid"
 
-    Args:
-        dev (AbstractDevice): The device to create arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.20548342556160501,  # 1
-        0.23095095671726124,  # 2
-        0.25642840888903540,  # 3
-        0.28130815734047598,  # 4
-        0.30482649260369665,  # 5
-        0.32603720716923434,  # 6
-        0.34378173848776278,  # 7
-        0.35665551500981602,  # 8
-        0.36297012442815485,  # 9
-        0.36071089422042385,  # 10
-        0.34748944396886805,  # 11
-        0.32049073671014727,  # 12
-        0.27641412269226595,  # 13
-        0.21140783333734559,  # 14
-        0.12099634587795560,  # 15
-        0.00000000000000000   # 16
-    ]
-    hybi = [
-        0.000000000000000000000,  # 1
-        1.1198087388890725E-003,  # 2
-        4.9490934086626227E-003,  # 3
-        1.2303323775084538E-002,  # 4
-        2.4164810530801977E-002,  # 5
-        4.1709421560386935E-002,  # 6
-        6.6336743591130801E-002,  # 7
-        9.9704042476279162E-002,  # 8
-        0.143764402919908050000,  # 9
-        0.200809457520565620000,  # 10
-        0.273517145632582670000,  # 11
-        0.365004974768508460000,  # 12
-        0.478889291142960750000,  # 13
-        0.619351101537213510000,  # 14
-        0.791209025995572630000,  # 15
-        1.000000000000000000000   # 16
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    @property
+    def nlev(self) -> int:
+        return self.hyai.shape[0] - 1
 
+    @property
+    def n_full_lev(self) -> int:
+        return self.nlev
 
-def hybrid_coord_test_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    hyai = [
-        0.002194067,  # 1
-        0.004895209,  # 2
-        0.009882418,  # 3
-        0.018052010,  # 4
-        0.029837240,  # 5
-        0.044623340,  # 6
-        0.061605870,  # 7
-        0.078512430,  # 8
-        0.077312710,  # 9
-        0.075901310,  # 10
-        0.074240860,  # 11
-        0.072287440,  # 12
-        0.069989330,  # 13
-        0.067285740,  # 14
-        0.064105090,  # 15
-        0.060363220,  # 16
-        0.055961110,  # 17
-        0.050782250,  # 18
-        0.044689600,  # 19
-        0.037521910,  # 20
-        0.029089490,  # 21
-        0.020847390,  # 22
-        0.013344430,  # 23
-        0.007084990,  # 24
-        0.002521360,  # 25
-        0.000000000,  # 26
-        0.000000000   # 27
-    ]
-    hybi = [
-        0.00000000,  # 1
-        0.00000000,  # 2
-        0.00000000,  # 3
-        0.00000000,  # 4
-        0.00000000,  # 5
-        0.00000000,  # 6
-        0.00000000,  # 7
-        0.00000000,  # 8
-        0.01505309,  # 9
-        0.03276228,  # 10
-        0.05359622,  # 11
-        0.07810627,  # 12
-        0.10694110,  # 13
-        0.14086370,  # 14
-        0.18077200,  # 15
-        0.22772200,  # 16
-        0.28295620,  # 17
-        0.34793640,  # 18
-        0.42438220,  # 19
-        0.51431680,  # 20
-        0.62012020,  # 21
-        0.72353550,  # 22
-        0.81767680,  # 23
-        0.89621530,  # 24
-        0.95347610,  # 25
-        0.98511220,  # 26
-        1.00000000   # 27
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    @property
+    def n_half_lev(self) -> int:
+        return self.nlev + 1
 
+    @classmethod
+    def init_global(
+        cls,
+        p0: Float[Array, "1"],
+        ptop: Float[Array, "1"],
+        hyai: Float[Array, "nlev+1"],
+        hybi: Float[Array, "nlev+1"],
+        hyam: Float[Array, "nlev"],
+        hybm: Float[Array, "nlev"],
+        full_lev: Float[Array, "nlev"],
+        half_lev: Float[Array, "nlev+1"]
+    ) -> Self:
+        """Initialize the HybridVertCoordinate with global coefficients."""
+        return cls(
+            hw=0,
+            full_kds=0,
+            full_kde=hyam.shape[0] - 1,
+            full_kms=0,
+            full_kme=hyam.shape[0] - 1,
+            half_kds=0,
+            half_kde=hyai.shape[0] - 1,
+            half_kms=0,
+            half_kme=hyai.shape[0] - 1,
+            p0=p0,
+            ptop=ptop,
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-def hybrid_coord_test_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    hyai = [
-        0.205483425561605010000,  # 1
-        0.202129984359382310000,  # 2
-        0.198607222026186530000,  # 3
-        0.194908674583284230000,  # 4
-        0.191027709059461540000,  # 5
-        0.186957521059948700000,  # 6
-        0.182691132328313470000,  # 7
-        0.178221388301380460000,  # 8
-        0.173540955657235100000,  # 9
-        0.168642319856368180000,  # 10
-        0.163517782676016660000,  # 11
-        0.158159459737754170000,  # 12
-        0.152559278028386370000,  # 13
-        0.146708973414201190000,  # 14
-        0.140600088148627570000,  # 15
-        0.134223968373351380000,  # 16
-        0.127571761612939540000,  # 17
-        0.120634414263020130000,  # 18
-        0.113402669072066420000,  # 19
-        0.105867062616832820000,  # 20
-        9.8017922771487132E-002,  # 21
-        8.9845366170487218E-002,  # 22
-        8.1339295665243672E-002,  # 23
-        7.2489397774615161E-002,  # 24
-        6.3285140129278439E-002,  # 25
-        5.3715768910014505E-002,  # 26
-        4.3770306279956372E-002,  # 27
-        3.3437547810834523E-002,  # 28
-        2.2706059903264464E-002,  # 29
-        1.1564177201115911E-002,  # 30
-        0.000000000000000000000   # 31
-    ]
-    hybi = [
-        0.000000000000000000000,  # 1
-        1.6319764930224578E-002,  # 2
-        3.3463543429963785E-002,  # 3
-        5.1462792920738076E-002,  # 4
-        7.0349793238236480E-002,  # 5
-        9.0157658463320384E-002,  # 6
-        0.110920348787247050000,  # 7
-        0.132672682410831470000,  # 8
-        0.155450347477263550000,  # 9
-        0.179289914038306080000,  # 10
-        0.204228846053604610000,  # 11
-        0.230305513422847190000,  # 12
-        0.257559204050507200000,  # 13
-        0.286030135942925150000,  # 14
-        0.315759469337467620000,  # 15
-        0.346789318863528930000,  # 16
-        0.379162765735123360000,  # 17
-        0.412923869974839870000,  # 18
-        0.448117682668923050000,  # 19
-        0.484790258253246230000,  # 20
-        0.522988666829963590000,  # 21
-        0.562761006514605370000,  # 22
-        0.604156415813412060000,  # 23
-        0.647225086030685960000,  # 24
-        0.692018273705948260000,  # 25
-        0.738588313080705160000,  # 26
-        0.786988628594602720000,  # 27
-        0.837273747410786860000,  # 28
-        0.889499311970263770000,  # 29
-        0.943722092575058240000,  # 30
-        1.000000000000000000000,  # 31
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    def get_layout(self) -> HybridVertCoordLayout:
+        from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+        return HybridVertCoordLayout()
 
+    def get_full_lev(self) -> Float[Array, "nlev"]:
+        return self.full_lev
 
-def hybrid_coord_ecmwf_l50(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for ECMWF with 50 levels.
+    def get_half_lev(self) -> Float[Array, "nlev+1"]:
+        return self.half_lev
 
-    Args:
-        dev (AbstractDevice): The device to create arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        20.006149000,  # 1
-        43.297810000,  # 2
-        75.346230000,  # 3
-        115.08214600,  # 4
-        161.89749100,  # 5
-        215.89691200,  # 6
-        278.00579800,  # 7
-        350.13818400,  # 8
-        435.56228600,  # 9
-        539.65148900,  # 10
-        668.61554000,  # 11
-        828.39898700,  # 12
-        1026.3669430,  # 13
-        1271.6445310,  # 14
-        1575.5378420,  # 15
-        1952.0544430,  # 16
-        2418.5498050,  # 17
-        2996.5266110,  # 18
-        3712.6262210,  # 19
-        4599.8569340,  # 20
-        5699.1147460,  # 21
-        6998.3881840,  # 22
-        8507.4111330,  # 23
-        10181.707031,  # 24
-        11883.089844,  # 25
-        13442.915039,  # 26
-        14736.354492,  # 27
-        15689.206055,  # 28
-        16266.609375,  # 29
-        16465.003906,  # 30
-        16297.620117,  # 31
-        15791.597656,  # 32
-        14985.269531,  # 33
-        13925.519531,  # 34
-        12665.294922,  # 35
-        11261.230469,  # 36
-        9771.4062500,  # 37
-        8253.2109380,  # 38
-        6761.3398440,  # 39
-        5345.9179690,  # 40
-        4050.7187500,  # 41
-        2911.5703120,  # 42
-        1954.8046880,  # 43
-        1195.8906250,  # 44
-        638.14843800,  # 45
-        271.62500000,  # 46
-        72.062500000,  # 47
-        0.0000000000,  # 48
-        0.0000000000,  # 49
-        0.0000000000   # 50
-    ]
+    def history_builder(
+        self,
+        file_path: str,
+        float_type: type[np.float32] | type[np.float64],
+        int_type: type[np.int32] | type[np.int64]
+    ) -> HybridVerticalCoordinateSetup:
+        return HybridVerticalCoordinateSetup(
+            file_path=file_path,
+            vert=self,
+            float_type=float_type,
+            int_type=int_type
+        )
 
-    hybi = [
-        0.000000,  # 1
-        0.000000,  # 2
-        0.000000,  # 3
-        0.000000,  # 4
-        0.000000,  # 5
-        0.000000,  # 6
-        0.000000,  # 7
-        0.000000,  # 8
-        0.000000,  # 9
-        0.000000,  # 10
-        0.000000,  # 11
-        0.000000,  # 12
-        0.000000,  # 13
-        0.000000,  # 14
-        0.000000,  # 15
-        0.000000,  # 16
-        0.000000,  # 17
-        0.000000,  # 18
-        0.000000,  # 19
-        0.000000,  # 20
-        0.000000,  # 21
-        0.000000,  # 22
-        0.000100,  # 23
-        0.000673,  # 24
-        0.003163,  # 25
-        0.009292,  # 26
-        0.020319,  # 27
-        0.036975,  # 28
-        0.059488,  # 29
-        0.087895,  # 30
-        0.122004,  # 31
-        0.161442,  # 32
-        0.205703,  # 33
-        0.254189,  # 34
-        0.306235,  # 35
-        0.361145,  # 36
-        0.418202,  # 37
-        0.476688,  # 38
-        0.535887,  # 39
-        0.595084,  # 40
-        0.653565,  # 41
-        0.710594,  # 42
-        0.765405,  # 43
-        0.817167,  # 44
-        0.864956,  # 45
-        0.907716,  # 46
-        0.944213,  # 47
-        0.972985,  # 48
-        0.992281,  # 49
-        1.000000   # 50
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    def get_idx(self, entity: str, domain: str) -> tuple[IntType, IntType]:
+        if entity == "full":
+            if domain == "domain":
+                k_s, k_e = self.full_kds, self.full_kde
+            elif domain == "memory":
+                k_s, k_e = self.full_kms, self.full_kme
+            else:
+                raise ValueError(f"Invalid domain: {domain}")
+        elif entity == "half":
+            if domain == "domain":
+                k_s, k_e = self.half_kds, self.half_kde
+            elif domain == "memory":
+                k_s, k_e = self.half_kms, self.half_kme
+            else:
+                raise ValueError(f"Invalid domain: {domain}")
+        else:
+            raise ValueError(f"Invalid entity: {entity}")
+        return k_s, k_e
 
+    def calc_mg(
+        self,
+        mgs: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
+        hyam = self.hyam[ks:ke+1, None]
+        hybm = self.hybm[ks:ke+1, None]
+        mgs = mgs[None, ...]
+        p0 = self.p0
+        ptop = LOCAL_PTOP
+        return hyam * (p0 - ptop) + hybm * (mgs - ptop) + ptop
 
-def hybrid_coord_ecmwf_l90(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    hyai = [
-        2.0000400000,  # 1
-        3.9808320000,  # 2
-        7.3871860000,  # 3
-        12.908319000,  # 4
-        21.413612000,  # 5
-        33.952858000,  # 6
-        51.746601000,  # 7
-        76.167656000,  # 8
-        108.71556100,  # 9
-        150.98602300,  # 10
-        204.63745100,  # 11
-        271.35650600,  # 12
-        352.82449300,  # 13
-        450.68579100,  # 14
-        566.51922600,  # 15
-        701.81335400,  # 16
-        857.94580100,  # 17
-        1036.1665040,  # 18
-        1237.5854490,  # 19
-        1463.1639400,  # 20
-        1713.7095950,  # 21
-        1989.8743900,  # 22
-        2292.1555180,  # 23
-        2620.8984380,  # 24
-        2976.3022460,  # 25
-        3358.4257810,  # 26
-        3767.1960450,  # 27
-        4202.4165040,  # 28
-        4663.7763670,  # 29
-        5150.8598630,  # 30
-        5663.1562500,  # 31
-        6199.8393550,  # 32
-        6759.7270510,  # 33
-        7341.4697270,  # 34
-        7942.9262700,  # 35
-        8564.6240230,  # 36
-        9208.3056640,  # 37
-        9873.5605470,  # 38
-        10558.881836,  # 39
-        11262.484375,  # 40
-        11982.662109,  # 41
-        12713.897461,  # 42
-        13453.225586,  # 43
-        14192.009766,  # 44
-        14922.685547,  # 45
-        15638.053711,  # 46
-        16329.560547,  # 47
-        16990.623047,  # 48
-        17613.281250,  # 49
-        18191.029297,  # 50
-        18716.968750,  # 51
-        19184.544922,  # 52
-        19587.513672,  # 53
-        19919.796875,  # 54
-        20175.394531,  # 55
-        20348.916016,  # 56
-        20434.158203,  # 57
-        20426.218750,  # 58
-        20319.011719,  # 59
-        20107.031250,  # 60
-        19785.357422,  # 61
-        19348.775391,  # 62
-        18798.822266,  # 63
-        18141.296875,  # 64
-        17385.595703,  # 65
-        16544.585938,  # 66
-        15633.566406,  # 67
-        14665.645508,  # 68
-        13653.219727,  # 69
-        12608.383789,  # 70
-        11543.166992,  # 71
-        10471.310547,  # 72
-        9405.2226560,  # 73
-        8356.2529300,  # 74
-        7335.1645510,  # 75
-        6353.9208980,  # 76
-        5422.8027340,  # 77
-        4550.2158200,  # 78
-        3743.4643550,  # 79
-        3010.1469730,  # 80
-        2356.2026370,  # 81
-        1784.8546140,  # 82
-        1297.6561280,  # 83
-        895.19354200,  # 84
-        576.31414800,  # 85
-        336.77236900,  # 86
-        162.04342700,  # 87
-        54.208336000,  # 88
-        6.5756280000,  # 89
-        0.0031600000,  # 90
-        0.0000000000   # 91
-    ]
-    hybi = [
-        0.000000,  # 1
-        0.000000,  # 2
-        0.000000,  # 3
-        0.000000,  # 4
-        0.000000,  # 5
-        0.000000,  # 6
-        0.000000,  # 7
-        0.000000,  # 8
-        0.000000,  # 9
-        0.000000,  # 10
-        0.000000,  # 11
-        0.000000,  # 12
-        0.000000,  # 13
-        0.000000,  # 14
-        0.000000,  # 15
-        0.000000,  # 16
-        0.000000,  # 17
-        0.000000,  # 18
-        0.000000,  # 19
-        0.000000,  # 20
-        0.000000,  # 21
-        0.000000,  # 22
-        0.000000,  # 23
-        0.000000,  # 24
-        0.000000,  # 25
-        0.000000,  # 26
-        0.000000,  # 27
-        0.000000,  # 28
-        0.000000,  # 29
-        0.000000,  # 30
-        0.000000,  # 31
-        0.000000,  # 32
-        0.000000,  # 33
-        0.000000,  # 34
-        0.000014,  # 35
-        0.000055,  # 36
-        0.000131,  # 37
-        0.000279,  # 38
-        0.000548,  # 39
-        0.001000,  # 40
-        0.001701,  # 41
-        0.002765,  # 42
-        0.004267,  # 43
-        0.006322,  # 44
-        0.009035,  # 45
-        0.012508,  # 46
-        0.016860,  # 47
-        0.022189,  # 48
-        0.028610,  # 49
-        0.036227,  # 50
-        0.045146,  # 51
-        0.055474,  # 52
-        0.067316,  # 53
-        0.080777,  # 54
-        0.095964,  # 55
-        0.112979,  # 56
-        0.131935,  # 57
-        0.152934,  # 58
-        0.176091,  # 59
-        0.201520,  # 60
-        0.229315,  # 61
-        0.259554,  # 62
-        0.291993,  # 63
-        0.326329,  # 64
-        0.362203,  # 65
-        0.399205,  # 66
-        0.436906,  # 67
-        0.475016,  # 68
-        0.513280,  # 69
-        0.551458,  # 70
-        0.589317,  # 71
-        0.626559,  # 72
-        0.662934,  # 73
-        0.698224,  # 74
-        0.732224,  # 75
-        0.764679,  # 76
-        0.795385,  # 77
-        0.824185,  # 78
-        0.850950,  # 79
-        0.875518,  # 80
-        0.897767,  # 81
-        0.917651,  # 82
-        0.935157,  # 83
-        0.950274,  # 84
-        0.963007,  # 85
-        0.973466,  # 86
-        0.982238,  # 87
-        0.989153,  # 88
-        0.994204,  # 89
-        0.997630,  # 90
-        1.000000   # 91
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    def calc_mg_lev(
+        self,
+        mgs: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev+1 npoints ..."]:
+        hyai = self.hyai[ks:ke+1, None]
+        hybi = self.hybi[ks:ke+1, None]
+        mgs = mgs[None, ...]
+        p0 = self.p0
+        ptop = LOCAL_PTOP
+        return hyai * (p0 - ptop) + hybi * (mgs - ptop) + ptop
 
+    def calc_dmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
+        hybm = self.hybm[ks:ke+1, None]
+        return hybm * dmgsdt
 
-def hybrid_coord_wrf_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for WRF with 26 levels.
+    def calc_dmgdt_lev(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev+1 npoints ..."]:
+        hybi = self.hybi[ks:ke+1, None]
+        dmgsdt = dmgsdt[None, :]
+        return hybi * dmgsdt
 
-    Args:
-        dev (AbstractDevice): The device to create arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.0000000000000000,  # 1
-        0.0026949368990385,  # 2
-        0.0076765830700214,  # 3
-        0.0158441481359590,  # 4
-        0.0276273570916710,  # 5
-        0.0414422617493396,  # 6
-        0.0562280278845174,  # 7
-        0.0724791367109593,  # 8
-        0.0893764691932271,  # 9
-        0.1063516039069875,  # 10
-        0.1254699736141626,  # 11
-        0.1479612378540120,  # 12
-        0.1744206867899481,  # 13
-        0.2054467443488705,  # 14
-        0.2362331354387115,  # 15
-        0.2617244861517879,  # 16
-        0.2783056303113054,  # 17
-        0.2816242061994436,  # 18
-        0.2669746497908253,  # 19
-        0.2303286706439434,  # 20
-        0.1705682721867309,  # 21
-        0.1064887571082237,  # 22
-        0.0535041093004280,  # 23
-        0.0199854375869117,  # 24
-        0.0049141727575007,  # 25
-        0.0008271366689887,  # 26
-        0.0000000000000000   # 27
-    ]
-    hybi = [
-        0.0000000000000000,  # 1
-        0.0000000000000000,  # 2
-        0.0000000000000000,  # 3
-        0.0000000000000000,  # 4
-        0.0000000000000000,  # 5
-        0.0000000000000000,  # 6
-        0.0000000000000000,  # 7
-        0.0000000000000000,  # 8
-        0.0000000000000000,  # 9
-        0.0000000000000000,  # 10
-        0.0000000000000000,  # 11
-        0.0000000000000000,  # 12
-        0.0000000000000000,  # 13
-        0.0001055707738109,  # 14
-        0.0059372955912098,  # 15
-        0.0235354910761884,  # 16
-        0.0576432893794934,  # 17
-        0.1139595353789115,  # 18
-        0.1987640251563301,  # 19
-        0.3179517452840197,  # 20
-        0.4748134785123594,  # 21
-        0.6338019812807031,  # 22
-        0.7731855115963033,  # 23
-        0.8787837382816079,  # 24
-        0.9464020881646360,  # 25
-        0.9795195430185113,  # 26
-        1.0000000000000000   # 27
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    def calc_ddmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
+        hybi = self.hybi[ks:ke+1, None]
+        dmgsdt = dmgsdt[None, :]
+        tmp = hybi[ks+1:ke, ...] - hybi[ks:ke+1, ...]
+        return tmp * dmgsdt
 
+    def fill_halo(self, field: Array, is_index: bool = False, *args, **kwargs) -> Array:
+        return field
 
-def hybrid_coord_wrf_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for WRF with 32 levels.
+    @classmethod
+    def test_l15(
+        cls,
+        dev: device.AbstractDevice,
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using test 15-level coefficients.
 
-    Args:
-        dev (AbstractDevice): Device to create the arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.0000000000000000,  # 1
-        0.0027008056640625,  # 2
-        0.0076868347823620,  # 3
-        0.0158526937798342,  # 4
-        0.0276367470939261,  # 5
-        0.0414515552099706,  # 6
-        0.0562277844155789,  # 7
-        0.0724737972365225,  # 8
-        0.0893795253309864,  # 9
-        0.1063548465048298,  # 10
-        0.1254725257849640,  # 11
-        0.1479642011314251,  # 12
-        0.1744233770857367,  # 13
-        0.2054476619883455,  # 14
-        0.2362396334209435,  # 15
-        0.2617261684535087,  # 16
-        0.2783057827853432,  # 17
-        0.2816243248017372,  # 18
-        0.2683280168286641,  # 19
-        0.2429473354807992,  # 20
-        0.2108099294331058,  # 21
-        0.1759998110016148,  # 22
-        0.1415334037742616,  # 23
-        0.1095123294032484,  # 24
-        0.0812761592574764,  # 25
-        0.0575423961814687,  # 26
-        0.0385285881906738,  # 27
-        0.0240694984015316,  # 28
-        0.0137226170696702,  # 29
-        0.0068720184783044,  # 30
-        0.0027973066609278,  # 31
-        0.0007580797514921,  # 32
-        0.0000000000000000   # 33
-    ]
-    hybi = [
-        0.0000000000000000,  # 1
-        0.0000000000000000,  # 2
-        0.0000000000000000,  # 3
-        0.0000000000000000,  # 4
-        0.0000000000000000,  # 5
-        0.0000000000000000,  # 6
-        0.0000000000000000,  # 7
-        0.0000000000000000,  # 8
-        0.0000000000000000,  # 9
-        0.0000000000000000,  # 10
-        0.0000000000000000,  # 11
-        0.0000000000000000,  # 12
-        0.0000000000000000,  # 13
-        0.0001056069805219,  # 14
-        0.0059397906834944,  # 15
-        0.0235374270991938,  # 16
-        0.0576439176162314,  # 17
-        0.1139578493851603,  # 18
-        0.1932313936022966,  # 19
-        0.2808764820852269,  # 20
-        0.3715629284436812,  # 21
-        0.4612091687348547,  # 22
-        0.5467954414732804,  # 23
-        0.6262219272258057,  # 24
-        0.6981497395977654,  # 25
-        0.7618575996945027,  # 26
-        0.8171268253424389,  # 27
-        0.8641240158900223,  # 28
-        0.9032994538662682,  # 29
-        0.9352560448161740,  # 30
-        0.9607227915792738,  # 31
-        0.9804356127137464,  # 32
-        1.0000000000000000   # 33
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_test_l15
+        hyai, hybi = hybrid_coord_test_l15(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
+    @classmethod
+    def test_l15_2(
+        cls,
+        dev: device.AbstractDevice,
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using test 15-level coefficients (variant 2).
 
-def hybrid_coord_wrf_l60(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for WRF with 60 levels.
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients (variant 2).
+        """
+        from .hybrid_coord_test import hybrid_coord_test_l15_2
+        hyai, hybi = hybrid_coord_test_l15_2(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-    Args:
-        dev (AbstractDevice): Device to create the arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.0000000000000000, 0.0166666666666667, 0.0333333333333333,
-        0.0500000000000000, 0.0666666666666667, 0.0833333333333333,
-        0.1000000000000000, 0.1166666666666667, 0.1333333333333333,
-        0.1500000000000000, 0.1666666666666667, 0.1833333333333333,
-        0.2000000000000000, 0.2157226562500000, 0.2296006944444444,
-        0.2416992187500000, 0.2520833333333333, 0.2608181423611111,
-        0.2679687500000000, 0.2736002604166666, 0.2777777777777778,
-        0.2805664062500000, 0.2820312500000000, 0.2822374131944445,
-        0.2812500000000000, 0.2791341145833334, 0.2759548611111111,
-        0.2717773437500000, 0.2666666666666667, 0.2606879340277780,
-        0.2539062500000000, 0.2463867187500000, 0.2381944444444444,
-        0.2293945312500000, 0.2200520833333336, 0.2102322048611110,
-        0.2000000000000000, 0.1894205729166667, 0.1785590277777778,
-        0.1674804687499999, 0.1562500000000000, 0.1449327256944448,
-        0.1335937500000000, 0.1222981770833331, 0.1111111111111114,
-        0.1000976562500000, 0.0893229166666668, 0.0788519965277780,
-        0.0687499999999999, 0.0590820312500000, 0.0499131944444443,
-        0.0413085937500000, 0.0333333333333337, 0.0260525173611112,
-        0.0195312500000000, 0.0138346354166669, 0.0090277777777781,
-        0.0051757812500000, 0.0023437500000000, 0.0005967881944450,
-        0.0000000000000000
-    ]
-    hybi = [
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        0.0000000000000000, 0.0000000000000000, 0.0000000000000000,
-        0.0000000000000000, 0.0009440104166667, 0.0037326388888889,
-        0.0083007812500000, 0.0145833333333334, 0.0225151909722222,
-        0.0320312500000000, 0.0430664062500000, 0.0555555555555555,
-        0.0694335937499999, 0.0846354166666666, 0.1010959201388889,
-        0.1187500000000000, 0.1375325520833333, 0.1573784722222222,
-        0.1782226562499999, 0.2000000000000000, 0.2226453993055554,
-        0.2460937499999999, 0.2702799479166667, 0.2951388888888889,
-        0.3206054687499998, 0.3466145833333331, 0.3731011284722224,
-        0.4000000000000000, 0.4272460937500000, 0.4547743055555555,
-        0.4825195312500001, 0.5104166666666665, 0.5384006076388885,
-        0.5664062499999998, 0.5943684895833335, 0.6222222222222219,
-        0.6499023437500000, 0.6773437499999999, 0.7044813368055554,
-        0.7312500000000002, 0.7575846354166664, 0.7834201388888891,
-        0.8086914062499995, 0.8333333333333330, 0.8572808159722221,
-        0.8804687499999999, 0.9028320312499998, 0.9243055555555553,
-        0.9448242187499996, 0.9643229166666663, 0.9827365451388883,
-        1.0000000000000000
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    @classmethod
+    def test_l26(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using test 26-level coefficients.
 
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with test 26-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_test_l26
+        hyai, hybi = hybrid_coord_test_l26(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-def hybrid_coord_wrf_l64(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for WRF with 64 levels.
+    @classmethod
+    def test_l30(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using test 30-level coefficients.
 
-    Args:
-        ptop (float): Pressure at the top of the atmosphere (in Pa).
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.00000000e+00,  # 1
-        1.56250000e-02,  # 2
-        3.12500000e-02,  # 3
-        4.68750000e-02,  # 4
-        6.25000000e-02,  # 5
-        7.81250000e-02,  # 6
-        9.37500000e-02,  # 7
-        1.09375000e-01,  # 8
-        1.25000000e-01,  # 9
-        1.40625000e-01,  # 10
-        1.56250000e-01,  # 11
-        1.71875000e-01,  # 12
-        1.87500000e-01,  # 13
-        2.03091502e-01,  # 14
-        2.17556953e-01,  # 15
-        2.30408311e-01,  # 16
-        2.41699219e-01,  # 17
-        2.51483321e-01,  # 18
-        2.59814262e-01,  # 19
-        2.66745687e-01,  # 20
-        2.72331238e-01,  # 21
-        2.76624560e-01,  # 22
-        2.79679298e-01,  # 23
-        2.81549096e-01,  # 24
-        2.82287598e-01,  # 25
-        2.81948447e-01,  # 26
-        2.80585289e-01,  # 27
-        2.78251767e-01,  # 28
-        2.75001526e-01,  # 29
-        2.70888209e-01,  # 30
-        2.65965462e-01,  # 31
-        2.60286927e-01,  # 32
-        2.53906250e-01,  # 33
-        2.46877074e-01,  # 34
-        2.39253044e-01,  # 35
-        2.31087804e-01,  # 36
-        2.22434998e-01,  # 37
-        2.13348269e-01,  # 38
-        2.03881264e-01,  # 39
-        1.94087625e-01,  # 40
-        1.84020996e-01,  # 41
-        1.73735023e-01,  # 42
-        1.63283348e-01,  # 43
-        1.52719617e-01,  # 44
-        1.42097473e-01,  # 45
-        1.31470561e-01,  # 46
-        1.20892525e-01,  # 47
-        1.10417008e-01,  # 48
-        1.00097656e-01,  # 49
-        8.99881124e-02,  # 50
-        8.01420212e-02,  # 51
-        7.06130266e-02,  # 52
-        6.14547729e-02,  # 53
-        5.27209044e-02,  # 54
-        4.44650650e-02,  # 55
-        3.67408991e-02,  # 56
-        2.96020508e-02,  # 57
-        2.31021643e-02,  # 58
-        1.72948837e-02,  # 59
-        1.22338533e-02,  # 60
-        7.97271729e-03,  # 61
-        4.56511974e-03,  # 62
-        2.06470490e-03,  # 63
-        5.25116920e-04,  # 64
-        4.44089210e-16   # 65
-    ]
-    hybi = [
-        0.00000000e+00,  # 1
-        0.00000000e+00,  # 2
-        0.00000000e+00,  # 3
-        0.00000000e+00,  # 4
-        0.00000000e+00,  # 5
-        0.00000000e+00,  # 6
-        0.00000000e+00,  # 7
-        0.00000000e+00,  # 8
-        0.00000000e+00,  # 9
-        0.00000000e+00,  # 10
-        0.00000000e+00,  # 11
-        0.00000000e+00,  # 12
-        0.00000000e+00,  # 13
-        3.34978104e-05,  # 14
-        1.19304657e-03,  # 15
-        3.96668911e-03,  # 16
-        8.30078125e-03,  # 17
-        1.41416788e-02,  # 18
-        2.14357376e-02,  # 19
-        3.01293135e-02,  # 20
-        4.01687622e-02,  # 21
-        5.15004396e-02,  # 22
-        6.40707016e-02,  # 23
-        7.78259039e-02,  # 24
-        9.27124023e-02,  # 25
-        1.08676553e-01,  # 26
-        1.25664711e-01,  # 27
-        1.43623233e-01,  # 28
-        1.62498474e-01,  # 29
-        1.82236791e-01,  # 30
-        2.02784538e-01,  # 31
-        2.24088073e-01,  # 32
-        2.46093750e-01,  # 33
-        2.68747926e-01,  # 34
-        2.91996956e-01,  # 35
-        3.15787196e-01,  # 36
-        3.40065002e-01,  # 37
-        3.64776731e-01,  # 38
-        3.89868736e-01,  # 39
-        4.15287375e-01,  # 40
-        4.40979004e-01,  # 41
-        4.66889977e-01,  # 42
-        4.92966652e-01,  # 43
-        5.19155383e-01,  # 44
-        5.45402527e-01,  # 45
-        5.71654439e-01,  # 46
-        5.97857475e-01,  # 47
-        6.23957992e-01,  # 48
-        6.49902344e-01,  # 49
-        6.75636888e-01,  # 50
-        7.01107979e-01,  # 51
-        7.26261973e-01,  # 52
-        7.51045227e-01,  # 53
-        7.75404096e-01,  # 54
-        7.99284935e-01,  # 55
-        8.22634101e-01,  # 56
-        8.45397949e-01,  # 57
-        8.67522836e-01,  # 58
-        8.88955116e-01,  # 59
-        9.09641147e-01,  # 60
-        9.29527283e-01,  # 61
-        9.48559880e-01,  # 62
-        9.66685295e-01,  # 63
-        9.83849883e-01,  # 64
-        1.00000000e+00   # 65
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with test 30-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_test_l30
+        hyai, hybi = hybrid_coord_test_l30(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
+    @classmethod
+    def ecmwf_l50(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using ECMWF 50-level coefficients.
 
-def hybrid_coord_cam_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for CAM with 32 levels.
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 50-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_ecmwf_l50
+        hyai, hybi = hybrid_coord_ecmwf_l50(dev)
+        p0 = 1e5  # ECMWF standard surface pressure in Pa
+        hyai = hyai / p0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-    Args:
-        dev (AbstractDevice): Device to create the arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.00225523952394724,  # 1
-        0.00503169186413288,  # 2
-        0.01015794742852450,  # 3
-        0.01855531707406040,  # 4
-        0.02973467559512110,  # 5
-        0.03927300125360490,  # 6
-        0.04711449891328810,  # 7
-        0.05624049901962280,  # 8
-        0.06680049747228620,  # 9
-        0.08070141822099690,  # 10
-        0.09494104236364360,  # 11
-        0.11169321089983000,  # 12
-        0.13140127062797500,  # 13
-        0.15458680689334900,  # 14
-        0.18186335265636400,  # 15
-        0.17459799349308000,  # 16
-        0.16605065762996700,  # 17
-        0.15599516034126300,  # 18
-        0.14416541159153000,  # 19
-        0.13024830818176300,  # 20
-        0.11387556791305500,  # 21
-        0.09461385756731030,  # 22
-        0.07534445077180860,  # 23
-        0.05765894055366520,  # 24
-        0.04273463785648350,  # 25
-        0.03164267912507060,  # 26
-        0.02522121742367740,  # 27
-        0.01919673755764960,  # 28
-        0.01361802686005830,  # 29
-        0.00853108894079924,  # 30
-        0.00397881818935275,  # 31
-        0.00000000000000000,  # 32
-        0.00000000000000000   # 33
-    ]
-    hybi = [
-        0.00000000000000000,  # 1
-        0.00000000000000000,  # 2
-        0.00000000000000000,  # 3
-        0.00000000000000000,  # 4
-        0.00000000000000000,  # 5
-        0.00000000000000000,  # 6
-        0.00000000000000000,  # 7
-        0.00000000000000000,  # 8
-        0.00000000000000000,  # 9
-        0.00000000000000000,  # 10
-        0.00000000000000000,  # 11
-        0.00000000000000000,  # 12
-        0.00000000000000000,  # 13
-        0.00000000000000000,  # 14
-        0.00000000000000000,  # 15
-        0.03935482725501060,  # 16
-        0.08565375953912730,  # 17
-        0.14012205600738500,  # 18
-        0.20420117676258100,  # 19
-        0.27958691120147700,  # 20
-        0.36827436089515700,  # 21
-        0.47261056303977970,  # 22
-        0.57698851823806760,  # 23
-        0.67278695106506350,  # 24
-        0.75362843275070190,  # 25
-        0.81371098756790160,  # 26
-        0.84849464893341100,  # 27
-        0.88112789392471300,  # 28
-        0.91134643554687500,  # 29
-        0.93890124559402500,  # 30
-        0.96355980634689300,  # 31
-        0.98511219024658200,  # 32
-        1.00000000000000000   # 33
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    @classmethod
+    def ecmwf_l90(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using ECMWF 90-level coefficients.
 
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 90-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_ecmwf_l90
+        hyai, hybi = hybrid_coord_ecmwf_l90(dev)
+        p0 = 1e5  # ECMWF standard surface pressure in Pa
+        hyai = hyai / p0
+        ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
-    """
-    Generate hybrid vertical coordinate coefficients for CAM with 32 levels.
+    @classmethod
+    def wrf_l26(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using WRF 26-level coefficients.
 
-    Args:
-        dev: (AbstractDevice): Device to create the arrays on.
-    Returns:
-        hyai (Array): Hybrid A coefficients at layer interfaces.
-        hybi (Array): Hybrid B coefficients at layer interfaces.
-    """
-    hyai = [
-        0.002255239523947239,  # 1
-        0.005031691864132881,  # 2
-        0.010157947428524490,  # 3
-        0.018555317074060440,  # 4
-        0.030669122934341430,  # 5
-        0.045867476612329480,  # 6
-        0.063323482871055600,  # 7
-        0.080701418220996860,  # 8
-        0.094941042363643650,  # 9
-        0.111693210899829900,  # 10
-        0.131401270627975500,  # 11
-        0.154586806893348700,  # 12
-        0.181863352656364400,  # 13
-        0.174597993493080100,  # 14
-        0.166050657629966700,  # 15
-        0.155995160341262800,  # 16
-        0.144165411591529800,  # 17
-        0.130248308181762700,  # 18
-        0.113875567913055400,  # 19
-        0.094613857567310330,  # 20
-        0.075344450771808620,  # 21
-        0.057658940553665160,  # 22
-        0.042734637856483460,  # 23
-        0.031642679125070570,  # 24
-        0.025221217423677440,  # 25
-        0.019196737557649610,  # 26
-        0.013618026860058310,  # 27
-        0.008531088940799236,  # 28
-        0.003978818189352751,  # 29
-        0.000000000000000000,  # 30
-        0.000000000000000000   # 31
-    ]
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 26-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_wrf_l26
+        hyai, hybi = hybrid_coord_wrf_l26(dev)
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=jnp.array(PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
-    hybi = [
-        0.000000000000000000,  # 1
-        0.000000000000000000,  # 2
-        0.000000000000000000,  # 3
-        0.000000000000000000,  # 4
-        0.000000000000000000,  # 5
-        0.000000000000000000,  # 6
-        0.000000000000000000,  # 7
-        0.000000000000000000,  # 8
-        0.000000000000000000,  # 9
-        0.000000000000000000,  # 10
-        0.000000000000000000,  # 11
-        0.000000000000000000,  # 12
-        0.000000000000000000,  # 13
-        0.039354827255010600,  # 14
-        0.085653759539127350,  # 15
-        0.140122056007385300,  # 16
-        0.204201176762580900,  # 17
-        0.279586911201477100,  # 18
-        0.368274360895156900,  # 19
-        0.472610563039779700,  # 20
-        0.576988518238067600,  # 21
-        0.672786951065063500,  # 22
-        0.753628432750701900,  # 23
-        0.813710987567901600,  # 24
-        0.848494648933410600,  # 25
-        0.881127893924713100,  # 26
-        0.911346435546875000,  # 27
-        0.938901245594024700,  # 28
-        0.963559806346893300,  # 29
-        0.985112190246582000,  # 30
-        1.000000000000000000   # 31
-    ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    @classmethod
+    def wrf_l32(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using WRF 32-level coefficients.
+
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 32-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_wrf_l32
+        hyai, hybi = hybrid_coord_wrf_l32(dev)
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=jnp.array(PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
+
+    @classmethod
+    def wrf_l60(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using WRF 60-level coefficients.
+
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 60-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_wrf_l60
+        hyai, hybi = hybrid_coord_wrf_l60(dev)
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=jnp.array(PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
+
+    @classmethod
+    def wrf_l64(
+        cls,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using WRF 64-level coefficients.
+
+        Args:
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 64-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_wrf_l64
+        hyai, hybi = hybrid_coord_wrf_l64(dev)
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=jnp.array(PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
+
+    @classmethod
+    def cam_l32(
+        cls,
+        *,
+        p0: float = HYBRID_COORD_P0,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using CAM 32-level coefficients.
+
+        Args:
+            p0 (float): Reference pressure at the surface (in Pa).
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 32-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_cam_l32
+        hyai, hybi = hybrid_coord_cam_l32(dev)
+        ptop = p0 * hyai[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
+
+    @classmethod
+    def cam_l30(
+        cls,
+        *,
+        p0: float = HYBRID_COORD_P0,
+        dev: device.AbstractDevice
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using CAM 30-level coefficients.
+
+        Args:
+            p0 (float): Reference pressure at the surface (in Pa).
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 30-level coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_cam_l30
+        hyai, hybi = hybrid_coord_cam_l30(dev)
+        ptop = p0 * hyai[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
 
 
 def calc_hybrid_midpoint_coeff(
@@ -1120,541 +654,3 @@ def calc_full_and_half_levels(
     full_lev = hyam + hybm
     half_lev = hyai + hybi
     return full_lev, half_lev
-
-
-class HybridVertCoordinate(AbstractLorenzCoordinate):
-    """
-    HybridVertCoordinate represents a vertical coordinate system following the hybrid staggering.
-    """
-    p0: Float[Array, "1"]
-    ptop: Float[Array, "1"]
-    hyai: Float[Array, "nlev+1"]
-    hybi: Float[Array, "nlev+1"]
-    hyam: Float[Array, "nlev"]
-    hybm: Float[Array, "nlev"]
-    full_lev: Float[Array, "nlev"]
-    half_lev: Float[Array, "nlev+1"]
-    full_dlev: Float[Array, "nlev"]
-    half_dlev: Float[Array, "nlev+1"]
-
-    def __init__(
-        self,
-        p0: Float[Array, "1"],
-        ptop: Float[Array, "1"],
-        hyai: Float[Array, "nlev+1"],
-        hybi: Float[Array, "nlev+1"],
-        hyam: Float[Array, "nlev"],
-        hybm: Float[Array, "nlev"],
-        full_lev: Float[Array, "nlev"],
-        half_lev: Float[Array, "nlev+1"]
-    ):
-        self.p0 = p0
-        self.ptop = ptop
-        self.hyai = hyai
-        self.hybi = hybi
-        self.hyam = hyam
-        self.hybm = hybm
-        self.full_lev = full_lev
-        self.half_lev = half_lev
-        # =========================================================
-        # full dlev
-        full_dlev = self.half_lev[1:] - self.half_lev[:-1]
-        # =========================================================
-        # half dlev
-        half_dlev = jnp.zeros_like(self.half_lev)
-        # =========================================
-        # k = 1
-        tmp = self.full_lev[0] - self.half_lev[0]
-        half_dlev = half_dlev.at[0].set(tmp)
-        # =========================================
-        # k = 2, ..., nlev
-        tmp = self.full_lev[1:]-self.full_lev[:-1]
-        half_dlev = half_dlev.at[1:-1].set(tmp)
-        # =========================================
-        # k = nlev + 1
-        tmp = self.half_lev[-1] - self.full_lev[-1]
-        half_dlev = half_dlev.at[-1].set(tmp)
-        # =========================================================
-        self.full_dlev = full_dlev
-        self.half_dlev = half_dlev
-
-    @staticmethod
-    def alias_name() -> str:
-        """Return the alias name of the hybrid vertical coordinate system."""
-        return "hybrid"
-
-    def get_layout(self) -> HybridVertCoordLayout:
-        from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-        return HybridVertCoordLayout()
-
-    def get_full_lev(self) -> Float[Array, "nlev"]:
-        return self.full_lev
-
-    def get_half_lev(self) -> Float[Array, "nlev+1"]:
-        return self.half_lev
-
-    def history_builder(
-        self,
-        file_path: str,
-        float_type: type[np.float32] | type[np.float64],
-        int_type: type[np.int32] | type[np.int64]
-    ) -> HybridVerticalCoordinateSetup:
-        return HybridVerticalCoordinateSetup(
-            file_path=file_path,
-            vert=self,
-            float_type=float_type,
-            int_type=int_type
-        )
-
-    @property
-    def nlev(self) -> int:
-        return self.hyai.shape[0] - 1
-
-    @property
-    def n_full_lev(self) -> int:
-        return self.nlev
-
-    @property
-    def n_half_lev(self) -> int:
-        return self.nlev + 1
-
-    def calc_mg(
-        self,
-        mgs: Float[Array, "npoints ..."]
-    ) -> Float[Array, "nlev npoints ..."]:
-        hyam = self.hyam[:, None]
-        hybm = self.hybm[:, None]
-        mgs = mgs[None, ...]
-        p0 = self.p0
-        ptop = LOCAL_PTOP
-        return hyam * (p0 - ptop) + hybm * (mgs - ptop) + ptop
-
-    def calc_mg_lev(
-        self,
-        mgs: Float[Array, "npoints ..."]
-    ) -> Float[Array, "nlev+1 npoints ..."]:
-        hyai = self.hyai[:, None]
-        hybi = self.hybi[:, None]
-        mgs = mgs[None, ...]
-        p0 = self.p0
-        ptop = LOCAL_PTOP
-        return hyai * (p0 - ptop) + hybi * (mgs - ptop) + ptop
-
-    def calc_dmgdt(
-        self,
-        dmgsdt: Float[Array, "npoints ..."]
-    ) -> Float[Array, "nlev npoints ..."]:
-        hybm = self.hybm[:, None]
-        return hybm * dmgsdt
-
-    def calc_dmgdt_lev(
-        self,
-        dmgsdt: Float[Array, "npoints ..."]
-    ) -> Float[Array, "nlev+1 npoints ..."]:
-        hybi = self.hybi[:, None]
-        dmgsdt = dmgsdt[None, :]
-        return hybi * dmgsdt
-
-    def calc_ddmgdt(
-        self,
-        dmgsdt: Float[Array, "npoints ..."]
-    ) -> Float[Array, "nlev npoints ..."]:
-        hybi = self.hybi[:, None]
-        dmgsdt = dmgsdt[None, :]
-        tmp = hybi[1:, ...] - hybi[:-1, ...]
-        return tmp * dmgsdt
-
-    @classmethod
-    def test_l15(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using test 15-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_test_l15(dev)
-        p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def test_l15_2(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using test 15-level coefficients (variant 2).
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients (variant 2).
-        """
-        hyai, hybi = hybrid_coord_test_l15_2(dev)
-        p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def test_l26(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using test 26-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with test 26-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_test_l26(dev)
-        p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def test_l30(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using test 30-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with test 30-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_test_l30(dev)
-        p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def ecmwf_l50(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using ECMWF 50-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 50-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_ecmwf_l50(dev)
-        p0 = 1e5  # ECMWF standard surface pressure in Pa
-        hyai = hyai / p0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def ecmwf_l90(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using ECMWF 90-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 90-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_ecmwf_l90(dev)
-        p0 = 1e5  # ECMWF standard surface pressure in Pa
-        hyai = hyai / p0
-        ptop = p0 * hybi[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def wrf_l26(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using WRF 26-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 26-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_wrf_l26(dev)
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def wrf_l32(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using WRF 32-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 32-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_wrf_l32(dev)
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def wrf_l60(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using WRF 60-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 60-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_wrf_l60(dev)
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def wrf_l64(
-        cls,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using WRF 64-level coefficients.
-
-        Args:
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 64-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_wrf_l64(dev)
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def cam_l32(
-        cls,
-        *,
-        p0: float = HYBRID_COORD_P0,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using CAM 32-level coefficients.
-
-        Args:
-            p0 (float): Reference pressure at the surface (in Pa).
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 32-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_cam_l32(dev)
-        ptop = p0 * hyai[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-    @classmethod
-    def cam_l30(
-        cls,
-        *,
-        p0: float = HYBRID_COORD_P0,
-        dev: device.AbstractDevice
-    ) -> Self:
-        """
-        Create a HybridVertCoordinate instance using CAM 30-level coefficients.
-
-        Args:
-            p0 (float): Reference pressure at the surface (in Pa).
-            dev (AbstractDevice): Device to create arrays on.
-        Returns:
-            HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 30-level coefficients.
-        """
-        hyai, hybi = hybrid_coord_cam_l30(dev)
-        ptop = p0 * hyai[0]
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
-
-
-def interp2plev(
-    x: Float[Array, "nlev_m, ..."],
-    mlev: Float[Array, "nlev_m, ..."],
-    plev: Float[Array, "nlev_p"],
-    left: Optional[str] = None,
-    right: Optional[str] = None
-) -> Float[Array, "nlev_p, ..."]:
-    """
-    Interpolate a variable from model levels to pressure levels.
-
-    Args:
-        x (Array): Variable defined on model levels (shape: nlev_m, ...).
-        mlev (Array): Model level pressures (shape: nlev_m).
-        plev (Array): Pressure levels to interpolate to (shape: nlev_p).
-        left (str, optional): Value to return for plev < mlev[0]. Valid options are 'extrapolate' or None.
-            Defaults to None.
-        right (str, optional): Value to return for plev > mlev[-1]. Valid options are 'extrapolate' or None.
-            Defaults to None.
-    Returns:
-        Array: Variable interpolated to pressure levels (shape: nlev_p, ...).
-    """
-    hori_shape = x.shape[1:]
-    nlev_m = x.shape[0]
-    ncol = int(jnp.prod(jnp.array(hori_shape)))
-
-    x_cols = x.reshape(nlev_m, ncol)
-
-    if mlev.ndim == 1:
-        mlev_cols = jnp.broadcast_to(mlev[:, None], (nlev_m, ncol))
-    else:
-        mlev_cols = mlev.reshape(nlev_m, ncol)
-
-    # Perform interpolation along the horizontal axis for each point
-    interp_func = jax.vmap(
-        lambda mlev, x: jnp.interp(
-            plev,
-            mlev,
-            x,
-            left=left,
-            right=right
-        ),
-        in_axes=(1, 1),
-        out_axes=1
-    )
-    res_cols = interp_func(mlev_cols, x_cols)
-
-    return res_cols.reshape((plev.shape[0],) + hori_shape)

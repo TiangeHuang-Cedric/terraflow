@@ -2,9 +2,8 @@ from __future__ import annotations
 from typing import List, Callable, TYPE_CHECKING
 import datetime
 import jax.numpy as jnp
-from loguru import logger
 
-from terraflow.util import typing, device
+from terraflow.util import typing, device, log
 from terraflow.util.datetime import DateTimeManager
 from terraflow.solver.abstract import AbstractExplicitODE, AbstractSolver
 from terraflow.solver.abstract import AbstractRungeKuttaSolver
@@ -120,11 +119,11 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
         )
         self.forward_backward = forward_backward
         if self.forward_backward:
-            logger.success(
+            log.logger.success(
                 "Use Forward-Backward Third-order Runge-Kutta time integration solver."
             )
         else:
-            logger.success(
+            log.logger.success(
                 "Use Third-order Runge-Kutta time integration solver."
             )
 
@@ -203,11 +202,11 @@ class ExEulerSolver(AbstractSolver[AbstractExplicitODE]):
         )
         self.forward_backward = forward_backward
         if self.forward_backward:
-            logger.success(
+            log.logger.success(
                 "Use Forward-Backward Euler time integration solver."
             )
         else:
-            logger.success(
+            log.logger.success(
                 "Use Euler time integration solver."
             )
 

@@ -1,6 +1,7 @@
 from typing import Optional
-from loguru import logger
 import datetime
+
+from terraflow.util import log
 
 
 class DateTimeManager:
@@ -37,7 +38,7 @@ class DateTimeManager:
             self.end_time_str = end_time_.isoformat()
         else:
             if run_time is not None:
-                logger.warning(
+                log.logger.warning(
                     "Both end_time_str and run_time are provided. "
                     "end_time_str will be used."
                 )
@@ -46,13 +47,13 @@ class DateTimeManager:
         self.save_interval_value = save_interval_value
         self.save_interval_unit = save_interval_unit
         self.dt_dyn = datetime.timedelta(**{dt_dyn_unit: dt_dyn_value})
-        logger.success("Initialized date time manager. ")
+        log.logger.success("Initialized date time manager. ")
         run_time_date = self.end_time - self.start_time
         if run_time_date.days >= 1:
             run_time_unit = "days"
         else:
             run_time_unit = "hours"
-        logger.info(
+        log.logger.info(
             "Start time: {}, End time: {}, Run time: {} {}.".format(
                 self.start_time_str,
                 self.end_time_str,
@@ -60,7 +61,7 @@ class DateTimeManager:
                 run_time_unit,
             )
         )
-        logger.info(
+        log.logger.info(
             "Save interval: {} {}, Dynamic time step: {} seconds.".format(
                 self.save_interval_value,
                 self.save_interval_unit,
@@ -76,9 +77,14 @@ class DateTimeManager:
     def end_time(self) -> datetime.datetime:
         return datetime.datetime.fromisoformat(self.end_time_str)
 
-    def curr_time(self, save_interval_idx) -> str:
-        curr_time = (self.start_time +
-                     self.save_interval * float(save_interval_idx))
+    def curr_time4save(self, save_interval_idx) -> str:
+        curr_time = (
+            self.start_time + self.save_interval * float(save_interval_idx)
+        )
+        return curr_time.isoformat()
+
+    def curr_time4itimestep(self, itimestep) -> str:
+        curr_time = self.start_time + self.dt_dyn * float(itimestep)
         return curr_time.isoformat()
 
     def run_time(self, unit: str) -> float:

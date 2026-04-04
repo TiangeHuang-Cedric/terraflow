@@ -63,7 +63,7 @@ class TableRegistrar:
         """Register a function/class to this specific table.
 
         Args:
-            belong: Optional belong string (e.g., "fvm::stagc::odm")
+            belong: Optional belong string (e.g., "fvm::stagc::scvt")
             factory: The function or class to register (keyword-only)
             overwrite: Whether to overwrite existing registration
             **meta: Additional metadata (e.g., group, alias, kind, etc.)
@@ -427,7 +427,7 @@ class Catalog:
         Args:
             factory: The function or class to register
             table: The table name to register into
-            belong: Optional belong string (e.g., "fvm::stagc::odm")
+            belong: Optional belong string (e.g., "fvm::stagc::scvt")
             overwrite: Whether to overwrite existing registration
             **meta: Additional metadata (e.g., group, alias, kind, etc.)
         """
@@ -605,22 +605,11 @@ def prepare_metadata(
     Args:
         factory: The function or class to prepare metadata for
         table: The name of the catalog table
-        belong: Optional belong string (e.g., "fvm::stagc::odm")
+        belong: Optional belong string (e.g., "fvm::stagc::scvt")
         **meta: Additional metadata fields
 
     Returns:
         Dictionary containing all registration metadata
-
-    Example:
-        # In registrations.py
-        from terraflow.operator.fvm.odm import base
-        metadata = prepare_metadata(
-            base.div_at_primal_cell,
-            table="op",
-            belong="fvm::stagc::odm",
-            group="div"
-        )
-        model.register(base.div_at_primal_cell, table="op", **metadata)
     """
     # Create bind instance to generate metadata
     bind_class_map = {
@@ -657,7 +646,7 @@ class AbstractBind(ABC):
 
         Args:
             table: The name of the catalog table
-            belong: Optional belong string (e.g., "fvm::stagc::odm")
+            belong: Optional belong string (e.g., "fvm::stagc::scvt")
             **meta: Additional metadata fields
         """
         self.table = table

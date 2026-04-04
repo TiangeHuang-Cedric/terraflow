@@ -9,6 +9,7 @@ from terraflow.layout.abstract import AbstractLayout
 from terraflow.layout.abstract import CoordinateInfo, CoordinateSystem
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 
+IntType = typing.IntType
 Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -61,3 +62,21 @@ class OneLayerVertCoordLayout(AbstractLayout):
         return CoordinateInfo(
             vertical_coord=vert_point,
         )
+
+    def get_idx(
+        self,
+        coord: CoordinateSystem[
+            HM,
+            OneLayerVertCoordinate,
+            HLO,
+            "OneLayerVertCoordLayout"
+        ],
+        loc: str,
+        domain: str,
+    ) -> tuple[IntType, IntType]:
+        if loc == "":
+            return (0, 0)
+        else:
+            raise ValueError(
+                f"Unsupported location {loc} for one-layer vertical coordinate index retrieval!"
+            )

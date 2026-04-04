@@ -9,17 +9,19 @@ from typing import (
 )
 from abc import ABC, abstractmethod
 from pathlib import Path
-from loguru import logger
+import time
 import netCDF4 as nc4
 import numpy as np
 import jax.numpy as jnp
 import jax.experimental
 import xarray as xr
 
-from terraflow.util import uxarray as tuxr
+from terraflow.util import log, uxarray as tuxr
 from terraflow.util.device import AbstractDevice
-import terraflow.util.history.setup as st
 from terraflow.util.datetime import DateTimeManager
+from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
+from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
+from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
@@ -109,13 +111,13 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                     "Specifying both dev and type parameters caused confusion errors"
                 )
         if float_type is None:
-            self.float_type = np.float64
+            self.float_type = np.float32
         elif float_type in FLOAT_JNP2NP.values():
             self.float_type = float_type
         else:
             raise ValueError(f"Unsupported float type: {float_type}")
         if int_type is None:
-            self.int_type = np.int64
+            self.int_type = np.int32
         elif int_type in INT_JNP2NP.values():
             self.int_type = int_type
         else:
@@ -131,7 +133,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 **h0_opt,
                 **kwargs,
             )
-            logger.info(f"History will output h0: {self.h0.file_path}")
+            log.logger.info(f"History will output h0: {self.h0.file_path}")
         if self.output_h1:
             self.h1 = self.history_type()(
                 time_manager=time_manager,
@@ -143,7 +145,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 **h1_opt,
                 **kwargs,
             )
-            logger.info(f"History will output h1: {self.h1.file_path}")
+            log.logger.info(f"History will output h1: {self.h1.file_path}")
         if self.output_h2:
             self.h2 = self.structured_history_type()(
                 time_manager=time_manager,
@@ -155,7 +157,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 **h2_opt,
                 **kwargs,
             )
-            logger.info(f"History will output h2: {self.h2.file_path}")
+            log.logger.info(f"History will output h2: {self.h2.file_path}")
 
     def setup(self, block: AbstractBlock) -> Self:
         if self.has_built():
@@ -188,6 +190,14 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def has_built(self) -> bool:
         return self._built
+
+    def output_diag(self, itimestep: int) -> None:
+        jax.experimental.io_callback(
+            self.log_diag,
+            None,
+            itimestep,
+            ordered=True
+        )
 
     def output_prepare(self, save_idx: int) -> None:
         jax.experimental.io_callback(
@@ -227,12 +237,29 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             ordered=True
         )
 
-    def prepare_for_advance(self, save_interval_idx: int) -> None:
-        logger.info(f"==> {self.time_manager.curr_time(save_interval_idx)}")
+    def log_diag(self, itimestep: int) -> None:
+        log.logger.log(
+            "RUNTIME",
+            f"==> {self.time_manager.curr_time4itimestep(itimestep)}"
+        )
         return None
 
-    def log_done_write(self, history: str = "history") -> None:
-        logger.success(f"Done write {history} file.")
+    def prepare_for_advance(self, save_interval_idx: int) -> None:
+        log.logger.log(
+            "RUNTIME",
+            f"==> {self.time_manager.curr_time4save(save_interval_idx)}"
+        )
+        return None
+
+    def log_start_write(self, history: str) -> None:
+        log.logger.info(
+            f"Write {history} file."
+        )
+
+    def log_done_write(self, history: str, cost_time: float) -> None:
+        log.logger.success(
+            f"Done write {history} file cost {cost_time} seconds."
+        )
         return None
 
     def advance_forward_in_time(
@@ -251,17 +278,26 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             time_var[current_length] = interval
             ds.close()
         if self.output_h0:
+            self.log_start_write("h0")
+            t0 = time.perf_counter()
             _set_time_var(self.h0)
             self.write_h0(block, itime=itime, first_call=first_call)
-            self.log_done_write("h0")
+            t1 = time.perf_counter()
+            self.log_done_write("h0", t1 - t0)
         if self.output_h1:
+            self.log_start_write("h1")
+            t0 = time.perf_counter()
             _set_time_var(self.h1)
             self.write_h1(block, itime=itime)
-            self.log_done_write("h1")
+            t1 = time.perf_counter()
+            self.log_done_write("h1", t1 - t0)
         if self.output_h2:
+            self.log_start_write("h2")
+            t0 = time.perf_counter()
             _set_time_var(self.h2)
             self.write_h2(block, itime=itime)
-            self.log_done_write("h2")
+            t1 = time.perf_counter()
+            self.log_done_write("h2", t1 - t0)
         return None
 
     def setup_h0(self, block: AbstractBlock) -> None:
@@ -502,10 +538,10 @@ class AbstractHistory(ABC):
 
 class UGRIDHistory(AbstractHistory):
     use_dual: bool
-    attr: st.base.GlobalAttributesSetup
-    time: st.base.TimeSetup
-    mesh: st.mesh.AbstractMeshHistorySetup
-    vert: st.vert.AbstractVertHistorySetup
+    attr: GlobalAttributesSetup
+    time: TimeSetup
+    mesh: AbstractMeshHistorySetup
+    vert: AbstractVertHistorySetup
 
     def __init__(
         self,
@@ -527,12 +563,12 @@ class UGRIDHistory(AbstractHistory):
             int_type=int_type
         )
         self.use_dual = use_dual
-        self.attr = st.base.GlobalAttributesSetup(
+        self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.time = st.base.TimeSetup(
+        self.time = TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
@@ -606,10 +642,10 @@ class UGRIDHistory(AbstractHistory):
 class UnstructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
-    attr: st.base.GlobalAttributesSetup
-    time: st.base.TimeSetup
-    mesh: st.mesh.AbstractMeshHistorySetup
-    vert: st.vert.AbstractVertHistorySetup
+    attr: GlobalAttributesSetup
+    time: TimeSetup
+    mesh: AbstractMeshHistorySetup
+    vert: AbstractVertHistorySetup
     _built: bool
 
     def __init__(
@@ -631,12 +667,12 @@ class UnstructuredHistory(AbstractHistory):
             float_type=float_type,
             int_type=int_type
         )
-        self.attr = st.base.GlobalAttributesSetup(
+        self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.time = st.base.TimeSetup(
+        self.time = TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
@@ -708,10 +744,10 @@ class UnstructuredHistory(AbstractHistory):
 class Unstructured2StructuredHistory(AbstractHistory):
     file_path: str
     time_manager: DateTimeManager
-    attr: st.base.GlobalAttributesSetup
-    time: st.base.TimeSetup
-    mesh: st.mesh.AbstractMeshHistorySetup
-    vert: st.vert.AbstractVertHistorySetup
+    attr: GlobalAttributesSetup
+    time: TimeSetup
+    mesh: AbstractMeshHistorySetup
+    vert: AbstractVertHistorySetup
     coord: CoordinateSystem
     remap_method: str
     remap_to: str
@@ -749,12 +785,12 @@ class Unstructured2StructuredHistory(AbstractHistory):
             float_type=float_type,
             int_type=int_type
         )
-        self.attr = st.base.GlobalAttributesSetup(
+        self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.time = st.base.TimeSetup(
+        self.time = TimeSetup(
             file_path=self.file_path,
             start_time_str=time_manager.start_time_str,
             save_interval_unit=time_manager.save_interval_unit,
@@ -764,7 +800,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         self.mesh = coord.mesh.history_builder(
             file_path=self.file_path,
             output_type="structured",
-                        float_type=self.float_type,
+            float_type=self.float_type,
             int_type=self.int_type
         )
         self.vert = coord.vert.history_builder(
@@ -902,14 +938,16 @@ class Unstructured2StructuredHistory(AbstractHistory):
         var_dtype = self.nc_float_type
         for _, field in fields.items():
             meta = field.meta
-            if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
-                logger.info(
+            if meta.output not in STRUCTURED_HISTORY_LIST:
+                log.logger.warning(
                     f"Skip variable {meta.name} for history {self.history_name}."
                 )
                 continue
+            if meta.output == "":
+                continue
             if isinstance(meta, FieldMetaData):
                 if meta.name not in remapped_ds.data_vars:
-                    logger.info(
+                    log.logger.warning(
                         f"Skip variable {meta.name} for history {self.history_name}: remapped field not found."
                     )
                     continue

@@ -5,7 +5,7 @@ import netCDF4 as nc4
 from terraflow.util.history.setup.base import AbstractHistorySetup
 
 if TYPE_CHECKING:
-    from terraflow.vert_coord.abstract import OneLayerVertCoordinate
+    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     import numpy as np
 
@@ -60,8 +60,8 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
         ds.createDimension("lev", self.vert.nlev)
         ds.createDimension("ilev", self.vert.nlev + 1)
         # Create variables
-        ds.createVariable("lev", self.nc_float_type, ("lev",))
-        ds.createVariable("ilev", self.nc_float_type, ("ilev",))
+        ds.createVariable("lev", "f8", ("lev",))
+        ds.createVariable("ilev", "f8", ("ilev",))
         # Assign data
         lev = ds.variables["lev"]
         lev[:] = self.vert.get_full_lev()

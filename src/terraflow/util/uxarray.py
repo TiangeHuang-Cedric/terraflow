@@ -17,7 +17,7 @@ from terraflow.util.math import convert_longitude_range_in_degrees
 if TYPE_CHECKING:
     from xarray.core.dataset_variables import DataVariables
     from xarray.core.types import ErrorOptionsWithWarn
-    from terraflow.mesh.orthogonal_dual_mesh.construct import OrthogonalDualMesh
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 
 
 class SphericalCoordinates:
@@ -267,7 +267,7 @@ class NodeConvention(AbstractElementConvention):
     @classmethod
     def from_orthogonal_dual_mesh(
         cls,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "NodeConvention":
         """
@@ -387,7 +387,7 @@ class EdgeConvention(AbstractElementConvention):
     @classmethod
     def from_orthogonal_dual_mesh(
         cls,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "EdgeConvention":
         """
@@ -549,7 +549,7 @@ class FaceConvention(AbstractElementConvention):
     @classmethod
     def from_orthogonal_dual_mesh(
         cls,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "FaceConvention":
         """
@@ -709,7 +709,7 @@ class MeshConvention:
     @classmethod
     def from_orthogonal_dual_mesh(
         cls,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "MeshConvention":
         """
@@ -819,7 +819,7 @@ class UGRIDGrid:
     @classmethod
     def from_orthogonal_dual_mesh(
         cls,
-        mesh: OrthogonalDualMesh,
+        mesh: SphericalCentroidVoronoiTessellations,
         attributes: Optional[AttributeConvention] = None,
         use_dual: bool = False,
         **kwargs

@@ -14,7 +14,7 @@
 # ---
 
 # %%
-from terraflow.discretization.fvm.odm.trisk.common.adv.flux_reconstruct import (
+from terraflow.discretization.fvm.scvt.trisk.common.adv.flux_reconstruct import (
     tr_stencil_member_list_4th_order_mbs
 )
 import cartopy.crs as ccrs
@@ -31,7 +31,7 @@ dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
 
-mesh = tf.mesh.OrthogonalDualMesh.from_grist(
+mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
 )
 

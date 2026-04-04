@@ -1,13 +1,17 @@
 """
 This module is used to post-process NetCDF files.
 """
+from __future__ import annotations
+from typing import TYPE_CHECKING
 import pathlib
 import time
 import subprocess
 from abc import ABC, abstractmethod
-from loguru import logger
 
-from terraflow.util import history
+from terraflow.util import log
+
+if TYPE_CHECKING:
+    from terraflow.util.history.abstract import AbstractHistoryset
 
 
 class AbstractPostProcessor(ABC):
@@ -16,7 +20,7 @@ class AbstractPostProcessor(ABC):
     @classmethod
     def remap_history(
         cls,
-        history: history.abstract.AbstractHistoryset,
+        history: AbstractHistoryset,
         res: float | int = 1.0,
         remap: bool = True,
         *args,
@@ -33,7 +37,7 @@ class AbstractPostProcessor(ABC):
         if isinstance(res, float):
             res = int(res) if res.is_integer() else res
         if not remap:
-            logger.info(
+            log.logger.info(
                 "Remapping is skipped. To enable remapping, set remap=True."
             )
             return
@@ -43,7 +47,7 @@ class AbstractPostProcessor(ABC):
             outfile = f"{filehead}.{res}×{res}.nc"
             post_processor.remap_netcdf(infile, outfile, res, *args, **kwargs)
         t1 = time.perf_counter()
-        logger.success(
+        log.logger.success(
             f"CDO post-processing for all history files cost {t1 - t0:.2f} seconds."
         )
 
@@ -144,7 +148,7 @@ class CDOPostProcesser(AbstractPostProcessor):
     @classmethod
     def remap_history(
         cls,
-        history: history.abstract.AbstractHistoryset,
+        history: AbstractHistoryset,
         res: float | int = 1.0,
         remap: bool = True,
         use_weight: bool = True,
@@ -218,10 +222,10 @@ class CDOPostProcesser(AbstractPostProcessor):
                 f"choose from {sorted(cls._VALID_COMPRESSION_BACKENDS)}"
             )
 
-        logger.info(
+        log.logger.info(
             f"Remapping {infile} to {outfile} with resolution {res}×{res}."
         )
-        logger.info(
+        log.logger.info(
             "CDO options: compress={}, compression_level={}, out_format={}, precision={}, low_memory={}, compression_backend={}",
             compress,
             compression_level,
@@ -231,13 +235,13 @@ class CDOPostProcesser(AbstractPostProcessor):
             backend
         )
         if use_weight:
-            logger.info(
+            log.logger.info(
                 "Remapping will be done using generated weight."
             )
 
         t0 = time.perf_counter()
 
-        logger.info("Starting post-remapping...")
+        log.logger.info("Starting post-remapping...")
         cdo_compress = compress and backend == "cdo"
         needs_post_compress = compress and backend in {"nccopy", "nco"}
         tmp_uncompressed = f"{outfile}.tmp.uncompressed.nc" if needs_post_compress else outfile
@@ -285,10 +289,11 @@ class CDOPostProcesser(AbstractPostProcessor):
             )
 
         t1 = time.perf_counter()
-        logger.success(f"CDO Post-remapping cost {t1 - t0:.2f} seconds.")
+        log.logger.success(f"CDO Post-remapping cost {t1 - t0:.2f} seconds.")
 
         if needs_post_compress:
-            logger.info("Start post-compression with backend: {}...", backend)
+            log.logger.info(
+                "Start post-compression with backend: {}...", backend)
             if backend == "nccopy":
                 cls._compress_with_nccopy(
                     infile=tmp_uncompressed,
@@ -309,10 +314,10 @@ class CDOPostProcesser(AbstractPostProcessor):
 
             t2 = time.perf_counter()
 
-            logger.success(
+            log.logger.success(
                 f"CDO Post-compression with backend: {backend} cost {t2 - t1:.2f} seconds."
             )
 
-        logger.success(
+        log.logger.success(
             f"CDO post-processing for {infile} completed successfully."
         )

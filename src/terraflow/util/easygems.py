@@ -1,9 +1,6 @@
 import numpy as np
 import xarray as xr
 from typing import Optional
-import healpix as hp
-import easygems.healpix as egh
-import easygems.remap as egr
 
 
 def terraflow2healpix(
@@ -25,6 +22,8 @@ def terraflow2healpix(
     Returns:
         ndarray: Remapped data on the Healpix grid.
     """
+    import healpix as hp
+    import easygems.remap as egr
     # Convert coordinates to NumPy arrays and avoid exact pole values that
     # cause stereographic projections (used by QHull inside easygems) to
     # produce infinities.
@@ -62,4 +61,5 @@ def plot_healpix_grid(data: np.ndarray):
     Args:
         data (np.ndarray): Input data array.
     """
+    import easygems.healpix as egh
     return egh.healpix_show(data)
