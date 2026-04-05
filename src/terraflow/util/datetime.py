@@ -19,6 +19,7 @@ class DateTimeManager:
         dt_dyn: str,
         run_time: Optional[str] = None,
         end_time: Optional[str] = None,
+        log_every: str = "1 hours",
     ):
         save_interval_value = int(save_interval.split()[0])
         save_interval_unit = save_interval.split()[1]
@@ -47,6 +48,8 @@ class DateTimeManager:
         self.save_interval_value = save_interval_value
         self.save_interval_unit = save_interval_unit
         self.dt_dyn = datetime.timedelta(**{dt_dyn_unit: dt_dyn_value})
+        self.log_every_value = log_every.split()[0]
+        self.log_every_unit = log_every.split()[1]
         log.logger.success("Initialized date time manager. ")
         run_time_date = self.end_time - self.start_time
         if run_time_date.days >= 1:
@@ -127,3 +130,21 @@ class DateTimeManager:
                 f"Invalid save_interval_unit: {self.save_interval_unit}"
             )
         return datetime.timedelta(**{self.save_interval_unit: self.save_interval_value})
+
+    @property
+    def log_every(self) -> datetime.timedelta:
+        log_every_value = int(self.log_every_value)
+        log_every_unit = self.log_every_unit
+        if log_every_unit not in [
+            "days",
+            "seconds",
+            "microseconds",
+            "milliseconds",
+            "minutes",
+            "hours",
+            "weeks",
+        ]:
+            raise ValueError(
+                f"Invalid log_every_unit: {log_every_unit}"
+            )
+        return datetime.timedelta(**{log_every_unit: log_every_value})

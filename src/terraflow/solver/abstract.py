@@ -133,7 +133,6 @@ class AbstractSolver(Generic[ODE], ABC):
         self,
         history: AbstractHistoryset,
         *,
-        log_every: str = "1 hours",
         use_scan: bool = False,
         outer_scan_fn: Callable = jax.lax.scan,
         inner_scan_fn: Callable = jax.lax.scan,
@@ -170,13 +169,7 @@ class AbstractSolver(Generic[ODE], ABC):
                 inner_scan_fn=inner_scan_fn,
             )
         else:
-            log_every_value = log_every.split()[0]
-            log_every_unit = log_every.split()[1]
-            log_every_time = datetime.timedelta(
-                **{
-                    log_every_unit: int(log_every_value)
-                }
-            )
+            log_every_time = self.time_manager.log_every
             log_steps = int(log_every_time / dt)
             return_fn = io_callback_in_while_loop(
                 history=history,
