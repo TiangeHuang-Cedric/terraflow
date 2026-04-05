@@ -10,12 +10,12 @@ Array = typing.Array
 
 
 def interp2plev(
-    x: Float[Array, "nlev_m, ..."],
-    mlev: Float[Array, "nlev_m, ..."],
+    x: Float[Array, "nlev_m ..."],
+    mlev: Float[Array, "nlev_m ..."],
     plev: Float[Array, "nlev_p"],
     left: Optional[str] = None,
     right: Optional[str] = None
-) -> Float[Array, "nlev_p, ..."]:
+) -> Float[Array, "nlev_p ..."]:
     """
     Interpolate a variable from model levels to pressure levels.
 
