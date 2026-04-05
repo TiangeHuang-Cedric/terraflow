@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, TypeVar
-import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod

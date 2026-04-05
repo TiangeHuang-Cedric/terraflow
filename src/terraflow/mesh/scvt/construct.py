@@ -437,7 +437,7 @@ def calc_edp12_eddnr(edp: PrimalEdge, edd: DualEdge, dua: DualCell) -> Array:
 
 
 class AuxiliaryData(eqx.Module):
-    """Auxiliary data for the orthogonal dual mesh."""
+    """Auxiliary data for the SCVT mesh."""
     edptg_eddnr: Int[Array, "nedge"]
     edpnr_eddtg: Int[Array, "nedge"]
     edp12_edptg: Int[Array, "nedge"]
@@ -2018,7 +2018,7 @@ class DualMeshEntity(AbstractMeshEntity):
 
 
 class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
-    """An orthogonal dual mesh consisting of primal and dual cells and edges.
+    """An SCVT mesh consisting of primal and dual cells and edges.
 
     This mesh type is registered in the catalog with alias 'scvt' through
     the registration system in terraflow.manager.plugins.mesh.registrations.
@@ -2033,7 +2033,7 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
 
     @staticmethod
     def alias_name() -> str:
-        """Retrun the alias name for this mesh type."""
+        """Return the alias name for this mesh type."""
         return "scvt"
 
     def get_layout(
@@ -2041,9 +2041,9 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
         layout: str = "trisk"
     ) -> TriSKBasedCGridStaggeringLayout:
         """Return the layout object for this mesh type."""
-        import terraflow.layout.scvt as odm_layout
+        import terraflow.layout.scvt as scvt_layout
         if layout == "trisk":
-            return odm_layout.TriSKBasedCGridStaggeringLayout()
+            return scvt_layout.TriSKBasedCGridStaggeringLayout()
         else:
             raise ValueError(f"Unsupported layout: {layout}")
 
@@ -2249,7 +2249,7 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
         hw: IntType = 3,
         dev: device.AbstractDevice = device.CPU()
     ) -> Self:
-        """Initialize the OrthogonalDualMesh from Grist NetCDF Files."""
+        """Initialize the SphericalCentroidVoronoiTessellations from Grist NetCDF Files."""
         grist = GristRefMesh.from_netcdf(
             grist_0d_file=grist_0d_file,
             grist_2d_file=grist_2d_file,
@@ -2262,7 +2262,9 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
         edp = PrimalEdge.from_grist(grist)
         edd = DualEdge.from_grist(grist)
         aux = AuxiliaryData.from_elements(plg, dua, edp, edd)
-        log.logger.success("Initialized OrthogonalDualMesh from Grist mesh.")
+        log.logger.success(
+            "Initialized SphericalCentroidVoronoiTessellations from Grist mesh."
+        )
         return cls(dev, hw, glevel, plg, dua, edp, edd, aux)
 
     def reconstruct_vector(
@@ -2301,8 +2303,8 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
         use_dual: bool = False,
         **kwargs
     ) -> UGRIDGrid:
-        """Convert the OrthogonalDualMesh to a UGRIDGrid representation."""
-        return UGRIDGrid.from_orthogonal_dual_mesh(
+        """Convert the SCVT mesh to a UGRIDGrid representation."""
+        return UGRIDGrid.from_scvt_mesh(
             self, attributes=attributes, use_dual=use_dual, **kwargs
         )
 
@@ -2403,7 +2405,7 @@ def reconstruct_vector_at_primal_cell_from_dual_edge(
     """Reconstruct prime-cell vector components (u, v) from edge normal values.
 
     Arguments:
-        mesh: OrthogonalDualMesh instance.
+        mesh: SphericalCentroidVoronoiTessellations instance.
         normal_u_at_edge: (nlev, n_edge) array of normal velocity values at edges.
 
     Returns:

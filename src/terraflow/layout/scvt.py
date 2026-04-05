@@ -20,14 +20,14 @@ VM = TypeVar("VM", bound=AbstractVertCoordinate)
 VLO = TypeVar("VLO", bound="AbstractLayout")
 
 
-class AbstractCGridStaggeringLayout4OrthogonalDualMesh(
+class AbstractCGridStaggeringLayout4SCVTMesh(
     AbstractCGridStaggeringLayout
 ):
     pass
 
 
 class TriSKBasedCGridStaggeringLayout(
-    AbstractCGridStaggeringLayout4OrthogonalDualMesh
+    AbstractCGridStaggeringLayout4SCVTMesh
 ):
     def __init__(self):
         logger.success("Initialized TriSKBasedCGridStaggeringLayout.")

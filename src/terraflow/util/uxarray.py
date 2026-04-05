@@ -265,16 +265,16 @@ class NodeConvention(AbstractElementConvention):
         return "node"
 
     @classmethod
-    def from_orthogonal_dual_mesh(
+    def from_scvt_mesh(
         cls,
         mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "NodeConvention":
         """
-        Create a NodeConvention from an OrthogonalDualMesh.
+        Create a NodeConvention from a SphericalCentroidVoronoiTessellations.
 
         Args:
-            mesh (OrthogonalDualMesh): The orthogonal dual mesh.
+            mesh (SphericalCentroidVoronoiTessellations): The SCVT mesh.
             use_dual (bool): Whether to output the dual mesh or primal mesh.
 
         Returns:
@@ -385,16 +385,16 @@ class EdgeConvention(AbstractElementConvention):
         return self.edge_face_connectivity.keys().__iter__().__next__()
 
     @classmethod
-    def from_orthogonal_dual_mesh(
+    def from_scvt_mesh(
         cls,
         mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "EdgeConvention":
         """
-        Create an edge convention from an orthogonal dual mesh.
+        Create an edge convention from an SCVT mesh.
 
         Args:
-            mesh (OrthogonalDualMesh): The orthogonal dual mesh.
+            mesh (SphericalCentroidVoronoiTessellations): The SCVT mesh.
             use_dual (bool): Whether to output the dual mesh or primal mesh.
 
         Returns:
@@ -547,16 +547,16 @@ class FaceConvention(AbstractElementConvention):
         return self.face_face_connectivity.keys().__iter__().__next__()
 
     @classmethod
-    def from_orthogonal_dual_mesh(
+    def from_scvt_mesh(
         cls,
         mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "FaceConvention":
         """
-        Create a FaceConvention from an orthogonal dual mesh.
+        Create a FaceConvention from a SphericalCentroidVoronoiTessellations mesh.
 
         Args:
-            mesh (OrthogonalDualMesh): The orthogonal dual mesh.
+            mesh (SphericalCentroidVoronoiTessellations): The SCVT mesh.
             use_dual (bool): Whether to output the dual mesh or primal mesh.
 
         Returns:
@@ -707,16 +707,16 @@ class MeshConvention:
         return topology
 
     @classmethod
-    def from_orthogonal_dual_mesh(
+    def from_scvt_mesh(
         cls,
         mesh: SphericalCentroidVoronoiTessellations,
         use_dual: bool = False
     ) -> "MeshConvention":
         """
-        Create a MeshConvention from an orthogonal dual mesh.
+        Create a MeshConvention from a SphericalCentroidVoronoiTessellations mesh.
 
         Args:
-            mesh (OrthogonalDualMesh): The orthogonal dual mesh.
+            mesh (SphericalCentroidVoronoiTessellations): The SCVT mesh.
             use_dual (bool): Whether to output the dual mesh or primal mesh.
 
         Returns:
@@ -728,13 +728,13 @@ class MeshConvention:
         # For fully 3d unstructured mesh, need to change topology_dimension to 3.
         topology_dimension: int = 2
         cf_role: str = "mesh_topology"
-        node = NodeConvention.from_orthogonal_dual_mesh(
+        node = NodeConvention.from_scvt_mesh(
             mesh, use_dual=use_dual
         )
-        edge = EdgeConvention.from_orthogonal_dual_mesh(
+        edge = EdgeConvention.from_scvt_mesh(
             mesh, use_dual=use_dual
         )
-        face = FaceConvention.from_orthogonal_dual_mesh(
+        face = FaceConvention.from_scvt_mesh(
             mesh, use_dual=use_dual
         )
         return MeshConvention(
@@ -762,7 +762,7 @@ class AttributeConvention:
         title: str = "UGRID Dataset",
         history: str = f"Created by TerraFlow.util.uxarray module in {datetime.datetime.now()}",
         institution: str = "TerraFlow Project",
-        source_grid_category: str = "Orthogonal Dual Mesh",
+        source_grid_category: str = "Spherical Centroid Voronoi Tessellations",
         source: str = "TerraFlow",
         conventions: str = "CF-1.11 UGRID-1.0"
     ):
@@ -817,14 +817,14 @@ class UGRIDGrid:
         return instance
 
     @classmethod
-    def from_orthogonal_dual_mesh(
+    def from_scvt_mesh(
         cls,
         mesh: SphericalCentroidVoronoiTessellations,
         attributes: Optional[AttributeConvention] = None,
         use_dual: bool = False,
         **kwargs
     ) -> Self:
-        """Create a UGRID dataset from an orthogonal dual mesh."""
+        """Create a UGRID dataset from an SCVT mesh."""
         if attributes is None:
             default_attributes = AttributeConvention()
             attributes = AttributeConvention(
@@ -841,7 +841,7 @@ class UGRIDGrid:
                 )
             )
         if use_dual:
-            dual = MeshConvention.from_orthogonal_dual_mesh(
+            dual = MeshConvention.from_scvt_mesh(
                 mesh=mesh,
                 use_dual=True
             )
@@ -850,7 +850,7 @@ class UGRIDGrid:
                 dual=dual
             )
         else:
-            primal = MeshConvention.from_orthogonal_dual_mesh(
+            primal = MeshConvention.from_scvt_mesh(
                 mesh=mesh,
                 use_dual=False
             )
@@ -860,7 +860,7 @@ class UGRIDGrid:
             )
 
     def to_xarray(self) -> xr.Dataset:
-        """Create a UGRID dataset from the component in orthogonal dual mesh."""
+        """Create a UGRID dataset from the component in SCVT mesh."""
         attributes = self.attributes.to_dict()
         data_vars: Dict[str, xr.DataArray] = {}
         for mesh_name in [attr for attr in dir(self) if isinstance(getattr(self, attr), MeshConvention)]:

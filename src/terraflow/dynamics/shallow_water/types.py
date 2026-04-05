@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_odm_trisk_vars
-    import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_odm_trisk_1lev_terms
+    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_scvt_trisk_1lev_terms
 
     Array = typing.Array
 
@@ -437,7 +437,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         para: PlanetParameterSet,
         *,
         case: Optional[ShallowWaterEquationTestCase] = None
-    ) -> fvm_odm_trisk_vars.Block:
+    ) -> fvm_scvt_trisk_vars.Block:
         ...
 
     @overload
@@ -527,7 +527,7 @@ class ShallowWaterEquationBuilder:
         form: Literal["vector_invariant"],
         ode_kind: Literal["explicit"],
         output_h1_tend: bool = False,
-    ) -> ExVif_SWE_ODM_TriSKCGrid_FVM:
+    ) -> ExVif_SWE_SCVT_TriSKCGrid_FVM:
         ...
 
     @overload
@@ -571,7 +571,7 @@ class ShallowWaterEquationBuilder:
 
 
 if TYPE_CHECKING:
-    ExVif_SWE_ODM_TriSKCGrid_FVM = ExVifShallowWaterEquationSet4UGRID[
+    ExVif_SWE_SCVT_TriSKCGrid_FVM = ExVifShallowWaterEquationSet4UGRID[
         FiniteVolumeMethod,
-        fvm_odm_trisk_1lev_terms.ExSpaceOperators,
+        fvm_scvt_trisk_1lev_terms.ExSpaceOperators,
     ]

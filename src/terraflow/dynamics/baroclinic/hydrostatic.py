@@ -27,8 +27,8 @@ if TYPE_CHECKING:
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.term as fvm_odm_trisk_terms
-    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_odm_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.term as fvm_scvt_trisk_terms
+    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
 
 
 HM = TypeVar("HM", bound=AbstractUnstructuredMesh)
@@ -83,7 +83,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         para: PlanetParameterSet,
         *,
         case: Optional[BaroclinicEquationTestCase] = None
-    ) -> fvm_odm_trisk_vars.Block:
+    ) -> fvm_scvt_trisk_vars.Block:
         ...
 
     @overload
@@ -174,7 +174,7 @@ class DryHydrostaticEquationBuilder:
         form: str,
         ode_kind: str,
         output_h1_tend: bool = False
-    ) -> ExVif_DHDC_ODM_TriSKCGrid_FVM:
+    ) -> ExVif_DHDC_SCVT_TriSKCGrid_FVM:
         ...
 
     @overload
@@ -218,7 +218,7 @@ class DryHydrostaticEquationBuilder:
 
 
 if TYPE_CHECKING:
-    ExVif_DHDC_ODM_TriSKCGrid_FVM = ExVifDryHydrostaticEquationSet4UGRID[
+    ExVif_DHDC_SCVT_TriSKCGrid_FVM = ExVifDryHydrostaticEquationSet4UGRID[
         FiniteVolumeMethod,
-        fvm_odm_trisk_terms.ExSpaceOperators,
+        fvm_scvt_trisk_terms.ExSpaceOperators,
     ]

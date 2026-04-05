@@ -1601,8 +1601,8 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.scvt.trisk.single_lev.diag import DiagnosticsTools as fvm_odm_trisk_1lev_diag
-    from terraflow.dynamics.shallow_water.types import ExVif_SWE_ODM_TriSKCGrid_FVM
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.diag import DiagnosticsTools as fvm_scvt_trisk_1lev_diag
+    from terraflow.dynamics.shallow_water.types import ExVif_SWE_SCVT_TriSKCGrid_FVM
 
 
 DIAG = TypeVar("DIAG", bound=AbstractDiagnosticTools)
@@ -1637,11 +1637,11 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         cls,
         coord: CoordinateSystem,
         para: PlanetParameterSet,
-        equation: ExVif_SWE_ODM_TriSKCGrid_FVM,
+        equation: ExVif_SWE_SCVT_TriSKCGrid_FVM,
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
-    ) -> "fvm_odm_trisk_1lev_diag":
+    ) -> "fvm_scvt_trisk_1lev_diag":
         ...
 
     @overload

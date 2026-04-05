@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Self, Any
+from typing import TypeVar, Generic, Self
 import inspect
 
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh

@@ -340,7 +340,7 @@ uv = coord.mesh.reconstruct_vector(un)
 u = uv["u"]
 v = uv["v"]
 
-ugrid_builder = UGRIDGrid.from_orthogonal_dual_mesh(
+ugrid_builder = UGRIDGrid.from_scvt_mesh(
     mesh,
     use_dual=False,
     title="Unstructured Primal-Dual Mesh",
@@ -388,8 +388,8 @@ attrs = {
 }
 
 uv_ugrid_ds = UGRIDDataset.from_xarray(
-    ds=variables, 
-    uxgrid=uxgrid, 
+    ds=variables,
+    uxgrid=uxgrid,
     attrs=attrs
 )
 
