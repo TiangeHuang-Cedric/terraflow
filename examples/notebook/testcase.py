@@ -248,6 +248,8 @@ cbar.set_label(
 plt.tight_layout()
 
 # %%
+trajectory = trajectory_tools.cast_state(trajectory)
+
 trajectory_vars = trajectory_tools.compute_along_trajectory(
     coord=coord,
     para=para,

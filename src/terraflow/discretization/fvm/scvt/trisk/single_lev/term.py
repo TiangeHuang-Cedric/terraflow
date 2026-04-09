@@ -21,9 +21,10 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
     from terraflow.discretization.fvm.scvt.trisk.common.coriolis.schemes import CoriolisForceAtEdge
-    from ..dynamics_types import Block, State
+    from ..dynamics_types import Block
 
     Float = typing.Float
+    Int = typing.Int
     Array = typing.Array
     CoordSys = CoordinateSystem[
         SphericalCentroidVoronoiTessellations,
@@ -55,17 +56,17 @@ class FluidThickness(
         from ..common.adv.flux_reconstruct import FluxReconstructAtEdgeOnPrimalMesh
         self.recon_at_edge = FluxReconstructAtEdgeOnPrimalMesh()
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
         p_ids = block.coord.mesh.polg_ids
         p_ihe = block.coord.mesh.polg_ihe[0]
         g = block.para.gravity.unwrap()
-        un = star_state.un.unwrap()
-        gz = star_state.gz.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
+        gz = block.state.gz.unwrap()[star_idx, :, :]
         gzs = block.static.gzs.unwrap()
-        dmg = star_state.dmg.unwrap()
-        dmg_e = star_state.dmg_e.unwrap()
-        dmg_vtx = star_state.dmg_vtx.unwrap()
+        dmg = block.state.dmg.unwrap()[star_idx, :, :]
+        dmg_e = block.state.dmg_e.unwrap()[star_idx, :, :]
+        dmg_vtx = block.state.dmg_vtx.unwrap()[star_idx, :, :]
         # ==========================================================
         dmg = dmg.at[0, p_ids:p_ihe+1].set(
             gz[0, p_ids:p_ihe+1] - gzs[p_ids:p_ihe+1]
@@ -83,20 +84,23 @@ class FluidThickness(
             coord=coord,
         )
         # ==========================================================
-        star_state = tree_at(
+        block = tree_at(
             coord=coord,
-            where=lambda s: s.dmg,
-            pytree=star_state,
-            replace=dmg
+            where=lambda b: b.state.dmg,
+            pytree=block,
+            replace=dmg,
+            at_dims=0,
+            at_idxes=star_idx
         )
-        star_state = tree_at(
+        return tree_at(
             coord=coord,
-            where=lambda s: (s.dmg_e, s.dmg_vtx),
-            pytree=star_state,
+            where=lambda b: (b.state.dmg_e, b.state.dmg_vtx),
+            pytree=block,
             replace=(dmg_e, dmg_vtx),
+            at_dims=(0, 0),
+            at_idxes=(star_idx, star_idx),
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -120,7 +124,7 @@ class TendencyOfDivergenceOfMassFlux(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
         ids, ide = block.coord.mesh.polg_ids, block.coord.mesh.polg_ide
         g = block.para.gravity.unwrap()
         dmf = block.aux.dmf.unwrap()
@@ -134,13 +138,12 @@ class TendencyOfDivergenceOfMassFlux(
             dgzdt[0, ids:ide+1] + dgzdt_dmf[0, ids:ide+1]
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: (b.tend.dgzdt, b.tend.dgzdt_dmf),
             pytree=block,
             replace=(dgzdt, dgzdt_dmf)
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -167,23 +170,22 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
-        block, star_state = self.scheme(block, star_state)
+        block = self.scheme(block, star_idx)
         dundt_coriolis = block.tend.dundt_coriolis.unwrap()
         dundt = dundt.at[0, ids:ide+1].set(
             dundt[0, ids:ide+1] + dundt_coriolis[0, ids:ide+1]
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.tend.dundt,
             pytree=block,
             replace=dundt
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -210,23 +212,22 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
         self.scheme = PressureGradientForce(
             disc=disc, method=method)
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
-        block, star_state = self.scheme(block, star_state)
+        block = self.scheme(block, star_idx)
         dundt_pgf = block.tend.dundt_pgf.unwrap()
         dundt = dundt.at[0, ids:ide+1].set(
             dundt[0, ids:ide+1] + dundt_pgf[0, ids:ide+1]
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.tend.dundt,
             pytree=block,
             replace=dundt
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         self._built = True
@@ -248,7 +249,7 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         ke = block.aux.ke.unwrap()
         dundt = block.tend.dundt.unwrap()
@@ -264,14 +265,13 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
             dundt[0, ids:ide+1] + dundt_grad_ke[0, ids:ide+1]
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: (b.tend.dundt, b.tend.dundt_grad_ke),
             pytree=block,
             replace=(dundt, dundt_grad_ke),
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -327,41 +327,40 @@ class ExPrepareSpaceOperators(
         )
 
     def first_call(self, block: BLOCK) -> BLOCK:
-        star_state = block.get_state(block.old)
-        block, star_state = self.dmg(block, star_state)
-        block, star_state = self.mfn(block, star_state)
-        block, star_state = self.dmf(block, star_state)
-        block, star_state = self.ut(block, star_state)
-        block, star_state = self.vor(block, star_state)
-        block, star_state = self.pv(block, star_state)
-        block, star_state = self.ke(block, star_state)
-        block = block.set_state(itime=block.old, state=star_state)
+        old = block.old
+        block = self.dmg(block, old)
+        block = self.mfn(block, old)
+        block = self.dmf(block, old)
+        block = self.ut(block, old)
+        block = self.vor(block, old)
+        block = self.pv(block, old)
+        block = self.ke(block, old)
         return block
 
     def __call__(
         self,
         block: BLOCK,
-        star_state: State,
+        star_idx: Int[Array, ""] | int,
         pass_tag: str,
         explicit: bool
-    ) -> tuple[BLOCK, State]:
+    ) -> BLOCK:
         if pass_tag == "all_pass":
-            block, star_state = self.mfn(block, star_state)
-            block, star_state = self.dmf(block, star_state)
-            block, star_state = self.ut(block, star_state)
-            block, star_state = self.vor(block, star_state)
-            block, star_state = self.pv(block, star_state)
-            block, star_state = self.ke(block, star_state)
+            block = self.mfn(block, star_idx)
+            block = self.dmf(block, star_idx)
+            block = self.ut(block, star_idx)
+            block = self.vor(block, star_idx)
+            block = self.pv(block, star_idx)
+            block = self.ke(block, star_idx)
         elif pass_tag == "forward_pass":
-            block, star_state = self.mfn(block, star_state)
-            block, star_state = self.dmf(block, star_state)
-            block, star_state = self.ut(block, star_state)
-            block, star_state = self.vor(block, star_state)
-            block, star_state = self.pv(block, star_state)
-            block, star_state = self.ke(block, star_state)
+            block = self.mfn(block, star_idx)
+            block = self.dmf(block, star_idx)
+            block = self.ut(block, star_idx)
+            block = self.vor(block, star_idx)
+            block = self.pv(block, star_idx)
+            block = self.ke(block, star_idx)
         elif pass_tag == "backward_pass":
             pass
-        return block, star_state
+        return block
 
     def build_default(self, coriolis_scheme: CoriolisForceAtEdge) -> "ExPrepareSpaceOperators":
         if not self.has_built():
@@ -409,74 +408,54 @@ class ExSpaceOperators(
     def __call__(
         self,
         block: BLOCK,
-        old_idx: int,
-        star_idx: int,
-        new_idx: int,
+        old_idx: Int[Array, ""] | int,
+        star_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
         pass_tag: str,
         explicit: bool
     ) -> BLOCK:
         block = block.reset(pass_tag=pass_tag)
         if pass_tag == "all_pass":
             # ==================================================
-            # Get state at star_idx
-            star_state = block.get_state(star_idx)
-            # ==================================================
             # Prepare state and block for tendency calculation
-            block, star_state = self.prepare(
+            block = self.prepare(
                 block=block,
-                star_state=star_state,
+                star_idx=star_idx,
                 pass_tag=pass_tag,
                 explicit=explicit
             )
             # ==================================================
             # Calculate tendencies
-            block, star_state = self.dgzdt(block, star_state)
-            block, star_state = self.dundt(block, star_state)
-            # ==================================================
-            # Update state at star idx
-            block = block.set_state(itime=star_idx, state=star_state)
+            block = self.dgzdt(block, star_idx)
+            block = self.dundt(block, star_idx)
             # ==================================================
         elif pass_tag == "forward_pass":
             # ==================================================
-            # Get state at star_idx
-            star_state = block.get_state(star_idx)
-            # ==================================================
             # Prepare state and block for tendency calculation
-            block, star_state = self.prepare(
+            block = self.prepare(
                 block=block,
-                star_state=star_state,
+                star_idx=star_idx,
                 pass_tag=pass_tag,
                 explicit=explicit
             )
             # ==================================================
             # Calculate tendencies
-            block, star_state = self.dgzdt(block, star_state)
-            # ==================================================
-            # Update state at star idx
-            block = block.set_state(itime=star_idx, state=star_state)
+            block = self.dgzdt(block, star_idx)
             # ==================================================
         elif pass_tag == "backward_pass":
             # ==================================================
-            # Get state at star_idx and new_idx
-            star_state = block.get_state(star_idx)
-            new_state = block.get_state(new_idx)
-            # ==================================================
             # Prepare state and block for tendency calculation
-            block, new_state = self.prepare(
+            block = self.prepare(
                 block=block,
-                star_state=new_state,
+                star_idx=new_idx,
                 pass_tag=pass_tag,
                 explicit=explicit
             )
             # ==================================================
             # Calculate tendencies
-            block, star_state = self.dundt.grad_ke(block, star_state)
-            block, new_state = self.dundt.pgf(block, new_state)
-            block, star_state = self.dundt.coriolis(block, star_state)
-            # ==================================================
-            # Update state at star idx and new idx
-            block = block.set_state(itime=star_idx, state=star_state)
-            block = block.set_state(itime=new_idx, state=new_state)
+            block = self.dundt.grad_ke(block, star_idx)
+            block = self.dundt.pgf(block, new_idx)
+            block = self.dundt.coriolis(block, star_idx)
             # ==================================================
         else:
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
@@ -485,94 +464,114 @@ class ExSpaceOperators(
     def diagnose(
         self,
         block: BLOCK,
-        itime: int,
+        itime: Array,
     ) -> BLOCK:
-        state = block.get_state(itime)
-        block, state = self.prepare.div(block, state)
-        block = block.set_state(itime=itime, state=state)
+        block = self.prepare.div(block, itime)
         block = block.diagnose(itime=itime)
         return block
 
     def _update_gz(
         self,
         block: BLOCK,
-        old_state: State,
-        new_state: State,
+        old_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
         dt: float,
         pass_tag: str
-    ) -> State:
+    ) -> BLOCK:
         if pass_tag == "all_pass" or pass_tag == "forward_pass":
-            old_gz = old_state.gz.unwrap()
+            mesh = block.coord.mesh
+            vert = block.coord.vert
+            ids, ide = mesh.polg_ids, mesh.polg_ide
+            kds, kde = vert.full_kds, vert.full_kde
+            gz = block.state.gz.unwrap()
+            old_gz = gz[old_idx, :, :]
+            new_gz = gz[new_idx, :, :]
             dgzdt = block.tend.dgzdt.unwrap()
-            new_gz = old_gz + dgzdt * dt
-            new_state = tree_at(
+            # ==================================================
+            new_gz = new_gz.at[kds:kde+1, ids:ide+1].set(
+                old_gz[kds:kde+1, ids:ide+1] + dgzdt[kds:kde+1, ids:ide+1] * dt
+            )
+            # ==================================================
+            block = tree_at(
                 coord=block.coord,
-                where=lambda s: s.gz,
-                pytree=new_state,
+                where=lambda b: b.state.gz,
+                pytree=block,
                 replace=new_gz,
+                at_dims=0,
+                at_idxes=new_idx,
                 fill_halo=True
             )
             # Update dmg
-            block, new_state = self.prepare.dmg(block, new_state)
-            return new_state
+            return self.prepare.dmg(block, new_idx)
         elif pass_tag == "backward_pass":
-            return new_state
+            return block
         else:
             raise ValueError(f"Unknown pass tag: {pass_tag}")
 
     def _update_un(
         self,
         block: BLOCK,
-        old_state: State,
-        new_state: State,
+        old_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
         dt: float,
         pass_tag: str
-    ) -> State:
+    ) -> BLOCK:
         if pass_tag == "all_pass" or pass_tag == "backward_pass":
-            old_un = old_state.un.unwrap()
+            mesh = block.coord.mesh
+            vert = block.coord.vert
+            ids, ide = mesh.edge_ids, mesh.edge_ide
+            kds, kde = vert.full_kds, vert.full_kde
+            un = block.state.un.unwrap()
+            old_un = un[old_idx, :, :]
+            new_un = un[new_idx, :, :]
             dundt = block.tend.dundt.unwrap()
-            new_un = old_un + dundt * dt
+            # ==================================================
+            new_un = new_un.at[kds:kde+1, ids:ide+1].set(
+                old_un[kds:kde+1, ids:ide+1] + dundt[kds:kde+1, ids:ide+1] * dt
+            )
+            # ==================================================
             return tree_at(
                 coord=block.coord,
-                where=lambda s: s.un,
-                pytree=new_state,
+                where=lambda b: b.state.un,
+                pytree=block,
                 replace=new_un,
+                at_dims=0,
+                at_idxes=new_idx,
                 fill_halo=True
             )
         elif pass_tag == "forward_pass":
-            return new_state
+            return block
         else:
             raise ValueError(f"Unknown pass tag: {pass_tag}")
 
     def update_state(
         self,
         block: BLOCK,
-        old_idx: int,
-        new_idx: int,
+        old_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
         pass_tag: str,
         dt: float
-    ) -> State:
-        old_state = block.get_state(old_idx)
-        new_state = block.get_state(new_idx)
+    ) -> BLOCK:
+        # ==================================================
         # Update gz
-        new_state = self._update_gz(
+        block = self._update_gz(
             block=block,
-            old_state=old_state,
-            new_state=new_state,
+            old_idx=old_idx,
+            new_idx=new_idx,
             dt=dt,
             pass_tag=pass_tag
         )
         # ================================================
         # Update un
-        new_state = self._update_un(
+        block = self._update_un(
             block=block,
-            old_state=old_state,
-            new_state=new_state,
+            old_idx=old_idx,
+            new_idx=new_idx,
             dt=dt,
             pass_tag=pass_tag
         )
         # ================================================
-        return new_state
+        return block
 
     def build_default(self) -> Self:
         if not self.has_built():

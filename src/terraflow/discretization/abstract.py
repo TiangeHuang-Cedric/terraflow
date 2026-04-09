@@ -25,8 +25,8 @@ from typing import (
 from dataclasses import dataclass
 import equinox as eqx
 import types
-import jax
 import unxt as ux
+import jax
 import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
@@ -48,7 +48,7 @@ from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
 
-
+Int = typing.Int
 Numeric = typing.Numeric
 Array = typing.Array
 
@@ -192,6 +192,7 @@ class AbstractEquationMode(ABC):
     ideal_dry_core: bool
     advection: bool
     output_h1_tend: bool
+    state_tile_depth: int
 
     def __init__(self, *args, **kwargs):
         object.__setattr__(
@@ -216,6 +217,10 @@ class AbstractEquationMode(ABC):
         object.__setattr__(
             self, "output_h1_tend",
             kwargs.get("output_h1_tend", False)
+        )
+        object.__setattr__(
+            self, "state_tile_depth",
+            kwargs.get("state_tile_depth", 3)
         )
 
 
@@ -298,10 +303,10 @@ class AbstractEquationTerm(
     def __call__(
         self,
         block: BLOCK,
-        star_state: STATE,
+        star_idx: Int[Array, ""] | int,
         *args: Any,
         **kwargs: Any
-    ) -> tuple[BLOCK, STATE]:
+    ) -> BLOCK:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -343,10 +348,10 @@ class AbstractEquationForm(
     def __call__(
         self,
         block: BLOCK,
-        star_state: STATE,
+        star_idx: Int[Array, ""] | int,
         *args: Any,
         **kwargs: Any
-    ) -> tuple[BLOCK, STATE]:
+    ) -> BLOCK:
         raise NotImplementedError
 
     @staticmethod
@@ -456,10 +461,10 @@ class AbstractEquationOperator(
     def __call__(
         self,
         block: BLOCK,
-        star_state: STATE,
+        star_idx: Int[Array, ""] | int,
         *args: Any,
         **kwargs: Any
-    ) -> tuple[BLOCK, STATE]:
+    ) -> BLOCK:
         raise NotImplementedError
 
     def disc_info(self) -> Dict[str, str]:
@@ -495,7 +500,7 @@ class AbstractPrepareSpaceOperators(
         )
         self._table = "equaux"
 
-    def __call__(self, block: BLOCK, star_state: STATE, *args, **kwargs) -> tuple[BLOCK, STATE]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int, *args, **kwargs) -> BLOCK:
         raise NotImplementedError
 
     @abstractmethod
@@ -547,7 +552,7 @@ class AbstractSpaceOperators(
         self,
         block: BLOCK,
         old_idx: int,
-        star_idx: int,
+        star_idx: Int[Array, ""] | int,
         new_idx: int,
         *args,
         **kwargs
@@ -738,13 +743,18 @@ class AbstractVariableSet(eqx.Module, ABC):
         path: str,
         format="UGRID",
         use_dual: bool = False,
+        expand_idx: Optional[int] = None,
         **kwargs
     ) -> None:
         """Save variable set to a NetCDF file."""
         if format == "UGRID":
-            ds = self.to_xarray_with_ugrid_format(use_dual=use_dual)
+            ds = self.to_xarray_with_ugrid_format(
+                use_dual=use_dual,
+                expand_idx=expand_idx
+            )
             grid_ds = coord.mesh.to_ugrid(
-                use_dual=use_dual, **kwargs
+                use_dual=use_dual,
+                **kwargs
             ).to_xarray()
             ds = xr.merge([ds, grid_ds])
             ds.to_netcdf(path)
@@ -753,26 +763,44 @@ class AbstractVariableSet(eqx.Module, ABC):
         self,
         coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
+        expand_idx: Optional[int] = None,
         **kwargs
     ) -> tuxr.UGRIDDataset:
         """Convert variable set to a UXarray.UxGrid."""
-        ds = self.to_xarray_with_ugrid_format(use_dual=use_dual)
-        uxgrid = coord.mesh.to_ugrid(use_dual=use_dual, **kwargs).to_uxgrid()
+        ds = self.to_xarray_with_ugrid_format(
+            use_dual=use_dual,
+            expand_idx=expand_idx
+        )
+        uxgrid = coord.mesh.to_ugrid(
+            use_dual=use_dual,
+            **kwargs
+        ).to_uxgrid()
         return tuxr.UGRIDDataset.from_xarray(ds, uxgrid)
 
     def to_uxarray(
         self,
         coord: CoordinateSystem[HM, VM, HLO, VLO],
         use_dual: bool = False,
+        expand_idx: Optional[int] = None,
         **kwargs
     ) -> uxr.UxDataset:
         """Convert variable set to a UXarray.Dataset."""
-        ds = self.to_xarray_with_ugrid_format(use_dual=use_dual)
-        uxgrid = coord.mesh.to_ugrid(use_dual=use_dual, **kwargs).to_uxgrid()
+        ds = self.to_xarray_with_ugrid_format(
+            use_dual=use_dual,
+            expand_idx=expand_idx
+        )
+        uxgrid = coord.mesh.to_ugrid(
+            use_dual=use_dual,
+            **kwargs
+        ).to_uxgrid()
         return uxr.UxDataset.from_xarray(ds, uxgrid)
 
     @abstractmethod
-    def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
+    def to_xarray_with_ugrid_format(
+        self,
+        use_dual: bool = False,
+        expand_idx: Optional[int] = None
+    ) -> xr.Dataset:
         """Convert variable set to a xarray.Dataset with UGRID format."""
         raise NotImplementedError
 
@@ -1094,7 +1122,11 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                 "Please check if all variables are Fields."
             )
 
-    def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
+    def to_xarray_with_ugrid_format(
+        self,
+        use_dual: bool = False,
+        expand_idx: Optional[int] = None
+    ) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
         var_ds: Dict[str, xr.DataArray] = {}
         for var in self.values():
@@ -1102,7 +1134,8 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
                 var_ds[var.meta.name] = tuxr.format_terraflow2ugrid(
                     var.data,
                     var.meta.to_dict(),
-                    use_dual=use_dual
+                    use_dual=use_dual,
+                    expand_idx=expand_idx
                 )
             elif isinstance(var.meta, NumericMetaData):
                 continue
@@ -1356,7 +1389,11 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
             for m in self.meta
         )
 
-    def to_xarray_with_ugrid_format(self, use_dual: bool = False) -> xr.Dataset:
+    def to_xarray_with_ugrid_format(
+        self,
+        use_dual: bool = False,
+        expand_idx: Optional[int] = None
+    ) -> xr.Dataset:
         """Get the meta needed for UGRID NetCDF Format"""
         var_ds: Dict[str, xr.DataArray] = {}
         for key, var in self.items():
@@ -1364,7 +1401,8 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
                 var_ds[key] = tuxr.format_terraflow2ugrid(
                     var.data,
                     self.meta[key].to_dict(),
-                    use_dual=use_dual
+                    use_dual=use_dual,
+                    expand_idx=expand_idx
                 )
             elif isinstance(var.meta, NumericMetaData):
                 continue
@@ -1394,11 +1432,11 @@ class AbstractBlock(
     Generic[HM, VM, HLO, VLO, STATE, TEND, STATIC, AUX, ADVBATCH, AUXDS]
 ):
     mode: AbstractEquationMode = eqx.field(static=True)
-    old: int
-    new: int
+    old: Array
+    new: Array
     _coord: CoordinateSystem[HM, VM, HLO, VLO]
     para: PlanetParameterSet
-    state: List[STATE]
+    state: STATE
     tend: TEND
     static: STATIC
     aux: AUX
@@ -1429,54 +1467,8 @@ class AbstractBlock(
     def coord(self) -> CoordinateSystem[HM, VM, HLO, VLO]:
         return self._coord
 
-    def diagnose(self, itime: int) -> Self:
+    def diagnose(self, itime: Int[Array, ""] | int) -> Self:
         return self
-
-    def get_state(self, itime: int | Array) -> STATE:
-        if isinstance(itime, numbers.Integral):
-            return self.state[int(itime)]
-        idx = jnp.asarray(itime, dtype=jnp.int32)
-        return jax.lax.switch(
-            idx,
-            tuple(
-                lambda _, state=state: state
-                for state in self.state
-            ),
-            operand=None
-        )
-
-    def set_state(self, itime: int | Array, state: STATE) -> Self:
-        if isinstance(itime, numbers.Integral):
-            return eqx.tree_at(
-                lambda b: b.state[int(itime)],
-                self,
-                state
-            )
-        idx = jnp.asarray(itime, dtype=jnp.int32)
-        return jax.lax.switch(
-            idx,
-            tuple(
-                lambda _, i=i: eqx.tree_at(
-                    lambda b: b.state[i],
-                    self,
-                    state
-                )
-                for i in range(len(self.state))
-            ),
-            operand=None
-        )
-
-    def set_state_fields(self, itime: int | Array, **fields: Any) -> Self:
-        if not fields:
-            return self
-        state = self.get_state(itime)
-        for name, value in fields.items():
-            state = eqx.tree_at(
-                lambda s, name=name: getattr(s, name).data,
-                state,
-                value
-            )
-        return self.set_state(itime, state)
 
     def swap_time_indices(self) -> Self:
         return eqx.tree_at(
@@ -1598,6 +1590,21 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
                 "Please using 'set_equation' method to specify the dynamics first."
             )
         return self._equation
+
+    @staticmethod
+    def expand_dims_on_state(
+        state: STATE,
+        expand_axis: int = 0,
+        expand_axis_length: int = 3
+    ) -> STATE:
+        def wrap(leaf):
+            if isinstance(leaf, Array) and leaf.size != 0:
+                res = jnp.expand_dims(leaf, axis=expand_axis)
+                tile_shape = [1] * res.ndim
+                tile_shape[expand_axis] = int(expand_axis_length)
+                return jnp.tile(res, tuple(tile_shape))
+            return leaf
+        return jax.tree_util.tree_map(f=wrap, tree=state)
 
 
 if TYPE_CHECKING:

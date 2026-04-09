@@ -1402,6 +1402,7 @@ def format_terraflow2ugrid(
     value: Array | unxt.AbstractQuantity,
     meta: Dict[str, Any],
     use_dual: bool = False,
+    expand_idx: Optional[int] = None
 ):
     """
     Format a TerraFlow variable to UGRID xarray DataArray.
@@ -1416,13 +1417,20 @@ def format_terraflow2ugrid(
         xr.DataArray: The formatted UGRID xarray DataArray.
     """
     if isinstance(value, unxt.AbstractQuantity):
-        var = value.value
+        var = np.array(value.value)
         units = value.unit.to_string()
     elif isinstance(value, Array):
-        var = value
+        var = np.array(value)
         units = meta["units"]
     else:
         raise TypeError(f"Variable has unsupported type.")
+
+    if meta["is_expand_dims"] and expand_idx is not None:
+        var: np.ndarray = np.take(
+            var,
+            indices=expand_idx,
+            axis=meta["expand_axis"]
+        )
 
     # Convert mesh_name and location
     mesh_name = meta["mesh_name"]
@@ -1475,7 +1483,7 @@ def format_terraflow2ugrid(
     coordinates = f"{location}_lon {location}_lat"
 
     return xr.DataArray(
-        data=np.asarray(var),
+        data=var,
         dims=dims,
         attrs={
             "name": meta["name"],

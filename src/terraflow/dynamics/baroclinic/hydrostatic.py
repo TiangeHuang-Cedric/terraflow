@@ -173,7 +173,8 @@ class DryHydrostaticEquationBuilder:
         method: FiniteVolumeMethod,
         form: str,
         ode_kind: str,
-        output_h1_tend: bool = False
+        output_h1_tend: bool = False,
+        state_tile_depth: int = 3,
     ) -> ExVif_DHDC_SCVT_TriSKCGrid_FVM:
         ...
 

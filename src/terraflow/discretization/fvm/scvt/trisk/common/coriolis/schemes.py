@@ -10,7 +10,11 @@ from terraflow.discretization.abstract import (
 from terraflow.discretization.fvm.scvt.trisk.common.coriolis import trisk
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block, State
+    from terraflow.util import typing
+    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+
+    Int = typing.Int
+    Array = typing.Array
 
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
@@ -28,8 +32,8 @@ class CoriolisForceAtEdge(Operator):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
-        return self.scheme(block, star_state)
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+        return self.scheme(block, star_idx)
 
     def trisk(self) -> trisk.TriSKCoriolisForceAtEdge:
         self.scheme = trisk.TriSKCoriolisForceAtEdge(

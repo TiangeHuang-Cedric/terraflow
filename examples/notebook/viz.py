@@ -1,7 +1,6 @@
 # ---
 # jupyter:
 #   jupytext:
-#     custom_cell_magics: kql
 #     formats: py:percent,ipynb
 #     text_representation:
 #       extension: .py
@@ -85,7 +84,7 @@ block = equation.prepare_block(block)
 # ## Plot using easygems
 
 # %%
-gz = xr.DataArray(np.array(block.state[0].gz.unwrap()).squeeze())
+gz = xr.DataArray(np.array(block.state.gz.unwrap()[0, :, :]).squeeze())
 from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
 from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
 
@@ -104,7 +103,7 @@ display(img)
 # ### Convert data and mesh into UGRID Format and pack it into uxarray
 
 # %%
-ugrid_ds = block.state[0].to_ugrid(coord, use_dual=False)
+ugrid_ds = block.state.to_ugrid(coord, use_dual=False, expand_idx=0)
 
 ugrid_ds.uxds
 
@@ -333,7 +332,7 @@ display(fig)
 # ##### Plot UV Wind Vectors on Lat-Lon Grid
 
 # %%
-un = block.state[0].un.unwrap()
+un = block.state.un.unwrap()[0, :, :]
 
 uv = coord.mesh.reconstruct_vector(un)
 

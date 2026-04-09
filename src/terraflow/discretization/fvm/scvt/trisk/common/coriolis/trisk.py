@@ -21,23 +21,23 @@ from terraflow.discretization.abstract import (
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block, State
+    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
 
-Int = typing.Int
-Float = typing.Float
-Array = typing.Array
+    Int = typing.Int
+    Float = typing.Float
+    Array = typing.Array
 
-VM = TypeVar("VM", bound=AbstractVertCoordinate)
-VLO = TypeVar("VLO", bound=AbstractLayout)
+    VM = TypeVar("VM", bound=AbstractVertCoordinate)
+    VLO = TypeVar("VLO", bound=AbstractLayout)
+
+    CoordSys = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        VM,
+        TriSKBasedCGridStaggeringLayout,
+        VLO
+    ]
+
 EM = TypeVar("EM", bound=AbstractEquationMode)
-
-
-CoordSys = CoordinateSystem[
-    SphericalCentroidVoronoiTessellations,
-    VM,
-    TriSKBasedCGridStaggeringLayout,
-    VLO
-]
 
 Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
 
@@ -89,7 +89,7 @@ class TriSKCoriolisForceAtEdge(Operator):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_state: State) -> tuple[Block, State]:
+    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
         """Compute nonlinear Coriolis term at dual edges."""
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
@@ -132,13 +132,12 @@ class TriSKCoriolisForceAtEdge(Operator):
             )(mfn_e[kds:kde+1, :], pv_e[kds:kde+1, :])
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.tend.dundt_coriolis,
             pytree=block,
             replace=dundt_coriolis
         )
-        return block, star_state
 
     def prepare_block(self, block: Block) -> Block:
         coord = block.coord

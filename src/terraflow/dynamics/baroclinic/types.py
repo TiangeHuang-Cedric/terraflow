@@ -1,6 +1,8 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Self
+from typing import TypeVar, Generic, Self, TYPE_CHECKING
 import inspect
+
 
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -8,6 +10,10 @@ from terraflow.layout.abstract import AbstractLayout
 from terraflow.operator import AbstractDiscretizationMethod
 import terraflow.discretization.abstract as disc_types
 
+if TYPE_CHECKING:
+    from terraflow.util import typing
+    Int = typing.Int
+    Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
 UHM = TypeVar("UHM", bound=AbstractUnstructuredMesh)
@@ -317,9 +323,8 @@ class ExContinuityEqu(
         )
         self.div_mfs = self.init_div_mfs()
 
-    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
-        block, star_state = self.div_mfs(block, star_state)
-        return block, star_state
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        return self.div_mfs(block, star_idx)
 
     @staticmethod
     def alias_name() -> str:
@@ -381,10 +386,10 @@ class ExThermodynamicEqu(
         self.div_mft = self.init_div_mft()
         self.adv_vert = self.init_adv_vert()
 
-    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
-        block, star_state = self.div_mft(block, star_state)
-        block, star_state = self.adv_vert(block, star_state)
-        return block, star_state
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        block = self.div_mft(block, star_idx)
+        block = self.adv_vert(block, star_idx)
+        return block
 
     @staticmethod
     def alias_name() -> str:
@@ -470,12 +475,12 @@ class ExNormalMomentumEqu4UGRID(
         self.adv_vert = self.init_vertical_advection()
         self.pgf = self.init_pgf()
 
-    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
-        block, star_state = self.coriolis(block, star_state)
-        block, star_state = self.grad_ke(block, star_state)
-        block, star_state = self.adv_vert(block, star_state)
-        block, star_state = self.pgf(block, star_state)
-        return block, star_state
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        block = self.coriolis(block, star_idx)
+        block = self.grad_ke(block, star_idx)
+        block = self.adv_vert(block, star_idx)
+        block = self.pgf(block, star_idx)
+        return block
 
     @staticmethod
     def alias_name() -> str:

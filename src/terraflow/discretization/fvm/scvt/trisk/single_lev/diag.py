@@ -7,6 +7,7 @@ from typing import (
     TYPE_CHECKING
 )
 import jax
+import jax.numpy as jnp
 
 from terraflow.util import typing, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
@@ -81,7 +82,7 @@ class DiagnosticsTools(
         coord: Coordsys,
         state: vars.State,
     ) -> tuple[Field, Field]:
-        uv = coord.mesh.reconstruct_vector(state.un.unwrap())
+        uv = coord.mesh.reconstruct_vector(state.un.unwrap()[0, :, :])
         u = Field.create(
             data=uv["u"],
             meta=StaggeredFieldMetaData(
@@ -159,13 +160,14 @@ class DiagnosticsTools(
     ]:
         from .. import dynamics_types as vars
         from ..common.adv.batch import AdvBatchType
+        state = self.expand_dims_on_state(state)
         block = vars.Block(
             mode=self.equation.mode,
             _coord=coord,
             para=para,
-            old=0,
-            new=1,
-            state=[state] * 3,
+            old=jnp.array(0),
+            new=jnp.array(1),
+            state=state,
             static=static,
             tend=vars.Tendency.from_coord(coord=coord, equation=self.equation),
             aux=vars.Auxiliary.from_coord(coord=coord, equation=self.equation),
@@ -195,80 +197,143 @@ class DiagnosticsTools(
             space_operators = self.equation.space_operators
             block = space_operators(
                 block,
-                old_idx=0,
-                star_idx=0,
-                new_idx=1,
+                old_idx=jnp.array(0),
+                star_idx=jnp.array(0),
+                new_idx=jnp.array(1),
                 pass_tag="all_pass",
                 explicit=True
             )
-        state = block.get_state(0)
+        state = block.state
         static = block.static
         tend = block.tend
         aux = block.aux
         diag_vars = {}
         diag_vars["gz"] = self.process_field(
-            coord, state.gz, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=state.gz[0, :, :],
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["un"] = self.process_field(
-            coord, state.un, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=state.un[0, :, :],
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["gzs"] = self.process_field(
-            coord, static.gzs, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=static.gzs,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         u, v = self.uv_at_primal_cell(coord, state)
         diag_vars["u"] = self.process_field(
-            coord=coord, field=u, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=u,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["v"] = self.process_field(
-            coord=coord, field=v, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=v,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["ut"] = self.process_field(
-            coord=coord, field=aux.ut, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.ut,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["mfn"] = self.process_field(
-            coord=coord, field=aux.mfn, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.mfn,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["vor"] = self.process_field(
-            coord=coord, field=aux.vor, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.vor,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["pv_vtx"] = self.process_field(
-            coord=coord, field=aux.pv_vtx, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.pv_vtx,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["pv_e"] = self.process_field(
-            coord=coord, field=aux.pv_e, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.pv_e,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["ke"] = self.process_field(
-            coord=coord, field=aux.ke, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.ke,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dmg"] = self.process_field(
-            coord=coord, field=state.dmg, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=state.dmg[0, :, :],
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dmg_e"] = self.process_field(
-            coord=coord, field=state.dmg_e, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=state.dmg_e[0, :, :],
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dmg_vtx"] = self.process_field(
-            coord=coord, field=state.dmg_vtx, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=state.dmg_vtx[0, :, :],
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dmf"] = self.process_field(
-            coord=coord, field=aux.dmf, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=aux.dmf,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dgzdt_dmf"] = self.process_field(
-            coord=coord, field=tend.dgzdt_dmf, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dgzdt_dmf,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dundt_coriolis"] = self.process_field(
-            coord=coord, field=tend.dundt_coriolis, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dundt_coriolis,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dundt_grad_ke"] = self.process_field(
-            coord=coord, field=tend.dundt_grad_ke, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dundt_grad_ke,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dundt_pgf"] = self.process_field(
-            coord=coord, field=tend.dundt_pgf, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dundt_pgf,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dgzdt"] = self.process_field(
-            coord=coord, field=tend.dgzdt, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dgzdt,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         diag_vars["dundt"] = self.process_field(
-            coord=coord, field=tend.dundt, to_ugrid=to_ugrid, use_dual=use_dual
+            coord=coord,
+            field=tend.dundt,
+            to_ugrid=to_ugrid,
+            use_dual=use_dual
         )
         return diag_vars
 

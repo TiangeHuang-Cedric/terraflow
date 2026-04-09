@@ -123,6 +123,9 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
         hori_loc: str,
         vert_loc: str,
         basis: str,
+        is_expand_dims: bool = False,
+        expand_axis: int = 0,
+        expand_axis_length: int = 1,
     ) -> Array:
         hori_shape = self.hori_layout.shape(
             self,
@@ -143,6 +146,12 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
                 shape = hori_shape
         else:
             shape = vert_shape + hori_shape
+        if is_expand_dims:
+            shape = (
+                shape[:expand_axis]
+                + (expand_axis_length,)
+                + shape[expand_axis:]
+            )
         return jnp.zeros(shape, dtype=dtype, device=arch)
 
     def get_hori_layout(

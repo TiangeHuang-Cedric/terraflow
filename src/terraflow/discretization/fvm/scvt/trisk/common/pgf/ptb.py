@@ -5,10 +5,7 @@ import equinox as eqx
 
 from terraflow.util import typing, formula
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.planet import PlanetParameterSet
-from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.mesh.scvt import operators as mesh_op
-from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
     AbstractEquationOperator,
@@ -17,12 +14,7 @@ from terraflow.discretization.abstract import (
 )
 from terraflow.layout.abstract import CoordinateSystem, MeshEntity, Basis, VertCoordLocation
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
-from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
-from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
-
-Float = typing.Float
-Array = typing.Array
 
 NLEVP = "ilev"
 NLEV = "lev"
@@ -32,19 +24,28 @@ NVTX = "vtx"
 
 FDT = ArrayField[StaggeredFieldMetaData]
 
-CoordSys = CoordinateSystem[
-    SphericalCentroidVoronoiTessellations,
-    HybridVertCoordinate,
-    TriSKBasedCGridStaggeringLayout,
-    HybridVertCoordLayout
-]
-
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
 Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
 
 if TYPE_CHECKING:
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block, State
+    from terraflow.planet import PlanetParameterSet
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+
+    CoordSys = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        HybridVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        HybridVertCoordLayout
+    ]
+
+    Int = typing.Int
+    Float = typing.Float
+    Array = typing.Array
     BLOCK = Block[HybridVertCoordinate, HybridVertCoordLayout]
 
 
@@ -263,7 +264,7 @@ class PerturbationPressureGradientForce(Operator):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         full_kds = vert.full_kds
@@ -281,10 +282,19 @@ class PerturbationPressureGradientForce(Operator):
         pro_gz = pro.gz.data[full_kds:full_kde+1, c_ids:c_ihe+1]
         pro_ad = pro.ad.data[full_kds:full_kde+1, c_ids:c_ihe+1]
         # Extract block and state data
-        dmg = star_state.dmg.unwrap()[full_kds:full_kde+1, c_ids:c_ihe+1]
-        p = star_state.p.unwrap()[full_kds:full_kde+1, c_ids:c_ihe+1]
-        p_lev = star_state.p_lev.unwrap()[full_kds:full_kde+2, c_ids:c_ihe+1]
-        gz = star_state.gz.unwrap()[full_kds:full_kde+1, c_ids:c_ihe+1]
+        state = block.state
+        dmg = state.dmg.unwrap()[
+            star_idx, full_kds:full_kde+1, c_ids:c_ihe+1
+        ]
+        p = state.p.unwrap()[
+            star_idx, full_kds:full_kde+1, c_ids:c_ihe+1
+        ]
+        p_lev = state.p_lev.unwrap()[
+            star_idx, full_kds:full_kde+2, c_ids:c_ihe+1
+        ]
+        gz = state.gz.unwrap()[
+            star_idx, full_kds:full_kde+1, c_ids:c_ihe+1
+        ]
         rhod = block.aux.rhod.unwrap()[full_kds:full_kde+1, c_ids:c_ihe+1]
         ad = 1.0 / rhod
         dundt_pgf = block.tend.dundt_pgf.unwrap()
@@ -330,13 +340,12 @@ class PerturbationPressureGradientForce(Operator):
             -(tmp1 + tmp2 + tmp3 + tmp4) / L
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.tend.dundt_pgf,
             pytree=block,
             replace=dundt_pgf
         )
-        return block, star_state
 
     def prepare_block(self, block: Block) -> Block:
         pro = RefProfileData.from_coord(

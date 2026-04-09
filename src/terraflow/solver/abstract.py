@@ -16,6 +16,7 @@ import xarray as xr
 import jax
 import jax.numpy as jnp
 from jax._src import pjit
+import equinox as eqx
 
 from terraflow.util import typing, log, device
 from terraflow.util.history.abstract import AbstractHistoryset
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
         AbstractFields,
     )
 
-
+Int = typing.Int
 Array = typing.Array
 
 
@@ -58,6 +59,14 @@ class AbstractImplicitExplicitODE(AbstractODE):
 
 
 ODE = TypeVar("ODE", bound=AbstractODE)
+
+
+def trajectory_post_process(block: AbstractBlock, itime: int | Int[Array, ""]) -> AbstractFields:
+    def wrap(leaf):
+        if isinstance(leaf, Array) and leaf.size != 0:
+            return leaf[itime, ...]
+        return leaf
+    return jax.tree_util.tree_map(f=wrap, tree=block.state)
 
 
 class AbstractSolver(Generic[ODE], ABC):
@@ -190,7 +199,9 @@ class AbstractSolver(Generic[ODE], ABC):
         self,
         *,
         start_with_input: bool = False,
-        post_process_fn: Callable = lambda x: x.get_state(x.new),
+        post_process_fn: Callable = (
+            lambda x: trajectory_post_process(x, x.new)
+        ),
         outer_scan_fn=jax.lax.scan,
         inner_scan_fn=jax.lax.scan,
     ) -> Callable[[AbstractBlock], tuple[AbstractFields, ...]] | pjit.JitWrapped:
@@ -365,7 +376,9 @@ def trajectory_in_scan(
     inner_steps: int,
     *,
     start_with_input: bool = False,
-    post_process_fn: Callable = lambda x: x.get_state(x.new),
+    post_process_fn: Callable = (
+        lambda x: trajectory_post_process(x, x.new)
+    ),
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[AbstractBlock], Tuple[AbstractFields, AbstractFields]]:
@@ -410,7 +423,7 @@ def trajectory_in_scan(
                     [jnp.expand_dims(o, axis=0), t],
                     axis=0
                 ),
-                block.get_state(0),
+                trajectory_post_process(block, itime=block.old),
                 trajectory,
                 is_leaf=lambda x: isinstance(x, Array)
             )
@@ -443,9 +456,14 @@ def integrate_in_scan(
     )
 
     def return_fn(block: AbstractBlock) -> AbstractBlock:
-        final, _ = outer_fn(block)
-        final = diagnose_fn(final)
-        return final
+        block, _ = outer_fn(block)
+        block = diagnose_fn(block)
+        state = trajectory_post_process(block, itime=block.new)
+        return eqx.tree_at(
+            lambda b: b.state,
+            block,
+            state
+        )
 
     return return_fn
 

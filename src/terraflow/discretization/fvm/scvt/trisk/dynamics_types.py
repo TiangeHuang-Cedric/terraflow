@@ -1,7 +1,6 @@
 from typing import (
     Self,
     cast,
-    List,
     Dict,
     Optional,
     TypeVar,
@@ -43,11 +42,13 @@ from terraflow.discretization.abstract import (
     AbstractFields,
     AbstractEquationTermAuxiliaryDataset
 )
+from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.discretization.fvm.scvt.trisk.common.pgf.types import PressureGradientForceDataset
 from terraflow.discretization.fvm.scvt.trisk.common.coriolis.types import CoriolisForceAtEdgeData
 from terraflow.discretization.fvm.scvt.trisk.common.adv.types import AdvectionAuxiliaryDataset
 from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
 
+Int = typing.Int
 Array = typing.Array
 PyTree = typing.PyTree
 
@@ -103,11 +104,11 @@ class Block(
     Generic[VM, VLO]
 ):
     mode: AbstractEquationMode = eqx.field(static=True)
-    old: int
-    new: int
+    old: Array
+    new: Array
     _coord: CoordSys
     para: PlanetParameterSet
-    state: List["State"]
+    state: "State"
     tend: "Tendency"
     static: "Static"
     aux: "Auxiliary"
@@ -124,7 +125,6 @@ class Block(
         case: Optional[
             BaroclinicEquationTestCase | ShallowWaterEquationTestCase
         ] = None,
-        total_steps: int = 3
     ):
         # =======================================================
         if equation.mode.baroclinic:
@@ -175,12 +175,11 @@ class Block(
         adv_batch_pt = cast(AdvBatchType, elements["adv_batch_pt"])
         return cls(
             mode=equation.mode,
-            old=0,
-            new=1,
+            old=jnp.array(0, dtype=jnp.int32),
+            new=jnp.array(1, dtype=jnp.int32),
             _coord=coord,
             para=para,
-            # for time integration stages
-            state=[state,] * total_steps,
+            state=state,
             tend=tend,
             static=static,
             aux=aux,
@@ -188,17 +187,19 @@ class Block(
             equaux=EquationTermAuxDataset.empty()
         )
 
-    def diagnose(self, itime: int) -> "Block":
-        state = self.get_state(itime)
+    def diagnose(self, itime: Int[Array, ""] | int) -> "Block":
+        state = self.state
+        un = state.un.unwrap()[itime, :, :]
         # =======================================================
         # Diagnose u and v from un
         uv = self.coord.mesh.reconstruct_vector(
-            normal_u_at_edge=state.un.data,
+            normal_u_at_edge=un,
         )
-        block: "Block" = eqx.tree_at(
-            lambda b: (b.aux.u.data, b.aux.v.data),
-            self,
-            (uv["u"], uv["v"])
+        block: "Block" = tree_at(
+            coord=cast(CoordSys, self.coord),
+            where=lambda b: (b.aux.u.data, b.aux.v.data),
+            pytree=self,
+            replace=(uv["u"], uv["v"]),
         )
         # =======================================================
         # Diagnose total mass, total energy, total potential enstrophy
@@ -206,11 +207,9 @@ class Block(
         edp_len = mesh.primal.edge.length
         edd_len = mesh.dual.edge.length
         gzs = block.static.gzs.unwrap()
-        mgs = state.mgs.unwrap()
-        dmg = state.dmg.unwrap()
-        un = state.un.unwrap()
+        dmg = state.dmg.unwrap()[itime, :, :]
+        un = state.un.unwrap()[itime, :, :]
         tv = block.aux.tv.unwrap()
-        pt = state.pt.unwrap()
         pv_e = block.aux.pv_e.unwrap()
         g = block.para.gravity.unwrap()
         cpd = block.para.cpd.unwrap()
@@ -252,6 +251,7 @@ class Block(
         # ==================================
         # Total energy due to potential energy
         if self.mode.baroclinic:
+            mgs = state.mgs.unwrap()[itime, :]
             te_pe = te_pe + jnp.sum(gzs * mgs * primal_area)
         else:
             te_pe = te_pe + jnp.sum(
@@ -265,28 +265,34 @@ class Block(
         # =========================================
         # Total potential temperature
         if self.mode.baroclinic:
+            pt = state.pt.unwrap()[itime, :, :]
             tpt = tpt + jnp.sum(dmg * pt * primal_area[None, :])
         # =========================================
         # Wrap diagnosed variables into block
         if self.mode.baroclinic:
-            state = eqx.tree_at(
-                lambda s: (
-                    s.tm.data, s.te.data, s.tpe.data, s.tpt.data,
-                    s.te_ke.data, s.te_ie.data, s.te_pe.data
+            return tree_at(
+                coord=block.coord,
+                where=lambda b: (
+                    b.state.tm, b.state.te, b.state.tpe, b.state.tpt,
+                    b.state.te_ke, b.state.te_ie, b.state.te_pe
                 ),
-                state,
-                (tm, te, tpe, tpt, te_ke, te_ie, te_pe)
+                pytree=block,
+                replace=(tm, te, tpe, tpt, te_ke, te_ie, te_pe),
+                at_dims=(0,) * 7,
+                at_idxes=(itime,) * 7
             )
         else:
-            state = eqx.tree_at(
-                lambda s: (
-                    s.tm.data, s.te.data, s.tpe.data,
-                    s.te_ke.data, s.te_pe.data
+            return tree_at(
+                coord=block.coord,
+                where=lambda b: (
+                    b.state.tm, b.state.te, b.state.tpe,
+                    b.state.te_ke, b.state.te_pe
                 ),
-                state,
-                (tm, te, tpe, te_ke, te_pe)
+                pytree=block,
+                replace=(tm, te, tpe, te_ke, te_pe),
+                at_dims=(0,) * 5,
+                at_idxes=(itime,) * 5
             )
-        return block.set_state(itime, state)
 
     def reset(self, pass_tag: str) -> Self:
         return eqx.tree_at(
@@ -507,15 +513,19 @@ def barotropic_case_init_fn(
     gzs = init_zs_in_barotropic_case(
         coord=coord, equation=equation, test=case
     ) * g
-    elements["state"] = eqx.tree_at(
-        lambda s: (s.un.data, s.gz.data),
-        elements["state"],
-        (un, gz)
+    elements["state"] = tree_at(
+        coord=coord,
+        where=lambda s: (s.un, s.gz),
+        pytree=elements["state"],
+        replace=(un, gz),
+        at_dims=(0, 0),
+        at_idxes=(0, 0)
     )
-    elements["static"] = eqx.tree_at(
-        lambda s: s.gzs.data,
-        elements["static"],
-        gzs
+    elements["static"] = tree_at(
+        coord=coord,
+        where=lambda s: s.gzs,
+        pytree=elements["static"],
+        replace=gzs
     )
     return elements
 
@@ -577,24 +587,29 @@ def baroclinic_steady_state_case_init_fn(
         coord=coord, equation=equation, test=case
     )
     ref_ps = mgs
-    elements["state"] = eqx.tree_at(
-        lambda s: (
-            s.mgs.data, s.mg.data,
-            s.gz.data, s.gz_lev.data,
-            s.un.data, s.pt.data
+    elements["state"] = tree_at(
+        coord=coord,
+        where=lambda s: (
+            s.mgs, s.mg,
+            s.gz, s.gz_lev,
+            s.un, s.pt
         ),
-        elements["state"],
-        (mgs, mg, gz, gz_lev, un, pt)
+        pytree=elements["state"],
+        replace=(mgs, mg, gz, gz_lev, un, pt),
+        at_dims=(0,) * 6,
+        at_idxes=(0,) * 6
     )
-    elements["static"] = eqx.tree_at(
-        lambda s: (s.gzs.data, s.ref_ps.data),
-        elements["static"],
-        (gzs, ref_ps)
+    elements["static"] = tree_at(
+        coord=coord,
+        where=lambda s: (s.gzs, s.ref_ps),
+        pytree=elements["static"],
+        replace=(gzs, ref_ps),
     )
-    elements["aux"] = eqx.tree_at(
-        lambda a: a.t.data,
-        elements["aux"],
-        t
+    elements["aux"] = tree_at(
+        coord=coord,
+        where=lambda a: a.t,
+        pytree=elements["aux"],
+        replace=t,
     )
     return elements
 
@@ -625,17 +640,21 @@ def baroclinic_mountain_wave_case_init_fn(
         coord=coord, equation=equation, test=case
     )
     ref_ps = mgs
-    elements["state"] = eqx.tree_at(
-        lambda s: (
-            s.mgs.data, s.mg.data, s.un.data, s.pt.data
+    elements["state"] = tree_at(
+        coord=coord,
+        where=lambda s: (
+            s.mgs, s.mg, s.un, s.pt
         ),
-        elements["state"],
-        (mgs, mg, un, pt)
+        pytree=elements["state"],
+        replace=(mgs, mg, un, pt),
+        at_dims=(0,) * 4,
+        at_idxes=(0,) * 4
     )
-    elements["static"] = eqx.tree_at(
-        lambda s: (s.gzs.data, s.ref_ps.data),
-        elements["static"],
-        (gzs, ref_ps)
+    elements["static"] = tree_at(
+        coord=coord,
+        where=lambda s: (s.gzs, s.ref_ps),
+        pytree=elements["static"],
+        replace=(gzs, ref_ps)
     )
     return elements
 
@@ -675,19 +694,23 @@ def baroclinic_rossby_wave_case_init_fn(
         coord=coord, equation=equation, test=case, mg=mg_lev
     )
     ref_ps = mgs
-    elements["state"] = eqx.tree_at(
-        lambda s: (
-            s.mgs.data, s.mg.data, s.mg_lev.data,
-            s.gz.data, s.gz_lev.data,
-            s.un.data, s.pt.data
+    elements["state"] = tree_at(
+        coord=coord,
+        where=lambda s: (
+            s.mgs, s.mg, s.mg_lev,
+            s.gz, s.gz_lev,
+            s.un, s.pt
         ),
-        elements["state"],
-        (mgs, mg, mg_lev, gz, gz_lev, un, pt)
+        pytree=elements["state"],
+        replace=(mgs, mg, mg_lev, gz, gz_lev, un, pt),
+        at_dims=(0,) * 7,
+        at_idxes=(0,) * 7
     )
-    elements["static"] = eqx.tree_at(
-        lambda s: (s.gzs.data, s.ref_ps.data),
-        elements["static"],
-        (gzs, ref_ps)
+    elements["static"] = tree_at(
+        coord=coord,
+        where=lambda s: (s.gzs, s.ref_ps),
+        pytree=elements["static"],
+        replace=(gzs, ref_ps)
     )
     return elements
 
@@ -957,6 +980,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         staggered_kind="C",
         mesh_name="primal",
         is_prognostic=True,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output="h0"
     )
     meta["gz"] = StaggeredFieldMetaData(
@@ -972,6 +998,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         staggered_kind="C",
         mesh_name="primal",
         is_prognostic=False if mode.baroclinic else True,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output="h0"
     )
     if mode.baroclinic:
@@ -988,6 +1017,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0"
         )
         meta["mg"] = StaggeredFieldMetaData(
@@ -1003,6 +1035,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["mg_lev"] = StaggeredFieldMetaData(
@@ -1018,6 +1053,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["mgs"] = StaggeredFieldMetaData(
@@ -1033,6 +1071,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=True,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg"] = StaggeredFieldMetaData(
@@ -1048,6 +1089,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg_e"] = StaggeredFieldMetaData(
@@ -1063,6 +1107,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg_vtx"] = StaggeredFieldMetaData(
@@ -1078,6 +1125,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg_lev"] = StaggeredFieldMetaData(
@@ -1093,6 +1143,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["pt"] = StaggeredFieldMetaData(
@@ -1108,6 +1161,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=True,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0"
         )
     if not mode.baroclinic:
@@ -1124,6 +1180,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg_e"] = StaggeredFieldMetaData(
@@ -1139,6 +1198,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["dmg_vtx"] = StaggeredFieldMetaData(
@@ -1154,6 +1216,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
     if mode.baroclinic:
@@ -1170,6 +1235,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0"
         )
         meta["ph_lev"] = StaggeredFieldMetaData(
@@ -1185,6 +1253,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h1"
         )
         meta["phs"] = StaggeredFieldMetaData(
@@ -1200,6 +1271,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0"
         )
         meta["p"] = StaggeredFieldMetaData(
@@ -1215,6 +1289,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0" if mode.nonhydrostatic else ""
         )
         meta["p_lev"] = StaggeredFieldMetaData(
@@ -1230,6 +1307,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0" if mode.nonhydrostatic else ""
         )
     meta["tm"] = NumericMetaData(
@@ -1238,6 +1318,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total mass",
         units="kg",
         is_static=False,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output="h0"
     )
     meta["tpe"] = NumericMetaData(
@@ -1246,6 +1329,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total potential vorticity enstrophy",
         units="J/kg",
         is_static=False,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output="h0"
     )
     meta["te"] = NumericMetaData(
@@ -1253,6 +1339,8 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         long_name="Total energy",
         description="Total energy",
         is_static=False,
+        is_expand_dims=True,
+        expand_axis_length=mode.state_tile_depth,
         output="h0"
     )
     meta["te_ke"] = NumericMetaData(
@@ -1261,6 +1349,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total energy due to kinetic energy",
         units="J/kg",
         is_static=False,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output=""
     )
     meta["te_pe"] = NumericMetaData(
@@ -1269,6 +1360,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
         description="Total energy due to potential energy",
         units="J/kg",
         is_static=False,
+        is_expand_dims=True,
+        expand_axis=0,
+        expand_axis_length=mode.state_tile_depth,
         output=""
     )
     if mode.baroclinic:
@@ -1278,6 +1372,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             description="Total energy due to internal energy",
             units="J/kg",
             is_static=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output=""
         )
         meta["tpt"] = NumericMetaData(
@@ -1286,6 +1383,9 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             description="Total potential temperature",
             units="K",
             is_static=False,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
             output="h0"
         )
     return meta

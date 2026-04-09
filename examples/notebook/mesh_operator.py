@@ -14,6 +14,7 @@
 # ---
 
 # %%
+import time
 import jax.numpy as jnp
 
 import terraflow.core as tf
@@ -26,7 +27,9 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(grist_0d_file, grist_2d_file, n_dual=3, dev=dev)
+mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
+    grist_0d_file, grist_2d_file, n_dual=3, dev=dev
+)
 
 # %%
 mesh.primal.cell.get_adjacency(with_padding=True)
@@ -86,7 +89,6 @@ for i, neighbors in enumerate(adj_list):
 
 # %%
 # Performance test: JIT-accelerated mask creation
-import time
 
 print("=" * 70)
 print("Performance Test: JIT-Accelerated Variable-Length Adjacency")
@@ -123,7 +125,9 @@ print(f"   Results: {len(adj_list)} cells processed")
 
 # Verify correctness
 print(f"\n3. Correctness check:")
-print(f"   First 3 cells neighbor counts: {[len(adj_list[i]) for i in range(3)]}")
+print(
+    f"   First 3 cells neighbor counts: {[len(adj_list[i]) for i in range(3)]}"
+)
 print(f"   Sample neighbors from cell 0: {adj_list[0][:5]}")
 
 print("\n✅ JIT-accelerated mask creation is working efficiently!")
@@ -219,7 +223,9 @@ print("=" * 60)
 cells_view = mesh.primal.cell[0:5]
 print(f"Iterating over {len(cells_view)} cells:")
 for i, cell in enumerate(cells_view):
-    print(f"  Cell {i}: index={cell.index}, nnb={cell.num_neighbors}, area={cell.area:.6f}")
+    print(
+        f"  Cell {i}: index={cell.index}, nnb={cell.num_neighbors}, area={cell.area:.6f}"
+    )
 
 # %%
 # Test 6: Edge Access
@@ -268,7 +274,6 @@ print("\n" + "=" * 60)
 print("Test 8: Performance Demonstration")
 print("=" * 60)
 
-import time
 
 # Test batch operations (vectorized - fastest)
 n_iterations = 1000
@@ -326,7 +331,9 @@ print(f"Average area of large cells: {jnp.mean(large_cells.area)}")
 print(f"\nFirst 3 large cells:")
 for i in range(3):
     cell = large_cells[i]
-    print(f"  Original index: {cell.index}, Area: {cell.area:.6f}, Neighbors: {cell.num_neighbors}")
+    print(
+        f"  Original index: {cell.index}, Area: {cell.area:.6f}, Neighbors: {cell.num_neighbors}"
+    )
 
 # %%
 # Test 10: Test original functionality still works

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
     import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_scvt_trisk_1lev_terms
 
+    Int = typing.Int
     Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -221,9 +222,8 @@ class ExContinuityEqu(
         super().__init__(disc=disc, method=method, mode=mode)
         self.dmf = self.init_div_mfx()
 
-    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
-        block, star_state = self.dmf(block, star_state)
-        return block, star_state
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        return self.dmf(block, star_idx)
 
     @staticmethod
     def alias_name() -> str:
@@ -281,11 +281,11 @@ class ExNormalMomentumEqu4UGRID(
         self.grad_ke = self.init_grad_kinetic_energy_term()
         self.pgf = self.init_grad_geopotential_term()
 
-    def __call__(self, block: BLOCK, star_state: STATE) -> tuple[BLOCK, STATE]:
-        block, star_state = self.coriolis(block, star_state)
-        block, star_state = self.grad_ke(block, star_state)
-        block, star_state = self.pgf(block, star_state)
-        return block, star_state
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        block = self.coriolis(block, star_idx)
+        block = self.grad_ke(block, star_idx)
+        block = self.pgf(block, star_idx)
+        return block
 
     @staticmethod
     def alias_name() -> str:
@@ -527,6 +527,7 @@ class ShallowWaterEquationBuilder:
         form: Literal["vector_invariant"],
         ode_kind: Literal["explicit"],
         output_h1_tend: bool = False,
+        state_tile_depth: int = 3,
     ) -> ExVif_SWE_SCVT_TriSKCGrid_FVM:
         ...
 

@@ -11,10 +11,10 @@ from terraflow.solver.abstract import AbstractRungeKuttaSolver
 if TYPE_CHECKING:
     from terraflow.discretization.abstract import AbstractBlock
 
-
-Array = typing.Array
-Float = typing.FloatType
-Int = typing.IntType
+    Float = typing.Float
+    Int = typing.Int
+    IntType = typing.IntType
+    Array = typing.Array
 
 all_pass = "all_pass"
 forward_pass = "forward_pass"
@@ -24,9 +24,9 @@ backward_pass = "backward_pass"
 def step_all(
     space_operators: Callable,
     block: AbstractBlock,
-    old_idx: int,
-    star_idx: int,
-    new_idx: int,
+    old_idx: Int[Array, ""] | int,
+    star_idx: Int[Array, ""] | int,
+    new_idx: Int[Array, ""] | int,
     dt: float | Array,
     update_state_fn: Callable
 ) -> AbstractBlock:
@@ -37,23 +37,21 @@ def step_all(
         new_idx=new_idx,
         pass_tag=all_pass
     )
-    new_state = update_state_fn(
+    return update_state_fn(
         block=block,
         old_idx=old_idx,
         new_idx=new_idx,
         dt=dt,
         pass_tag=all_pass
     )
-    block = block.set_state(itime=new_idx, state=new_state)
-    return block
 
 
 def step_forward_backward(
     space_operators: Callable,
     block: AbstractBlock,
-    old_idx: int,
-    star_idx: int,
-    new_idx: int,
+    old_idx: Int[Array, ""] | int,
+    star_idx: Int[Array, ""] | int,
+    new_idx: Int[Array, ""] | int,
     dt: float | Array,
     update_state_fn: Callable
 ) -> AbstractBlock:
@@ -64,14 +62,13 @@ def step_forward_backward(
         new_idx=new_idx,
         pass_tag=forward_pass
     )
-    new_state = update_state_fn(
+    block = update_state_fn(
         block=block,
         old_idx=old_idx,
         new_idx=new_idx,
         dt=dt,
         pass_tag=forward_pass
     )
-    block = block.set_state(itime=new_idx, state=new_state)
     block = space_operators(
         block=block,
         old_idx=old_idx,
@@ -79,20 +76,19 @@ def step_forward_backward(
         new_idx=new_idx,
         pass_tag=backward_pass
     )
-    new_state = update_state_fn(
+    block = update_state_fn(
         block=block,
         old_idx=old_idx,
         new_idx=new_idx,
         dt=dt,
         pass_tag=backward_pass
     )
-    block = block.set_state(itime=new_idx, state=new_state)
     return block
 
 
 class ExRungeKutta3Solver(AbstractRungeKuttaSolver[AbstractExplicitODE]):
-    nrk: Int = 3  # Number of stages for RK3
-    order: Int = 3  # Order of accuracy for RK3
+    nrk: IntType = 3  # Number of stages for RK3
+    order: IntType = 3  # Order of accuracy for RK3
     dt_rk: List[datetime.timedelta]
     dt_rk_seconds: Array
     dev: device.AbstractDevice

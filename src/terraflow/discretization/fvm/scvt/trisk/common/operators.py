@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block, State
+    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
     from .coriolis.schemes import CoriolisForceAtEdge
 
     IntType = typing.IntType
@@ -60,10 +60,10 @@ class RelativeVorticityAtDualCell(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
         para = block.para
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
         vor = block.aux.vor.unwrap()
         # ==========================================================
         vor = op.curl_at_dual_cell(
@@ -73,14 +73,13 @@ class RelativeVorticityAtDualCell(Term):
             para=para
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=coord,
             where=lambda b: b.aux.vor,
             pytree=block,
             replace=vor,
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -100,10 +99,10 @@ class DivergenceOfVelocityAtCell(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
         para = block.para
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
         div = block.aux.div.unwrap()
         # ==========================================================
         div = op.div_at_primal_cell(
@@ -113,14 +112,13 @@ class DivergenceOfVelocityAtCell(Term):
             para=para
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=coord,
             where=lambda b: b.aux.div,
             pytree=block,
             replace=div,
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -144,8 +142,8 @@ class TriSKTangentVelocityAtEdge(Term):
     def __call__(
         self,
         block: BLOCK,
-        star_state: State
-    ) -> tuple[BLOCK, State]:
+        star_idx: Int[Array, ""] | int
+    ) -> BLOCK:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
@@ -155,7 +153,7 @@ class TriSKTangentVelocityAtEdge(Term):
         trisk_idx = coriolis.edp_edge_on_edge     # (nedge, maxnnb*2)
         weight = coriolis.edp_trsk_on_edge        # (nedge, maxnnb*2)
         lenp = coriolis.edp_edpl_on_edge          # (nedge, maxnnb*2)
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :]
         ut = block.aux.ut.unwrap()
         # ==========================================================
         ep_idx = trisk_idx[ids:ide+1, :]
@@ -176,14 +174,13 @@ class TriSKTangentVelocityAtEdge(Term):
             )(un[kds:kde+1])
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=coord,
             where=lambda b: b.aux.ut,
             pytree=block,
             replace=ut,
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -215,9 +212,9 @@ class TangentVelocityAtEdge(Term):
     def __call__(
         self,
         block: BLOCK,
-        star_state: State
-    ) -> tuple[BLOCK, State]:
-        return self.scheme(block, star_state)
+        star_idx: Int[Array, ""] | int
+    ) -> BLOCK:
+        return self.scheme(block, star_idx)
 
     def trisk(self) -> TriSKTangentVelocityAtEdge:
         self.scheme = TriSKTangentVelocityAtEdge(
@@ -252,26 +249,25 @@ class NormalMassFluxAtEdge(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ihs, ihe = mesh.edge_ihs[0], mesh.edge_ihe[0]
         kds, kde = vert.full_kds, vert.full_kde
-        un = star_state.un.unwrap()
-        dmg_e = star_state.dmg_e.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
+        dmg_e = block.state.dmg_e.unwrap()[star_idx, :, :]
         mfn = block.aux.mfn.unwrap()
         # ==========================================================
         mfn = mfn.at[kds:kde+1, ihs:ihe+1].set(
             un[kds:kde+1, ihs:ihe+1] * dmg_e[kds:kde+1, ihs:ihe+1]
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.aux.mfn,
             pytree=block,
             replace=mfn
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -292,7 +288,7 @@ class DivergenceOfMassFluxAtCell(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         mfn = block.aux.mfn.unwrap()
         dmf = block.aux.dmf.unwrap()
         # ==========================================================
@@ -303,13 +299,12 @@ class DivergenceOfMassFluxAtCell(Term):
             para=block.para
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.aux.dmf,
             pytree=block,
             replace=dmf,
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -328,7 +323,7 @@ class InterpPotentialVorticityMidpoint:
         self.order = 2
         self._built = False
 
-    def __call__(self, block: BLOCK, star_state: State) -> Array:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
         pv_vtx = block.aux.pv_vtx.unwrap()
         pv_e = block.aux.pv_e.unwrap()
         # ==========================================================
@@ -379,11 +374,11 @@ class InterpPotentialVorticityUpwind:
         self.order = order
         self._built = False
 
-    def __call__(self, block: BLOCK, star_state: State) -> Array:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
         kds, kde = coord.vert.full_kds, coord.vert.full_kde
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
         ut = block.aux.ut.unwrap()
         pv_vtx = block.aux.pv_vtx.unwrap()
         pv_e = block.aux.pv_e.unwrap()
@@ -439,7 +434,7 @@ class InterpPotentialVorticityPureUpwind:
         self.order = order
         self._built = False
 
-    def __call__(self, block: BLOCK, star_state: State) -> Array:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
         ut = block.aux.ut.unwrap()
         pv_vtx = block.aux.pv_vtx.unwrap()
         pv_e = block.aux.pv_e.unwrap()
@@ -469,8 +464,8 @@ class InterpPotentialVorticityAtDualEdge:
     def __init__(self):
         self._built = False
 
-    def __call__(self, block: BLOCK, star_state: State) -> Array:
-        return self.adv_scheme(block, star_state)
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
+        return self.adv_scheme(block, star_idx)
 
     def midpoint(self) -> Self:
         self.adv_scheme = InterpPotentialVorticityMidpoint()
@@ -530,14 +525,14 @@ class PotentialVorticity(Term):
         self.interp = InterpPotentialVorticityAtDualEdge()
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.dual_ids, mesh.dual_ide
         kds, kde = vert.full_kds, vert.full_kde
         omega = block.para.omega.unwrap()
         vor = block.aux.vor.unwrap()
-        dmg_vtx = star_state.dmg_vtx.unwrap()
+        dmg_vtx = block.state.dmg_vtx.unwrap()[star_idx, :, :]
         lat = mesh._dua.centroid.lat
         pv_vtx = block.aux.pv_vtx.unwrap()
         # ==========================================================
@@ -555,15 +550,14 @@ class PotentialVorticity(Term):
         )
         # ==========================================================
         # Calc pv at edge
-        pv_e = self.interp(block, star_state)
-        block = tree_at(
+        pv_e = self.interp(block, star_idx)
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.aux.pv_e,
             pytree=block,
             replace=pv_e,
             fill_halo=True
         )
-        return block, star_state
 
     def build_default(self) -> "PotentialVorticity":
         if not self.has_built():
@@ -585,25 +579,24 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
         kds, kde = coord.vert.full_kds, coord.vert.full_kde
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
         ke = block.aux.ke.unwrap()
         # ==========================================================
         ke = ke.at[kds:kde+1, ids:ide+1].set(
             self._evaluate_at_domain(un=un, coord=coord)
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.aux.ke,
             pytree=block,
             replace=ke,
             fill_halo=True,
         )
-        return block, star_state
 
     def _evaluate_at_domain(
         self,
@@ -640,11 +633,11 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
         )
         self.gamma: FloatType = gamma
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
         kds, kde = coord.vert.full_kds, coord.vert.full_kde
-        un = star_state.un.unwrap()
+        un = block.state.un.unwrap()[star_idx, :, :]
         ke = block.aux.ke.unwrap()
         # ==========================================================
         ke_vtx = op.interp_weighted_add_edd2dua(
@@ -664,14 +657,13 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
             1 * self.gamma * ke_cell + (1 - self.gamma) * ke_vtx_cell
         )
         # ==========================================================
-        block = tree_at(
+        return tree_at(
             coord=block.coord,
             where=lambda b: b.aux.ke,
             pytree=block,
             replace=ke,
             fill_halo=True,
         )
-        return block, star_state
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -693,8 +685,8 @@ class KineticEnergyAtPrimalCell(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_state: State) -> tuple[BLOCK, State]:
-        return self.scheme(block, star_state)
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+        return self.scheme(block, star_idx)
 
     def gassmann_2013(
         self,

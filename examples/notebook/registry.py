@@ -14,11 +14,12 @@
 # ---
 
 # %%
+import polars as pl
+import terraflow.core as tf
 import importlib.metadata as m
 m.entry_points(group="terraflow.registrations")
 
 # %%
-import terraflow.core as tf
 
 # Use Catalog to load from entry points
 catalog = tf.manager.load_info(source="entry_points")
@@ -41,11 +42,12 @@ m.load_source()
 m.view("equterm")["unique_id"].to_list()
 
 # %%
-import polars as pl
 
 df = m.view("equterm")
 
-df = df.filter(pl.col("group_id") == "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::scvt::1level::nonlinear_coriolis")
+df = df.filter(
+    pl.col("group_id") == "earth::atm::swe::vif::normal_momentum_equ::explicit::fvm::triskC::scvt::1level::nonlinear_coriolis"
+)
 
 df["factory"].to_list()
 

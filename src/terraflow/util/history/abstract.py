@@ -1,4 +1,5 @@
 from __future__ import annotations
+from math import exp
 from typing import (
     TypeVar,
     Type,
@@ -28,10 +29,14 @@ from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 from terraflow.layout.field import FieldMetaData, NumericMetaData
 
 if TYPE_CHECKING:
+    from terraflow.util import typing
     from terraflow.discretization.abstract import (
         AbstractFields,
         AbstractBlock,
     )
+
+    Int = typing.Int
+    Array = typing.Array
 
 UM = TypeVar("UM", bound=AbstractUnstructuredMesh)
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -210,7 +215,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def output(
         self,
         block: AbstractBlock,
-        itime: int,
+        itime: Int[Array, ""] | int,
         save_idx: int,
         first_call: bool = False
     ) -> None:
@@ -258,7 +263,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def log_done_write(self, history: str, cost_time: float) -> None:
         log.logger.success(
-            f"Done write {history} file cost {cost_time} seconds."
+            f"Done write {history} file cost {format(cost_time, '.16f')} seconds."
         )
         return None
 
@@ -302,13 +307,13 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def setup_h0(self, block: AbstractBlock) -> None:
         if self.output_h0:
-            self.h0.setup([block.state[0], block.static, block.aux])
+            self.h0.setup([block.state, block.static, block.aux])
 
     def setup_h1(self, block: AbstractBlock) -> None:
         if self.output_h1:
             self.h1.setup(
                 [
-                    block.state[0],
+                    block.state,
                     block.static,
                     block.tend,
                     block.aux,
@@ -323,7 +328,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 h2_list = h2_list + [block.state, block.static, block.aux]
             if self.output_h0 and self.output_h1:
                 h2_list = h2_list + [
-                    block.state[0],
+                    block.state,
                     block.tend,
                     block.static,
                     block.aux,
@@ -331,7 +336,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
                 ]
             if not self.output_h0 and self.output_h1:
                 h2_list = h2_list + [
-                    block.state[0],
+                    block.state,
                     block.tend,
                     block.static,
                     block.aux,
@@ -349,11 +354,11 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def write_h0(self, block: AbstractBlock, itime: int, first_call: bool = False):
         if first_call:
             self.h0.write_fields(block.static)
-        self.h0.write_fields(block.get_state(itime))
+        self.h0.write_fields(block.state, expand_idx=itime)
         self.h0.write_fields(block.aux)
 
     def write_h1(self, block: AbstractBlock, itime: int):
-        self.h1.write_fields(block.get_state(itime))
+        self.h1.write_fields(block.state, expand_idx=itime)
         self.h1.write_fields(block.tend)
         self.h1.write_fields(block.static)
         self.h1.write_fields(block.aux)
@@ -361,17 +366,17 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def write_h2(self, block: AbstractBlock, itime: int):
         if self.output_h0 and not self.output_h1:
-            self.h2.write_fields(block.get_state(itime))
+            self.h2.write_fields(block.state, expand_idx=itime)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
         if self.output_h0 and self.output_h1:
-            self.h2.write_fields(block.get_state(itime))
+            self.h2.write_fields(block.state, expand_idx=itime)
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
             self.h2.write_fields(block.adv_batch_pt)
         if not self.output_h0 and self.output_h1:
-            self.h2.write_fields(block.get_state(itime))
+            self.h2.write_fields(block.state, expand_idx=itime)
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
@@ -516,14 +521,20 @@ class AbstractHistory(ABC):
     def open_dataset(self) -> nc4.Dataset:
         return nc4.Dataset(self.file_path, mode="r")
 
-    def write_fields(self, fields: AbstractFields) -> None:
+    def write_fields(self, fields: AbstractFields, expand_idx: Optional[int] = None) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         for field_name in fields.keys():
             field = getattr(fields, field_name)
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            data = np.asarray(field.unwrap(), dtype=self.float_type)
+            if expand_idx is None:
+                data = np.asarray(field.unwrap(), dtype=self.float_type)
+            else:
+                data = np.asarray(
+                    field.unwrap()[expand_idx, ...],
+                    dtype=self.float_type
+                )
             if field.meta.is_static:
                 ds.variables[field.meta.name][...] = data
             else:
@@ -613,7 +624,7 @@ class UGRIDHistory(AbstractHistory):
                 continue
             if isinstance(field.meta, FieldMetaData):
                 dsxr = tuxr.format_terraflow2ugrid(
-                    field.data, field.meta.to_dict(), use_dual=self.use_dual
+                    field.data, field.meta.to_dict(), use_dual=self.use_dual, expand_idx=0,
                 )
                 var_dims = tuple(str(dim) for dim in dsxr.dims)
                 if not field.meta.is_static:
@@ -844,16 +855,21 @@ class Unstructured2StructuredHistory(AbstractHistory):
             self._built = True
         return self
 
-    def write_fields(self, fields: AbstractFields) -> None:
+    def write_fields(self, fields: AbstractFields, expand_idx: Optional[int] = None) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         staggered_var_ds = {}
         for _, field in fields.items():
             if not isinstance(field.meta, FieldMetaData):
                 continue
+            if expand_idx is None:
+                field_data = field.unwrap()
+            else:
+                field_data = field.unwrap()[expand_idx, ...]
             staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
-                value=field.data,
+                value=field_data,
                 meta=field.meta.to_dict(),
+                expand_idx=expand_idx
             )
         if staggered_var_ds:
             staggered_ds = xr.Dataset(data_vars=staggered_var_ds)
@@ -880,15 +896,15 @@ class Unstructured2StructuredHistory(AbstractHistory):
             output = field.attrs.get("output", None)
             if output not in STRUCTURED_HISTORY_LIST or output == "":
                 continue
-            data = fields_remapped.variables[field_name].data
+            field_data = fields_remapped.variables[field_name].data
             if field.attrs.get("is_static", False):
                 ds.variables[str(field_name)][...] = np.array(
-                    data,
+                    field_data,
                     dtype=var_dtype
                 )
             else:
                 ds.variables[str(field_name)][idx, ...] = np.array(
-                    data,
+                    field_data,
                     dtype=var_dtype
                 )
         for _, field in fields.items():
@@ -915,6 +931,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
             staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
                 value=field.data,
                 meta=field.meta.to_dict(),
+                expand_idx=0
             )
         if staggered_var_ds:
             staggered_ds = xr.Dataset(data_vars=staggered_var_ds)

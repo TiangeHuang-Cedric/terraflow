@@ -42,6 +42,9 @@ class AbstractMetaData(eqx.Module, ABC):
     description: str = eqx.field(static=True, default="")
     units: str = eqx.field(static=True, default="")
     is_static: bool = eqx.field(static=True, default=False)
+    is_expand_dims: bool = eqx.field(static=True, default=False)
+    expand_axis: int = eqx.field(static=True, default=0)
+    expand_axis_length: int = eqx.field(static=True, default=1)
     output: str = eqx.field(static=True, default="")
 
     @abstractmethod
@@ -125,6 +128,9 @@ class NumericMetaData(AbstractMetaData):
             description=kwargs.get("description", ""),
             units=kwargs.get("units", ""),
             is_static=kwargs.get("is_static", False),
+            is_expand_dims=kwargs.get("is_expand_dims", False),
+            expand_axis=kwargs.get("expand_axis", 0),
+            expand_axis_length=kwargs.get("expand_axis_length", 1),
             output=kwargs.get("output", ""),
         )
 
@@ -137,6 +143,9 @@ class NumericMetaData(AbstractMetaData):
             description=meta.get("description", ""),
             units=meta.get("units", ""),
             is_static=meta.get("is_static", False),
+            is_expand_dims=meta.get("is_expand_dims", False),
+            expand_axis=meta.get("expand_axis", 0),
+            expand_axis_length=meta.get("expand_axis_length", 1),
             output=meta.get("output", ""),
         )
 
@@ -153,6 +162,9 @@ class NumericMetaData(AbstractMetaData):
             description=self.description,
             units=units,
             is_static=self.is_static,
+            is_expand_dims=self.is_expand_dims,
+            expand_axis=self.expand_axis,
+            expand_axis_length=self.expand_axis_length,
             output=self.output,
         )
 
@@ -162,8 +174,15 @@ class NumericMetaData(AbstractMetaData):
 
     def zeros_like(self, coord: CoordinateSystem[HM, VM, HLO, VLO]) -> "ArrayField[Self]":
         """Create a zero-filled array with the same shape as the specified layout position."""
+        if self.is_expand_dims:
+            data = jnp.zeros(
+                (self.expand_axis_length,),
+                dtype=coord.dev.float_type
+            )
+        else:
+            data = jnp.array(0.0, dtype=coord.dev.float_type)
         return ArrayField.create(
-            data=jnp.array(0.0, dtype=coord.dev.float_type),
+            data=data,
             meta=self,
             as_quantity=False
         )
@@ -175,6 +194,9 @@ class NumericMetaData(AbstractMetaData):
             "description": self.description,
             "units": self.units,
             "is_static": self.is_static,
+            "is_expand_dims": self.is_expand_dims,
+            "expand_axis": self.expand_axis,
+            "expand_axis_length": self.expand_axis_length,
             "output": self.output,
         }
 
@@ -192,6 +214,9 @@ class FieldMetaData(AbstractMetaData):
     coordinates: str = eqx.field(static=True, default="")
     is_prognostic: bool = eqx.field(static=True, default=False)
     is_static: bool = eqx.field(static=True, default=False)
+    is_expand_dims: bool = eqx.field(static=True, default=False)
+    expand_axis: int = eqx.field(static=True, default=0)
+    expand_axis_length: int = eqx.field(static=True, default=1)
     output: str = eqx.field(static=True, default="")
 
     def is_empty(self) -> bool:
@@ -221,6 +246,9 @@ class FieldMetaData(AbstractMetaData):
             coordinates=self.coordinates,
             is_prognostic=self.is_prognostic,
             is_static=self.is_static,
+            is_expand_dims=self.is_expand_dims,
+            expand_axis=self.expand_axis,
+            expand_axis_length=self.expand_axis_length,
             output=self.output,
         )
 
@@ -229,7 +257,10 @@ class FieldMetaData(AbstractMetaData):
         data = coord.zeros_like(
             hori_loc=self.hori_location,
             vert_loc=self.vert_location,
-            basis=self.basis
+            basis=self.basis,
+            is_expand_dims=self.is_expand_dims,
+            expand_axis=self.expand_axis,
+            expand_axis_length=self.expand_axis_length,
         )
         return ArrayField.create(
             data=data,
@@ -262,6 +293,9 @@ class FieldMetaData(AbstractMetaData):
             coordinates=kwargs.get("coordinates", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
             is_static=kwargs.get("is_static", False),
+            is_expand_dims=kwargs.get("is_expand_dims", False),
+            expand_axis=kwargs.get("expand_axis", 0),
+            expand_axis_length=kwargs.get("expand_axis_length", 1),
             output=kwargs.get("output", ""),
         )
 
@@ -280,6 +314,9 @@ class FieldMetaData(AbstractMetaData):
             coordinates=meta.get("coordinates", ""),
             is_prognostic=meta.get("is_prognostic", False),
             is_static=meta.get("is_static", False),
+            is_expand_dims=meta.get("is_expand_dims", False),
+            expand_axis=meta.get("expand_axis", 0),
+            expand_axis_length=meta.get("expand_axis_length", 1),
             output=meta.get("output", ""),
         )
 
@@ -297,6 +334,9 @@ class FieldMetaData(AbstractMetaData):
             "coordinates": self.coordinates,
             "is_prognostic": self.is_prognostic,
             "is_static": self.is_static,
+            "is_expand_dims": self.is_expand_dims,
+            "expand_axis": self.expand_axis,
+            "expand_axis_length": self.expand_axis_length,
             "output": self.output,
         }
 
@@ -327,6 +367,9 @@ class StaggeredFieldMetaData(FieldMetaData):
             mesh_name=self.mesh_name,
             is_prognostic=self.is_prognostic,
             is_static=self.is_static,
+            is_expand_dims=self.is_expand_dims,
+            expand_axis=self.expand_axis,
+            expand_axis_length=self.expand_axis_length,
             output=self.output,
         )
 
@@ -347,6 +390,9 @@ class StaggeredFieldMetaData(FieldMetaData):
             mesh_name=kwargs.get("mesh_name", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
             is_static=kwargs.get("is_static", False),
+            is_expand_dims=kwargs.get("is_expand_dims", False),
+            expand_axis=kwargs.get("expand_axis", 0),
+            expand_axis_length=kwargs.get("expand_axis_length", 1),
             output=kwargs.get("output", ""),
         )
 
@@ -367,6 +413,9 @@ class StaggeredFieldMetaData(FieldMetaData):
             mesh_name=meta.get("mesh_name", ""),
             is_prognostic=meta.get("is_prognostic", False),
             is_static=meta.get("is_static", False),
+            is_expand_dims=meta.get("is_expand_dims", False),
+            expand_axis=meta.get("expand_axis", 0),
+            expand_axis_length=meta.get("expand_axis_length", 1),
             output=meta.get("output", ""),
         )
 
