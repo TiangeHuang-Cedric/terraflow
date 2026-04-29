@@ -77,13 +77,13 @@ equation.build_default()
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
     end_time="2000-01-21T00:00:00",
-    dt_dyn="300 seconds",
 )
 
 # %%
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
+    dt_dyn="300 seconds",
     dev=dev,
 )
 

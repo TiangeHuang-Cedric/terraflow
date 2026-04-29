@@ -10,13 +10,14 @@ from typing import (
 from abc import ABC, abstractmethod
 from pathlib import Path
 import time
+import datetime
 import netCDF4 as nc4
 import numpy as np
 import jax.numpy as jnp
 import jax.experimental
 import xarray as xr
 
-from terraflow.util import log, datetime, uxarray as tuxr
+from terraflow.util import log, datetime as tfdatetime, uxarray as tuxr
 from terraflow.util.device import AbstractDevice
 from terraflow.util.datetime import (
     DateTimeManager,
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         AbstractBlock,
         TracerMetaData
     )
+    from terraflow.solver.abstract import AbstractSolver
 
     Int = typing.Int
     Array = typing.Array
@@ -86,6 +88,10 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     output_h2: bool
     time_manager: DateTimeManager
     case_name: str
+    dt_dyn: datetime.timedelta
+    save_interval: datetime.timedelta
+    save_interval_value: float
+    save_interval_unit: str
     float_type: type[np.float32] | type[np.float64]
     int_type: type[np.int32] | type[np.int64]
     _built: bool
@@ -93,7 +99,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     @abstractmethod
     def __init__(
         self,
-        time_manager: DateTimeManager,
+        solver: AbstractSolver,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         case_name: str = "terraflow",
         file_path: str = "",
         output_h0: bool = True,
@@ -108,7 +115,11 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         **kwargs
     ) -> None:
         self._built = False
-        self.time_manager = time_manager
+        self.time_manager = solver.time_manager
+        self.dt_dyn = solver.dt_dyn
+        self.save_interval = solver.save_interval
+        self.save_interval_value = solver.save_interval_value
+        self.save_interval_unit = solver.save_interval_unit
         self.case_name = case_name
         self.output_h0 = output_h0
         self.output_h1 = output_h1
@@ -135,7 +146,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             raise ValueError(f"Unsupported int type: {int_type}")
         if self.output_h0:
             self.h0 = self.history_type()(
-                time_manager=time_manager,
+                solver=solver,
+                coord=coord,
                 history_name="h0",
                 case_name=case_name,
                 file_path=file_path,
@@ -147,7 +159,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             log.logger.info(f"History will output h0: {self.h0.file_path}")
         if self.output_h1:
             self.h1 = self.history_type()(
-                time_manager=time_manager,
+                solver=solver,
+                coord=coord,
                 history_name="h1",
                 case_name=case_name,
                 file_path=file_path,
@@ -159,7 +172,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             log.logger.info(f"History will output h1: {self.h1.file_path}")
         if self.output_h2:
             self.h2 = self.structured_history_type()(
-                time_manager=time_manager,
+                solver=solver,
+                coord=coord,
                 history_name="h2",
                 case_name=case_name,
                 file_path=file_path,
@@ -210,11 +224,11 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             ordered=True
         )
 
-    def output_prepare(self, save_idx: int) -> None:
+    def output_prepare(self, save_interval_idx: int) -> None:
         jax.experimental.io_callback(
             self._prepare_for_output,
             None,
-            save_idx,
+            save_interval_idx,
             ordered=True
         )
 
@@ -265,9 +279,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         perf_runtime()
         log.logger.log(
             "RUNTIME",
-            f"==> {self.time_manager.curr_time4itimestep(itimestep)}  "
-            f"{format_seconds(datetime.elapsed_seconds_in_integration, precision=16)}  "
-            f"{format_seconds(datetime.elapsed_secondes_in_real_world, precision=16)}"
+            f"==> {self.time_manager.curr_time4itimestep(self.dt_dyn, itimestep)}  "
+            f"{format_seconds(tfdatetime.elapsed_seconds_in_integration, precision=16)}  "
+            f"{format_seconds(tfdatetime.elapsed_secondes_in_real_world, precision=16)}"
         )
         return None
 
@@ -275,9 +289,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         perf_runtime()
         log.logger.log(
             "RUNTIME",
-            f"==> {self.time_manager.curr_time4save(save_interval_idx)}  "
-            f"{format_seconds(datetime.elapsed_seconds_in_integration, precision=16)}  "
-            f"{format_seconds(datetime.elapsed_secondes_in_real_world, precision=16)}"
+            f"==> {self.time_manager.curr_time4save(self.save_interval, save_interval_idx)}  "
+            f"{format_seconds(tfdatetime.elapsed_secondes_in_real_world, precision=16)}"
         )
         return None
 
@@ -338,7 +351,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             ds = nc4.Dataset(h.file_path, mode="a")
             time_var = ds.variables["time"]
             current_length = len(time_var)
-            interval = save_interval_idx * h.time_manager.save_interval_value
+            interval = save_interval_idx * self.save_interval_value
             time_var[current_length] = interval
             ds.close()
 
@@ -517,9 +530,8 @@ class UGRIDHistoryset(
 
     def __init__(
         self,
-        time_manager: DateTimeManager,
+        solver: AbstractSolver,
         coord: CoordinateSystem[HM, VM, HLO, VLO],
-        equation: AbstractEquationSet,
         case_name: str = "terraflow",
         file_path: str = "",
         output_h0: bool = True,
@@ -532,8 +544,8 @@ class UGRIDHistoryset(
         **kwargs
     ) -> None:
         super().__init__(
+            solver=solver,
             coord=coord,
-            time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
             output_h0=output_h0,
@@ -563,7 +575,7 @@ class UnstructuredHistoryset(
 
     def __init__(
         self,
-        time_manager: DateTimeManager,
+        solver: AbstractSolver,
         coord: CoordinateSystem[UM, VM, HLO, VLO],
         equation: AbstractEquationSet,
         case_name: str = "terraflow",
@@ -579,8 +591,8 @@ class UnstructuredHistoryset(
         mode: AbstractEquationMode = equation.mode
         with_vtx = True if not mode.is_advection() else False
         super().__init__(
+            solver=solver,
             coord=coord,
-            time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
             output_h0=output_h0,
@@ -616,14 +628,14 @@ class AbstractHistory(ABC):
     @abstractmethod
     def __init__(
         self,
-        time_manager: DateTimeManager,
+        solver: AbstractSolver,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
         history_name: str,
         case_name: str,
         file_path: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
     ) -> None:
-        self.time_manager = time_manager
         self.history_name = history_name
         self.case_name = case_name
         self.file_path = str(
@@ -708,8 +720,8 @@ class UGRIDHistory(AbstractHistory):
 
     def __init__(
         self,
+        solver: AbstractSolver,
         coord: CoordinateSystem[HM, VM, HLO, VLO],
-        time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
         file_path: str,
@@ -718,8 +730,9 @@ class UGRIDHistory(AbstractHistory):
         use_dual: bool = False,
     ) -> None:
         super().__init__(
+            solver=solver,
+            coord=coord,
             history_name=history_name,
-            time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
@@ -733,8 +746,8 @@ class UGRIDHistory(AbstractHistory):
         )
         self.time = TimeSetup(
             file_path=self.file_path,
-            start_time_str=time_manager.start_time_str,
-            save_interval_unit=time_manager.save_interval_unit,
+            start_time_str=solver.time_manager.start_time_str,
+            save_interval_unit=solver.save_interval_unit,
             float_type=self.float_type,
             int_type=self.int_type
         )
@@ -846,8 +859,8 @@ class UnstructuredHistory(AbstractHistory):
 
     def __init__(
         self,
+        solver: AbstractSolver,
         coord: CoordinateSystem[UM, VM, HLO, VLO],
-        time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
         file_path: str,
@@ -856,8 +869,9 @@ class UnstructuredHistory(AbstractHistory):
         int_type: type[np.int32] | type[np.int64],
     ) -> None:
         super().__init__(
+            solver=solver,
+            coord=coord,
             history_name=history_name,
-            time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
@@ -870,8 +884,8 @@ class UnstructuredHistory(AbstractHistory):
         )
         self.time = TimeSetup(
             file_path=self.file_path,
-            start_time_str=time_manager.start_time_str,
-            save_interval_unit=time_manager.save_interval_unit,
+            start_time_str=solver.time_manager.start_time_str,
+            save_interval_unit=solver.save_interval_unit,
             float_type=self.float_type,
             int_type=self.int_type
         )
@@ -990,8 +1004,8 @@ class Unstructured2StructuredHistory(AbstractHistory):
 
     def __init__(
         self,
+        solver: AbstractSolver,
         coord: CoordinateSystem[UM, VM, HLO, VLO],
-        time_manager: DateTimeManager,
         history_name: str,
         case_name: str,
         file_path: str,
@@ -1007,8 +1021,9 @@ class Unstructured2StructuredHistory(AbstractHistory):
         south_north_resolution: float = 1.0,
     ) -> None:
         super().__init__(
+            solver=solver,
+            coord=coord,
             history_name=history_name,
-            time_manager=time_manager,
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
@@ -1021,8 +1036,8 @@ class Unstructured2StructuredHistory(AbstractHistory):
         )
         self.time = TimeSetup(
             file_path=self.file_path,
-            start_time_str=time_manager.start_time_str,
-            save_interval_unit=time_manager.save_interval_unit,
+            start_time_str=solver.time_manager.start_time_str,
+            save_interval_unit=solver.save_interval_unit,
             float_type=self.float_type,
             int_type=self.int_type
         )

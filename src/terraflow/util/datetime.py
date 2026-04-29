@@ -1,8 +1,9 @@
+from terraflow.util import log
 from typing import Optional
 import time
 import datetime
+import equinox as eqx
 
-from terraflow.util import log
 
 time0 = 0.0  # program start time in seconds
 time1 = 0.0  # integration start time in seconds
@@ -92,49 +93,20 @@ def perf_runtime() -> float:
     return time_curr - tmp
 
 
-class DateTimeManager:
-    start_time_str: str
-    end_time_str: str
-    save_interval_value: float
-    save_interval_unit: str
-    dt_dyn: datetime.timedelta
-    dt_adv: datetime.timedelta
+class DateTimeManager(eqx.Module):
+    start_time_str: str = eqx.field(static=True)
+    end_time_str: str = eqx.field(static=True)
 
     def __init__(
         self,
-        dt_dyn: str,
-        dt_adv: Optional[str] = None,
         start_time: Optional[str] = None,
-        save_interval: Optional[str] = None,
         run_time: Optional[str] = None,
         end_time: Optional[str] = None,
-        log_every: str = "1 hours",
     ):
         # ================================================
-        # Preprocess time variables
-
-        # Preprocess dt_dyn
-        dt_dyn_value = float(dt_dyn.split()[0])
-        dt_dyn_unit = dt_dyn.split()[1]
-
-        if dt_adv is None:
-            dt_adv = "0 seconds"
-
-        # Preprocess dt_adv
-        dt_adv_value = float(dt_adv.split()[0])
-        dt_adv_unit = dt_adv.split()[1]
-
         # Preprocess start_time
         if start_time is None:
             start_time = "2000-01-01T00:00:00"
-
-        # Preprocess save_interval
-        if save_interval is None:
-            save_interval_value = 0
-            save_interval_unit = "seconds"
-        else:
-            save_interval_value = int(save_interval.split()[0])
-            save_interval_unit = save_interval.split()[1]
         # ================================================
         # Initialize time manager
         self.start_time_str = start_time
@@ -156,38 +128,10 @@ class DateTimeManager:
                     "end_time_str will be used."
                 )
             self.end_time_str = end_time
-        tmp = datetime.timedelta(**{save_interval_unit: save_interval_value})
-        if tmp.total_seconds() == 0:
-            if save_interval is not None:
-                log.logger.warning(
-                    "Save interval input is equal to 0. Will not save any history during integration."
-                )
-            save_interval_value = self.run_time(unit=save_interval_unit)
-        self.save_interval_value = save_interval_value
-        self.save_interval_unit = save_interval_unit
-        self.dt_dyn = datetime.timedelta(**{dt_dyn_unit: dt_dyn_value})
-        self.dt_adv = datetime.timedelta(**{dt_adv_unit: dt_adv_value})
-        self.log_every_value = log_every.split()[0]
-        self.log_every_unit = log_every.split()[1]
         # =================================================
         # Diagnose time variables
         if self.end_time <= self.start_time:
             raise ValueError("End time must be larger than start time.")
-        if self.dt_adv.total_seconds() > 0.0 and self.dt_adv < self.dt_dyn:
-            log.logger.warning(
-                "Advection time step is smaller than dynamic time step. "
-                "Will use dynamic time step as advection time step instead."
-            )
-            self.dt_adv = self.dt_dyn
-        if self.dt_adv.total_seconds() % self.dt_dyn.total_seconds() != 0:
-            raise ValueError(
-                "Advection time step must be a multiple of dynamic time step."
-            )
-        if self.save_interval.total_seconds() > 0:
-            if (self.dt_adv > self.save_interval or self.dt_dyn > self.save_interval):
-                raise ValueError(
-                    "Save interval must be larger than both dynamic and advection time steps."
-                )
         # =================================================
         # Log
         log.logger.success("Initialized date time manager. ")
@@ -204,24 +148,6 @@ class DateTimeManager:
                 run_time_unit,
             )
         )
-        if self.save_interval_value > 0:
-            log.logger.info(
-                "Save interval: {} {}.".format(
-                    self.save_interval_value,
-                    self.save_interval_unit,
-                )
-            )
-        log.logger.info(
-            "Dynamic time step: {} seconds.".format(
-                self.dt_dyn.total_seconds(),
-            )
-        )
-        if self.dt_adv.total_seconds():
-            log.logger.info(
-                "Advection time step: {} seconds.".format(
-                    self.dt_adv.total_seconds(),
-                )
-            )
 
     @property
     def start_time(self) -> datetime.datetime:
@@ -231,14 +157,14 @@ class DateTimeManager:
     def end_time(self) -> datetime.datetime:
         return datetime.datetime.fromisoformat(self.end_time_str)
 
-    def curr_time4save(self, save_interval_idx) -> str:
+    def curr_time4save(self, save_interval: datetime.timedelta, save_interval_idx: int) -> str:
         curr_time = (
-            self.start_time + self.save_interval * float(save_interval_idx)
+            self.start_time + save_interval * float(save_interval_idx)
         )
         return curr_time.isoformat()
 
-    def curr_time4itimestep(self, itimestep) -> str:
-        curr_time = self.start_time + self.dt_dyn * float(itimestep)
+    def curr_time4itimestep(self, dt_dyn: datetime.timedelta, itimestep: int) -> str:
+        curr_time = self.start_time + dt_dyn * float(itimestep)
         return curr_time.isoformat()
 
     def run_time(self, unit: str) -> float:
@@ -269,40 +195,6 @@ class DateTimeManager:
             return float(total_seconds)
         else:
             raise ValueError(f"Invalid run_time unit: {unit}")
-
-    @property
-    def save_interval(self) -> datetime.timedelta:
-        if self.save_interval_unit not in [
-            "days",
-            "seconds",
-            "microseconds",
-            "milliseconds",
-            "minutes",
-            "hours",
-            "weeks",
-        ]:
-            raise ValueError(
-                f"Invalid save_interval_unit: {self.save_interval_unit}"
-            )
-        return datetime.timedelta(**{self.save_interval_unit: self.save_interval_value})
-
-    @property
-    def log_every(self) -> datetime.timedelta:
-        log_every_value = int(self.log_every_value)
-        log_every_unit = self.log_every_unit
-        if log_every_unit not in [
-            "days",
-            "seconds",
-            "microseconds",
-            "milliseconds",
-            "minutes",
-            "hours",
-            "weeks",
-        ]:
-            raise ValueError(
-                f"Invalid log_every_unit: {log_every_unit}"
-            )
-        return datetime.timedelta(**{log_every_unit: log_every_value})
 
 
 def format_seconds(seconds: float, precision: int = 8) -> str:

@@ -134,7 +134,7 @@ class Block(
         aux = Auxiliary.from_coord(coord=coord, equation=equation)
         # ================================================
         # Adv init
-        dt_dyn = solver.time_manager.dt_dyn
+        dt_dyn = solver.dt_dyn
         dt_dyn_seconds = dt_dyn.total_seconds()
         if mode.is_barotropic():
             adv_batch_bg = AdvBatchType.empty(mode)
@@ -1003,7 +1003,7 @@ def advection2d_case_init_fn(
             mode=mode,
             coord=coord,
             tracers_meta=test_case.init_tracers_meta(
-                dt_adv=solver.time_manager.dt_adv
+                dt_adv=solver.dt_adv
             )
         ),
         test_case=test_case

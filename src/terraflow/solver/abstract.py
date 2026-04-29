@@ -87,24 +87,139 @@ def trajectory_post_process(block: AbstractBlock, itime: int | Int[Array, ""]) -
 
 
 class AbstractSolver(Generic[ODE], ABC):
+    time_manager: DateTimeManager
     nsubsteps: int
     equation: ODE
-    time_manager: DateTimeManager
-    dt_dyn: datetime.timedelta
     dev: device.AbstractDevice
+    dt_dyn: datetime.timedelta
+    dt_adv: datetime.timedelta
+    save_interval_value: float
+    save_interval_unit: str
+    log_every_value: float
+    log_every_unit: str
 
     def __init__(
         self,
+        time_manager: DateTimeManager,
         nsubsteps: int,
         equation: ODE,
-        time_manager: DateTimeManager,
         dev: device.AbstractDevice,
+        dt_dyn: str,
+        dt_adv: Optional[str] = None,
+        save_interval: Optional[str] = None,
+        log_every: str = "1 hours",
     ):
+        self.time_manager = time_manager
         self.nsubsteps = nsubsteps
         self.equation = equation
-        self.time_manager = time_manager
-        self.dt_dyn = time_manager.dt_dyn
         self.dev = dev
+        # ================================================
+        # Preprocess time variables
+
+        # Preprocess dt_dyn
+        dt_dyn_value = float(dt_dyn.split()[0])
+        dt_dyn_unit = dt_dyn.split()[1]
+
+        if dt_adv is None:
+            dt_adv = "0 seconds"
+
+        # Preprocess dt_adv
+        dt_adv_value = float(dt_adv.split()[0])
+        dt_adv_unit = dt_adv.split()[1]
+
+        # Preprocess save_interval
+        if save_interval is None:
+            save_interval_value = 0
+            save_interval_unit = "seconds"
+        else:
+            save_interval_value = int(save_interval.split()[0])
+            save_interval_unit = save_interval.split()[1]
+        # ================================================
+        tmp = datetime.timedelta(**{save_interval_unit: save_interval_value})
+        if tmp.total_seconds() == 0:
+            if save_interval is not None:
+                log.logger.warning(
+                    "Save interval input is equal to 0. Will not save any history during integration."
+                )
+            save_interval_value = self.time_manager.run_time(
+                unit=save_interval_unit
+            )
+        self.save_interval_value = save_interval_value
+        self.save_interval_unit = save_interval_unit
+        self.dt_dyn = datetime.timedelta(**{dt_dyn_unit: dt_dyn_value})
+        self.dt_adv = datetime.timedelta(**{dt_adv_unit: dt_adv_value})
+        self.log_every_value = float(log_every.split()[0])
+        self.log_every_unit = log_every.split()[1]
+        # =================================================
+        if self.dt_adv.total_seconds() > 0.0 and self.dt_adv < self.dt_dyn:
+            log.logger.warning(
+                "Advection time step is smaller than dynamic time step. "
+                "Will use dynamic time step as advection time step instead."
+            )
+            self.dt_adv = self.dt_dyn
+        if self.dt_adv.total_seconds() % self.dt_dyn.total_seconds() != 0:
+            raise ValueError(
+                "Advection time step must be a multiple of dynamic time step."
+            )
+        if self.save_interval.total_seconds() > 0:
+            if (self.dt_adv > self.save_interval or self.dt_dyn > self.save_interval):
+                raise ValueError(
+                    "Save interval must be larger than both dynamic and advection time steps."
+                )
+        # =================================================
+        # Log
+        if self.save_interval_value > 0:
+            log.logger.info(
+                "Save interval: {} {}.".format(
+                    self.save_interval_value,
+                    self.save_interval_unit,
+                )
+            )
+        log.logger.info(
+            "Dynamic time step: {} seconds.".format(
+                self.dt_dyn.total_seconds(),
+            )
+        )
+        if self.dt_adv.total_seconds():
+            log.logger.info(
+                "Advection time step: {} seconds.".format(
+                    self.dt_adv.total_seconds(),
+                )
+            )
+
+    @property
+    def save_interval(self) -> datetime.timedelta:
+        if self.save_interval_unit not in [
+            "days",
+            "seconds",
+            "microseconds",
+            "milliseconds",
+            "minutes",
+            "hours",
+            "weeks",
+        ]:
+            raise ValueError(
+                f"Invalid save_interval_unit: {self.save_interval_unit}"
+            )
+        return datetime.timedelta(**{self.save_interval_unit: self.save_interval_value})
+
+    @property
+    def log_every(self) -> datetime.timedelta:
+        log_every_value = int(self.log_every_value)
+        log_every_unit = self.log_every_unit
+        if log_every_unit not in [
+            "days",
+            "seconds",
+            "microseconds",
+            "milliseconds",
+            "minutes",
+            "hours",
+            "weeks",
+        ]:
+            raise ValueError(
+                f"Invalid log_every_unit: {log_every_unit}"
+            )
+        return datetime.timedelta(**{log_every_unit: log_every_value})
 
     @abstractmethod
     @overload
@@ -214,7 +329,7 @@ class AbstractSolver(Generic[ODE], ABC):
         """
         start_time = self.time_manager.start_time
         end_time = self.time_manager.end_time
-        save_interval = self.time_manager.save_interval
+        save_interval = self.save_interval
         dt_dyn = self.dt_dyn
 
         outer_steps = int((end_time - start_time) / save_interval)
@@ -232,7 +347,7 @@ class AbstractSolver(Generic[ODE], ABC):
                 inner_scan_fn=inner_scan_fn,
             )
         else:
-            log_every_time = self.time_manager.log_every
+            log_every_time = self.log_every
             log_steps = int(log_every_time / dt_dyn)
             return io_callback_in_while_loop(
                 history=history,
@@ -270,7 +385,7 @@ class AbstractSolver(Generic[ODE], ABC):
         """
         start_time = self.time_manager.start_time
         end_time = self.time_manager.end_time
-        save_interval = self.time_manager.save_interval
+        save_interval = self.save_interval
         dt_dyn = self.dt_dyn
 
         outer_steps = int((end_time - start_time) / save_interval)
@@ -543,16 +658,16 @@ def wrap_fn_for_split_scan(
     )
 
     if history is None:
-        def outer_step_fn_without_history(block, _):
+        def outer_step_fn_without_history(block: AbstractBlock, _):
             block = repeated_step_fn(block)
             block = diagnose_fn(block)
             return block, post_process_fn(block)
 
         outer_step_fn = outer_step_fn_without_history
     else:
-        def outer_step_fn_with_history(carry_in, _):
+        def outer_step_fn_with_history(carry_in: tuple[AbstractBlock, int], _):
             block, save_idx = carry_in
-            history.output_prepare(save_idx)
+            history.output_prepare(save_interval_idx=save_idx)
             block = repeated_step_fn(block)
             block = diagnose_fn(block)
             output(
@@ -582,7 +697,7 @@ def wrap_fn_for_split_scan(
         return return_fn_without_history
     else:
         def return_fn_with_history(block: AbstractBlock) -> AbstractBlock:
-            history.output_prepare(0)
+            history.output_prepare(save_interval_idx=0)
             block = op_first_call_fn(block, with_diag=True)
             history.output(
                 block=block,
@@ -711,7 +826,7 @@ def wrap_fn_for_while_loop(
             return block
     else:
         def return_fn(block: AbstractBlock) -> AbstractBlock:
-            history.output_prepare(0)
+            history.output_prepare(save_interval_idx=0)
             block = op_first_call_fn(block, with_diag=True)
             history.output(
                 block=block,

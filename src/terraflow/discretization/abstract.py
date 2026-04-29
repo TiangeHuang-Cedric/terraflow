@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
 
-from terraflow.util import typing, device, datetime as tfdatetime, uxarray as tuxr
+from terraflow.util import typing, device, uxarray as tuxr
 import terraflow.operator as op
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -1852,13 +1852,11 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
     def __init__(
         self,
-        time_manager: tfdatetime.DateTimeManager,
-        equation: ES,
+        solver: AbstractSolver,
         jit: bool = False,
         trajectory: bool = False
     ):
-        self.time_manager = time_manager
-        self._equation = equation
+        self.solver = solver
         self.jit = jit
         self.trajectory = trajectory
 
@@ -1961,12 +1959,7 @@ class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
     @property
     def equation(self) -> ES:
-        if not hasattr(self, "_equation"):
-            raise AttributeError(
-                "Equation has not been set. "
-                "Please using 'set_equation' method to specify the dynamics first."
-            )
-        return self._equation
+        return self.solver.equation
 
     @staticmethod
     def expand_dims_on_state(
@@ -2017,12 +2010,11 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
 
     @overload
     @classmethod
-    def from_equation(
+    def from_model(
         cls,
-        time_manager: tfdatetime.DateTimeManager,
+        solver: AbstractSolver[ExVif_SWE_SCVT_TriSKCGrid_FVM],
         coord: CoordinateSystem,
         para: PlanetParameterSet,
-        equation: ExVif_SWE_SCVT_TriSKCGrid_FVM,
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
@@ -2031,12 +2023,11 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
 
     @overload
     @classmethod
-    def from_equation(
+    def from_model(
         cls,
-        time_manager: tfdatetime.DateTimeManager,
+        solver: AbstractSolver[ES],
         coord: CoordinateSystem,
         para: PlanetParameterSet,
-        equation: AbstractEquationSet,
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
@@ -2044,22 +2035,20 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         ...
 
     @classmethod
-    def from_equation(
+    def from_model(
         cls,
-        time_manager: tfdatetime.DateTimeManager,
+        solver: AbstractSolver[ES],
         coord: CoordinateSystem,
         para: PlanetParameterSet,
-        equation: AbstractEquationSet,
         jit: bool = False,
         trajectory: bool = False,
         **kwargs,
     ) -> AbstractDiagnosticTools:
         diag_factory = cls.select(
-            coord=coord, para=para, equation=equation
+            coord=coord, para=para, equation=solver.equation
         )
         return diag_factory(
-            time_manager=time_manager,
-            equation=equation,
+            solver=solver,
             jit=jit,
             trajectory=trajectory,
             **kwargs

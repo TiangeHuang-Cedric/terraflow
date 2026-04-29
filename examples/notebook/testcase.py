@@ -79,14 +79,14 @@ equation.build_default()
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
     end_time="2000-01-21T00:00:00",
-    save_interval="6 hours",
-    dt_dyn="300 seconds",
 )
 
 # %%
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
+    save_interval="6 hours",
+    dt_dyn="300 seconds",
     dev=dev,
 )
 
@@ -107,19 +107,17 @@ final = jax.block_until_ready(final)
 trajectory = jax.block_until_ready(trajectory)
 
 # %%
-diag_tools = tf.discretization.DiagnosticTools.from_equation(
-    time_manager=time_manager,
+diag_tools = tf.discretization.DiagnosticTools.from_model(
+    solver=solver, 
     coord=coord,
     para=para,
-    equation=equation,
     jit=True
 )
 
-trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
-    time_manager=time_manager,
+trajectory_tools = tf.discretization.DiagnosticTools.from_model(
+    solver=solver,
     coord=coord,
     para=para,
-    equation=equation,
     trajectory=True,
     jit=True
 )

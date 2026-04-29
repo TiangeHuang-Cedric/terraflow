@@ -6,6 +6,7 @@ from typing import (
     TypeVar,
     List,
     Callable,
+    Optional,
     TYPE_CHECKING,
 )
 import datetime
@@ -71,6 +72,10 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[EXODE]):
         equation: EXODE,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
+        dt_dyn: str,
+        dt_adv: Optional[str] = None,
+        save_interval: Optional[str] = None,
+        log_every: str = "1 hours",
         forward_backward: bool = True
     ):
         super().__init__(
@@ -78,6 +83,10 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[EXODE]):
             equation=equation,
             time_manager=time_manager,
             dev=dev,
+            dt_dyn=dt_dyn,
+            dt_adv=dt_adv,
+            save_interval=save_interval,
+            log_every=log_every,
         )
         self.dt_rk = self.calc_dts_substep(self.dt_dyn, as_array=False)
         self.dt_rk_seconds = jnp.asarray(
@@ -203,6 +212,10 @@ class ExEulerSolver(AbstractSolver[EXODE]):
         equation: EXODE,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
+        dt_dyn: str,
+        dt_adv: Optional[str] = None,
+        save_interval: Optional[str] = None,
+        log_every: str = "1 hours",
         forward_backward: bool = True
     ):
         super().__init__(
@@ -210,6 +223,10 @@ class ExEulerSolver(AbstractSolver[EXODE]):
             equation=equation,
             time_manager=time_manager,
             dev=dev,
+            dt_dyn=dt_dyn,
+            dt_adv=dt_adv,
+            save_interval=save_interval,
+            log_every=log_every,
         )
         self.dt_seconds = jnp.asarray(
             self.dt_dyn.total_seconds(),

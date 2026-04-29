@@ -9,7 +9,7 @@ from typing import (
 import jax
 import jax.numpy as jnp
 
-from terraflow.util import typing, datetime, uxarray as tuxr
+from terraflow.util import typing, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .. import dynamics_types as vars
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+    from terraflow.solver.abstract import AbstractSolver
     Array = typing.Array
 
 Coordsys = CoordinateSystem[
@@ -62,14 +63,12 @@ class DiagnosticsTools(
 
     def __init__(
         self,
-        time_manager: datetime.DateTimeManager,
-        equation: Equation,
+        solver: AbstractSolver,
         jit: bool = True,
         trajectory: bool = False
     ):
         super().__init__(
-            time_manager=time_manager,
-            equation=equation,
+            solver=solver,
             jit=jit,
             trajectory=trajectory
         )
@@ -166,7 +165,7 @@ class DiagnosticsTools(
         from .. import dynamics_types as vars
         from ..common.adv.batch import AdvBatchType
         state = self.expand_dims_on_state(state)
-        dt_dyn = self.time_manager.dt_dyn.total_seconds()
+        dt_dyn = self.solver.dt_dyn.total_seconds()
         block = vars.Block(
             mode=self.equation.mode,
             _coord=coord,

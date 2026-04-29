@@ -47,13 +47,13 @@ equation.build_default()
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
     end_time="2000-01-21T00:00:00",
-    save_interval="6 hours",
-    dt_dyn="300 seconds",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
+    save_interval="6 hours",
+    dt_dyn="300 seconds",
     dev=dev,
 )
 
@@ -64,7 +64,7 @@ block = block_cls.from_testcase(
 )
 
 history = tf.util.history.UnstructuredHistoryset(
-    time_manager=time_manager,
+    solver=solver,
     coord=coord,
     equation=equation,
     case_name="terraflow.swm" + "." + mesh.glevel,
