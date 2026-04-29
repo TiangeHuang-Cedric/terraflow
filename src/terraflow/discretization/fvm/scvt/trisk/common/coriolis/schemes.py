@@ -4,7 +4,7 @@ from typing import Self, TypeVar, TYPE_CHECKING
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
     DiscretizationInfo,
 )
 from terraflow.discretization.fvm.scvt.trisk.common.coriolis import trisk
@@ -19,10 +19,10 @@ if TYPE_CHECKING:
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 
-class CoriolisForceAtEdge(Operator):
+class CoriolisForceAtEdge(DynOperator):
 
     def __init__(
         self,

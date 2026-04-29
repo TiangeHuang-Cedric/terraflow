@@ -123,6 +123,8 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
         hori_loc: str,
         vert_loc: str,
         basis: str,
+        is_tracer: bool = False,
+        ntracers: int = 0,
         is_expand_dims: bool = False,
         expand_axis: int = 0,
         expand_axis_length: int = 1,
@@ -138,6 +140,7 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
         )
         dtype = self.mesh.dev.float_type
         arch = self.mesh.dev()
+
         if vert_shape[0] == 0:
             if vert_loc != VertLoc.Sfc:
                 vert_shape = (1,)
@@ -146,12 +149,17 @@ class CoordinateSystem(eqx.Module, Generic[HM, VM, HLO, VLO]):
                 shape = hori_shape
         else:
             shape = vert_shape + hori_shape
+
+        if is_tracer:
+            shape = (ntracers,) + shape
+
         if is_expand_dims:
             shape = (
                 shape[:expand_axis]
                 + (expand_axis_length,)
                 + shape[expand_axis:]
             )
+
         return jnp.zeros(shape, dtype=dtype, device=arch)
 
     def get_hori_layout(

@@ -1,6 +1,10 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import (
+    overload,
+    Literal,
+    Union,
+    List,
     Callable,
     TypeVar,
     Generic,
@@ -32,7 +36,20 @@ Int = typing.Int
 Array = typing.Array
 
 
+def compiled_with_block(
+    block: AbstractBlock,
+    fun: Callable[[AbstractBlock], Union[AbstractBlock, Tuple[AbstractFields, ...]]],
+    with_jit: bool = True
+) -> Callable[[AbstractBlock], Union[AbstractBlock, Tuple[AbstractFields, ...]]]:
+    import jax
+    if with_jit:
+        return jax.jit(fun).lower(block).compile()
+    else:
+        return fun
+
+
 class AbstractODE(ABC):
+    mode: Any
     _space_operators: Any
 
     @abstractmethod
@@ -43,7 +60,7 @@ class AbstractODE(ABC):
 class AbstractExplicitODE(AbstractODE):
 
     @abstractmethod
-    def explicit_terms(self, *args, **kwargs) -> typing.PyTree:
+    def explicit_terms(self, *args, **kwargs) -> Callable:
         raise NotImplementedError
 
 
@@ -70,24 +87,57 @@ def trajectory_post_process(block: AbstractBlock, itime: int | Int[Array, ""]) -
 
 
 class AbstractSolver(Generic[ODE], ABC):
-    dt: datetime.timedelta
-    save_interval: datetime.timedelta
+    nsubsteps: int
+    equation: ODE
+    time_manager: DateTimeManager
+    dt_dyn: datetime.timedelta
+    dev: device.AbstractDevice
 
     def __init__(
         self,
+        nsubsteps: int,
         equation: ODE,
         time_manager: DateTimeManager,
         dev: device.AbstractDevice,
-        with_jit: bool = True
     ):
+        self.nsubsteps = nsubsteps
         self.equation = equation
         self.time_manager = time_manager
-        self.dt = time_manager.dt_dyn
+        self.dt_dyn = time_manager.dt_dyn
         self.dev = dev
-        self.with_jit = with_jit
 
     @abstractmethod
-    def stepper(self, *args, **kwargs) -> Callable:
+    @overload
+    def calc_dts_substep(
+        self,
+        dt: datetime.timedelta,
+        as_array: Literal[False]
+    ) -> List[datetime.timedelta]:
+        ...
+
+    @abstractmethod
+    @overload
+    def calc_dts_substep(
+        self,
+        dt: datetime.timedelta,
+        as_array: Literal[True] = True
+    ) -> Array:
+        ...
+
+    @abstractmethod
+    def calc_dts_substep(
+        self,
+        dt: datetime.timedelta,
+        as_array: bool = True
+    ) -> Union[Array, List[datetime.timedelta]]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def dynamical_stepper(self, *args, **kwargs) -> Callable:
+        raise NotImplementedError
+
+    @abstractmethod
+    def advection_stepper(self, *args, **kwargs) -> Callable:
         raise NotImplementedError
 
     def update_state_fn(self) -> Callable:
@@ -111,17 +161,21 @@ class AbstractSolver(Generic[ODE], ABC):
                 # we will apply the diagnose function to the old block.
                 block = self.diagnose_fn()(
                     block,
-                    itime=block.old
+                    itime_str="old"
                 )
             return block
 
         return first_call_fn
 
     def terraflow_run(self) -> Callable:
+        dynamical_stepper = self.dynamical_stepper()
+        advection_stepper = self.advection_stepper()
 
         def run_fn(block: AbstractBlock) -> AbstractBlock:
-            block = self.stepper()(block)
+            block = dynamical_stepper(block)
             block = block.swap_time_indices()
+            block = advection_stepper(block)
+            block = block.swap_batches_time_indices()
             return block
 
         return run_fn
@@ -132,7 +186,7 @@ class AbstractSolver(Generic[ODE], ABC):
         def diagnose_fn(block: AbstractBlock) -> AbstractBlock:
             block = self.diagnose_fn()(
                 block,
-                itime=block.new
+                itime_str="new"
             )
             return block
 
@@ -161,13 +215,13 @@ class AbstractSolver(Generic[ODE], ABC):
         start_time = self.time_manager.start_time
         end_time = self.time_manager.end_time
         save_interval = self.time_manager.save_interval
-        dt = self.dt
+        dt_dyn = self.dt_dyn
 
         outer_steps = int((end_time - start_time) / save_interval)
-        inner_steps = int((save_interval) / dt)
+        inner_steps = int((save_interval) / dt_dyn)
 
         if use_scan:
-            return_fn = io_callback_in_scan(
+            return io_callback_in_scan(
                 history=history,
                 run_fn=self.terraflow_run(),
                 operator_prepare_fn=self.terraflow_op_first_call(),
@@ -179,8 +233,8 @@ class AbstractSolver(Generic[ODE], ABC):
             )
         else:
             log_every_time = self.time_manager.log_every
-            log_steps = int(log_every_time / dt)
-            return_fn = io_callback_in_while_loop(
+            log_steps = int(log_every_time / dt_dyn)
+            return io_callback_in_while_loop(
                 history=history,
                 run_fn=self.terraflow_run(),
                 op_first_call_fn=self.terraflow_op_first_call(),
@@ -189,11 +243,6 @@ class AbstractSolver(Generic[ODE], ABC):
                 save_steps=inner_steps,
                 log_steps=log_steps
             )
-
-        if self.with_jit:
-            return jax.jit(return_fn)
-        else:
-            return return_fn
 
     def trajectory(
         self,
@@ -222,10 +271,10 @@ class AbstractSolver(Generic[ODE], ABC):
         start_time = self.time_manager.start_time
         end_time = self.time_manager.end_time
         save_interval = self.time_manager.save_interval
-        dt = self.dt
+        dt_dyn = self.dt_dyn
 
         outer_steps = int((end_time - start_time) / save_interval)
-        inner_steps = int((save_interval) / dt)
+        inner_steps = int((save_interval) / dt_dyn)
 
         return trajectory_in_scan(
             run_fn=self.terraflow_run(),
@@ -242,14 +291,12 @@ class AbstractSolver(Generic[ODE], ABC):
     def integrate(
         self,
         *,
-        outer_scan_fn=jax.lax.scan,
-        inner_scan_fn=jax.lax.scan,
+        total_scan_fn=jax.lax.scan,
     ) -> Callable[[AbstractBlock], AbstractBlock] | pjit.JitWrapped:
         """Integrate the ODE from start_time to end_time.
 
         Args:
-            outer_scan_fn: scan function to use for outer (saved) steps.
-            inner_scan_fn: scan function to use for inner (unsaved) steps.
+            total_scan_fn: scan function to use for the integration.
 
         Returns:
             A function that takes an initial block and returns the final block after
@@ -257,20 +304,16 @@ class AbstractSolver(Generic[ODE], ABC):
         """
         start_time = self.time_manager.start_time
         end_time = self.time_manager.end_time
-        save_interval = self.time_manager.save_interval
-        dt = self.dt
+        dt_dyn = self.dt_dyn
 
-        outer_steps = int((end_time - start_time) / save_interval)
-        inner_steps = int((save_interval) / dt)
+        total_steps = int((end_time - start_time) / dt_dyn)
 
         return integrate_in_scan(
             run_fn=self.terraflow_run(),
             op_first_call_fn=self.terraflow_op_first_call(),
             diagnose_fn=self.terraflow_diagnose(),
-            outer_steps=outer_steps,
-            inner_steps=inner_steps,
-            outer_scan_fn=outer_scan_fn,
-            inner_scan_fn=inner_scan_fn,
+            total_steps=total_steps,
+            total_scan_fn=total_scan_fn,
         )
 
     def diagnose_precision(
@@ -355,7 +398,7 @@ def io_callback_in_scan(
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[AbstractBlock], AbstractBlock]:
-    return wrap_fn_for_scan(
+    return wrap_fn_for_split_scan(
         history=history,
         run_fn=run_fn,
         op_first_call_fn=operator_prepare_fn,
@@ -403,7 +446,7 @@ def trajectory_in_scan(
         (1) the final frame of the trajectory.
         (2) trajectory of length `outer_steps` representing time evolution.
     """
-    outer_fn = wrap_fn_for_scan(
+    outer_fn = wrap_fn_for_split_scan(
         run_fn=run_fn,
         op_first_call_fn=op_first_call_fn,
         diagnose_fn=diagnose_fn,
@@ -439,25 +482,21 @@ def trajectory_in_scan(
 def integrate_in_scan(
     run_fn: Callable,
     op_first_call_fn: Callable,
-    outer_steps: int,
-    inner_steps: int,
     diagnose_fn: Callable,
+    total_steps: int,
     *,
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
+    total_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[AbstractBlock], AbstractBlock]:
-    outer_fn = wrap_fn_for_scan(
+    wrap_fn = wrap_fn_for_scan(
         run_fn=run_fn,
         op_first_call_fn=op_first_call_fn,
-        outer_steps=outer_steps,
-        inner_steps=inner_steps,
-        outer_scan_fn=outer_scan_fn,
-        inner_scan_fn=inner_scan_fn,
+        diagnose_fn=diagnose_fn,
+        total_steps=total_steps,
+        total_scan_fn=total_scan_fn,
     )
 
     def return_fn(block: AbstractBlock) -> AbstractBlock:
-        block, _ = outer_fn(block)
-        block = diagnose_fn(block)
+        block = wrap_fn(block)
         state = trajectory_post_process(block, itime=block.new)
         return eqx.tree_at(
             lambda b: b.state,
@@ -476,13 +515,13 @@ def output(
 ) -> None:
     history.output(
         block=block,
-        itime=block.new,
+        itime_str="new",
         save_idx=save_idx,
         first_call=first_call
     )
 
 
-def wrap_fn_for_scan(
+def wrap_fn_for_split_scan(
     run_fn: Callable,
     op_first_call_fn: Callable,
     outer_steps: int,
@@ -547,7 +586,7 @@ def wrap_fn_for_scan(
             block = op_first_call_fn(block, with_diag=True)
             history.output(
                 block=block,
-                itime=block.old,
+                itime_str="old",
                 save_idx=0,
                 first_call=True
             )
@@ -565,6 +604,35 @@ def wrap_fn_for_scan(
         return return_fn_with_history
 
 
+def wrap_fn_for_scan(
+    run_fn: Callable,
+    op_first_call_fn: Callable,
+    total_steps: int,
+    diagnose_fn: Optional[Callable] = None,
+    total_scan_fn: Callable = jax.lax.scan,
+) -> Callable:
+    diagnose_fn = diagnose_fn if diagnose_fn is not None else lambda block: block
+
+    repeated_step_fn = repeated(
+        fn=run_fn,
+        steps=total_steps,
+        scan_fn=total_scan_fn
+    )
+
+    def wrap_fn(block):
+        block = repeated_step_fn(block)
+        block = diagnose_fn(block)
+        return block
+
+    def return_fn(block: AbstractBlock) -> AbstractBlock:
+        block = op_first_call_fn(block, with_diag=False)
+        block = run_fn(block)
+        block = wrap_fn(block)
+        return block
+
+    return return_fn
+
+
 def wrap_fn_for_while_loop(
     run_fn: Callable,
     op_first_call_fn: Callable,
@@ -574,34 +642,37 @@ def wrap_fn_for_while_loop(
     history: Optional[AbstractHistoryset] = None,
     log_steps: Optional[int] = None,
 ) -> Callable[[AbstractBlock], AbstractBlock]:
+    # itimestep starts from 0, and at the beginning of the loop, block is at time level 0 (initial condition).
     diagnose_fn = diagnose_fn if diagnose_fn is not None else lambda block: block
 
-    def while_loop_cond_fn(carry):
+    def while_loop_cond_fn(carry: tuple[AbstractBlock, int]) -> bool:
+        # While itimestep starts from 0, the loop condition should be itimestep <= total_timesteps,
+        # because we want to run the loop body for itimestep = total_timesteps,
+        # which will has the final time level state and diag variables.
         _, itimestep = carry
         return itimestep <= total_timesteps
 
     if history is None or log_steps is None:
-        def process_on_save_step(block):
+        def process_on_save_step(block: AbstractBlock) -> AbstractBlock:
             block = diagnose_fn(block)
             return block
 
-        def while_loop_body_fn(carry) -> tuple[AbstractBlock, int]:
+        def while_loop_body_fn(carry: tuple[AbstractBlock, int]) -> tuple[AbstractBlock, int]:
             block, itimestep = carry
             block = run_fn(block)
             block = jax.lax.cond(
-                (itimestep % save_steps) == 0,
+                itimestep % save_steps == 0,
                 process_on_save_step,
                 lambda block: block,
                 block,
             )
-            block = diagnose_fn(block)
             return block, itimestep + 1
     else:
 
-        def output_on_log_step(itimestep):
+        def output_on_log_step(itimestep: int):
             history.output_diag(itimestep=itimestep)
 
-        def output_on_save_step(block, save_idx):
+        def output_on_save_step(block: AbstractBlock, save_idx: int):
             block = diagnose_fn(block)
             output(
                 history=history,
@@ -609,17 +680,17 @@ def wrap_fn_for_while_loop(
                 save_idx=save_idx
             )
 
-        def while_loop_body_fn(carry) -> tuple[AbstractBlock, int]:
+        def while_loop_body_fn(carry: tuple[AbstractBlock, int]) -> tuple[AbstractBlock, int]:
             block, itimestep = carry
-            block = run_fn(block)
             jax.lax.cond(
                 itimestep % log_steps == 0,
                 output_on_log_step,
                 lambda _: None,
                 itimestep
             )
+            block = run_fn(block)
             jax.lax.cond(
-                (itimestep % save_steps) == 0,
+                itimestep % save_steps == 0,
                 output_on_save_step,
                 lambda _, __: None,
                 block,
@@ -630,7 +701,6 @@ def wrap_fn_for_while_loop(
     if history is None:
         def return_fn(block: AbstractBlock) -> AbstractBlock:
             block = op_first_call_fn(block, with_diag=False)
-            block = run_fn(block)
             carry = (block, 1)
             final_carry = jax.lax.while_loop(
                 cond_fun=while_loop_cond_fn,
@@ -645,11 +715,10 @@ def wrap_fn_for_while_loop(
             block = op_first_call_fn(block, with_diag=True)
             history.output(
                 block=block,
-                itime=block.old,
+                itime_str="old",
                 save_idx=0,
                 first_call=True
             )
-            block = run_fn(block)
             carry = (block, 1)
             final_carry = jax.lax.while_loop(
                 cond_fun=while_loop_cond_fn,

@@ -1,19 +1,18 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from turtle import st
 from typing import (
-    cast,
-    Optional,
     Literal,
     Self,
     overload,
-    TYPE_CHECKING,
     TypeVar,
     Generic,
+    Callable,
+    TYPE_CHECKING,
 )
 import inspect
 
 from terraflow.util import typing, log
-from terraflow.test_case.swe import ShallowWaterEquationTestCase
 from terraflow.planet import PlanetParameterSet
 from terraflow.operator import AbstractDiscretizationMethod
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
@@ -29,9 +28,10 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
-    import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_scvt_trisk_1lev_terms
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_scvt_trisk_terms
 
     Int = typing.Int
+    Float = typing.Float
     Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -53,7 +53,8 @@ class ShallowWaterEquationMode(disc_types.AbstractEquationMode):
             hydrostatic=False,
             nonhydrostatic=False,
             ideal_dry_core=False,
-            advection=False,
+            advection2d=False,
+            advection3d=False,
             **kwargs
         )
 
@@ -95,7 +96,7 @@ ShallowWaterEquationSet = TypeVar(
 
 
 class AbstractShallowWaterEquationForm(
-    disc_types.AbstractEquationForm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractDynamicalEquationForm[DM, ShallowWaterEquationMode],
     Generic[DM],
     ABC
 ):
@@ -113,7 +114,7 @@ class AbstractShallowWaterEquationForm(
 
 
 class AbstractShallowWaterTerm(
-    disc_types.AbstractEquationTerm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractDynamicalEquationTerm[DM, ShallowWaterEquationMode],
     Generic[DM],
     ABC
 ):
@@ -220,10 +221,16 @@ class ExContinuityEqu(
         mode: ShallowWaterEquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
-        self.dmf = self.init_div_mfx()
+        self.dmf = self.init_div_mf()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        return self.dmf(block, star_idx)
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        return self.dmf(block, star_idx, dt, substep)
 
     @staticmethod
     def alias_name() -> str:
@@ -243,9 +250,9 @@ class ExContinuityEqu(
         block = self.dmf.prepare_block(block)
         return block
 
-    def init_div_mfx(self) -> DMF:
+    def init_div_mf(self) -> DMF:
         factory = self.navi2term(
-            group="div_of_mfx",
+            group="div_of_mf",
             choice="builder"
         )
         origin = getattr(factory, '__origin__', factory)
@@ -281,10 +288,16 @@ class ExNormalMomentumEqu4UGRID(
         self.grad_ke = self.init_grad_kinetic_energy_term()
         self.pgf = self.init_grad_geopotential_term()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        block = self.coriolis(block, star_idx)
-        block = self.grad_ke(block, star_idx)
-        block = self.pgf(block, star_idx)
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        block = self.coriolis(block, star_idx, dt, substep)
+        block = self.grad_ke(block, star_idx, dt, substep)
+        block = self.pgf(block, star_idx, dt, substep)
         return block
 
     @staticmethod
@@ -426,7 +439,7 @@ class ExVifShallowWaterEquationSet4UGRID(
         return "explicit"
 
     @overload
-    def build_block_from_testcase(
+    def build_block_cls(
         self,
         coord: CoordinateSystem[
             SphericalCentroidVoronoiTessellations,
@@ -434,29 +447,20 @@ class ExVifShallowWaterEquationSet4UGRID(
             TriSKBasedCGridStaggeringLayout,
             OneLayerVertCoordLayout
         ],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[ShallowWaterEquationTestCase] = None
-    ) -> fvm_scvt_trisk_vars.Block:
+    ) -> type[fvm_scvt_trisk_vars.Block]:
         ...
 
     @overload
-    def build_block_from_testcase(
+    def build_block_cls(
         self,
-        coord: CoordinateSystem[HM, VM, HLO, VLO],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[ShallowWaterEquationTestCase] = None
-    ) -> disc_types.AbstractBlock:
+        coord: CoordinateSystem[UHM, VM, HLO, VLO],
+    ) -> type[disc_types.AbstractBlock]:
         ...
 
-    def build_block_from_testcase(
+    def build_block_cls(
         self,
-        coord: CoordinateSystem[HM, VM, HLO, VLO],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[ShallowWaterEquationTestCase] = None
-    ) -> disc_types.AbstractBlock:
+        coord: CoordinateSystem[UHM, VM, HLO, VLO],
+    ) -> type[disc_types.AbstractBlock]:
         from terraflow.operator import FiniteVolumeMethod
         from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
         from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
@@ -470,26 +474,11 @@ class ExVifShallowWaterEquationSet4UGRID(
             isinstance(coord.vert_layout, OneLayerVertCoordLayout)
         ):
             from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
-            block_cls = Block
-            coord_specialized = cast(
-                CoordinateSystem[
-                    SphericalCentroidVoronoiTessellations,
-                    OneLayerVertCoordinate,
-                    TriSKBasedCGridStaggeringLayout,
-                    OneLayerVertCoordLayout
-                ],
-                coord
-            )
+            return Block
         else:
             raise NotImplementedError(
                 "Unsupported combination of method and coordinate system for building block. "
             )
-        return block_cls.from_testcase(
-            coord=coord_specialized,
-            para=para,
-            equation=self,
-            case=case
-        )
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -502,13 +491,32 @@ class ExVifShallowWaterEquationSet4UGRID(
         log.logger.success("Prepared auxiliary and data.")
         return block
 
-    def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
-        return self.space_operators(
-            block,
-            *args,
-            **kwargs,
-            explicit=True
-        )
+    def explicit_terms(self, advection: bool = False, *args, **kwargs) -> Callable:
+
+        if not advection:
+            def _wrap_dynamics(block: BLOCK, *args, **kwargs) -> BLOCK:
+                return self.space_operators(
+                    block=block,
+                    *args,
+                    **kwargs,
+                    explicit=True
+                )
+            return _wrap_dynamics
+        else:
+            def _wrap_advection(
+                batch: disc_types.AbstractAdvBatchType,
+                block: BLOCK,
+                *args,
+                **kwargs
+            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
+                return self.space_operators.advection_space_operators(
+                    batch,
+                    block,
+                    *args,
+                    **kwargs,
+                    explicit=True
+                )
+            return _wrap_advection
 
 
 class ShallowWaterEquationBuilder:
@@ -574,5 +582,5 @@ class ShallowWaterEquationBuilder:
 if TYPE_CHECKING:
     ExVif_SWE_SCVT_TriSKCGrid_FVM = ExVifShallowWaterEquationSet4UGRID[
         FiniteVolumeMethod,
-        fvm_scvt_trisk_1lev_terms.ExSpaceOperators,
+        fvm_scvt_trisk_terms.ExSpaceOperators,
     ]

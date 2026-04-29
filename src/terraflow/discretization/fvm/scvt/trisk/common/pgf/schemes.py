@@ -5,7 +5,7 @@ from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
     DiscretizationInfo,
-    AbstractEquationOperator
+    AbstractDynamicalEquationOperator
 )
 from terraflow.discretization.fvm.scvt.trisk.common.pgf import ptb
 
@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 
-class PressureGradientForce(Operator):
+class PressureGradientForce(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,

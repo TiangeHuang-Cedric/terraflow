@@ -213,6 +213,8 @@ class FieldMetaData(AbstractMetaData):
     basis: str = eqx.field(static=True, default="")
     coordinates: str = eqx.field(static=True, default="")
     is_prognostic: bool = eqx.field(static=True, default=False)
+    is_tracer: bool = eqx.field(static=True, default=False)
+    ntracers: int = eqx.field(static=True, default=0)
     is_static: bool = eqx.field(static=True, default=False)
     is_expand_dims: bool = eqx.field(static=True, default=False)
     expand_axis: int = eqx.field(static=True, default=0)
@@ -245,6 +247,8 @@ class FieldMetaData(AbstractMetaData):
             basis=self.basis,
             coordinates=self.coordinates,
             is_prognostic=self.is_prognostic,
+            is_tracer=self.is_tracer,
+            ntracers=self.ntracers,
             is_static=self.is_static,
             is_expand_dims=self.is_expand_dims,
             expand_axis=self.expand_axis,
@@ -258,6 +262,8 @@ class FieldMetaData(AbstractMetaData):
             hori_loc=self.hori_location,
             vert_loc=self.vert_location,
             basis=self.basis,
+            is_tracer=self.is_tracer,
+            ntracers=self.ntracers,
             is_expand_dims=self.is_expand_dims,
             expand_axis=self.expand_axis,
             expand_axis_length=self.expand_axis_length,
@@ -292,6 +298,8 @@ class FieldMetaData(AbstractMetaData):
             basis=kwargs.get("basis", ""),
             coordinates=kwargs.get("coordinates", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
+            is_tracer=kwargs.get("is_tracer", False),
+            ntracers=kwargs.get("ntracers", 0),
             is_static=kwargs.get("is_static", False),
             is_expand_dims=kwargs.get("is_expand_dims", False),
             expand_axis=kwargs.get("expand_axis", 0),
@@ -313,6 +321,8 @@ class FieldMetaData(AbstractMetaData):
             basis=meta.get("basis", ""),
             coordinates=meta.get("coordinates", ""),
             is_prognostic=meta.get("is_prognostic", False),
+            is_tracer=meta.get("is_tracer", False),
+            ntracers=meta.get("ntracers", 0),
             is_static=meta.get("is_static", False),
             is_expand_dims=meta.get("is_expand_dims", False),
             expand_axis=meta.get("expand_axis", 0),
@@ -333,6 +343,8 @@ class FieldMetaData(AbstractMetaData):
             "basis": self.basis,
             "coordinates": self.coordinates,
             "is_prognostic": self.is_prognostic,
+            "is_tracer": self.is_tracer,
+            "ntracers": self.ntracers,
             "is_static": self.is_static,
             "is_expand_dims": self.is_expand_dims,
             "expand_axis": self.expand_axis,
@@ -366,6 +378,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=self.staggered_kind,
             mesh_name=self.mesh_name,
             is_prognostic=self.is_prognostic,
+            is_tracer=self.is_tracer,
+            ntracers=self.ntracers,
             is_static=self.is_static,
             is_expand_dims=self.is_expand_dims,
             expand_axis=self.expand_axis,
@@ -389,6 +403,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=kwargs.get("staggered_kind", ""),
             mesh_name=kwargs.get("mesh_name", ""),
             is_prognostic=kwargs.get("is_prognostic", False),
+            is_tracer=kwargs.get("is_tracer", False),
+            ntracers=kwargs.get("ntracers", 0),
             is_static=kwargs.get("is_static", False),
             is_expand_dims=kwargs.get("is_expand_dims", False),
             expand_axis=kwargs.get("expand_axis", 0),
@@ -412,6 +428,8 @@ class StaggeredFieldMetaData(FieldMetaData):
             staggered_kind=meta.get("staggered_kind", ""),
             mesh_name=meta.get("mesh_name", ""),
             is_prognostic=meta.get("is_prognostic", False),
+            is_tracer=meta.get("is_tracer", False),
+            ntracers=meta.get("ntracers", 0),
             is_static=meta.get("is_static", False),
             is_expand_dims=meta.get("is_expand_dims", False),
             expand_axis=meta.get("expand_axis", 0),

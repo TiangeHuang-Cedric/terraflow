@@ -10,7 +10,7 @@ Int = typing.Int
 Array = typing.Array
 
 
-class BaroclinicEquationTestCase(AbstractTestCase):
+class AbstractBaroclinicEquationTestCase(AbstractTestCase):
     """Base class for baroclinic dynamics test cases."""
 
     def init_normal_velocity(
@@ -94,7 +94,7 @@ class BaroclinicEquationTestCase(AbstractTestCase):
         )
 
 
-class SteadyStateTestCase(BaroclinicEquationTestCase):
+class SteadyStateTestCase(AbstractBaroclinicEquationTestCase):
     alpha: Array
     u0: Array  # m s-1
     t0: Array  # K
@@ -232,7 +232,7 @@ class SteadyStateTestCase(BaroclinicEquationTestCase):
         )
 
 
-class MountainWaveTestCase(BaroclinicEquationTestCase):
+class MountainWaveTestCase(AbstractBaroclinicEquationTestCase):
     """Baroclinic wave test case with a mountain perturbation."""
     T0: Array  # K
     h0: Array  # m
@@ -339,7 +339,7 @@ class MountainWaveTestCase(BaroclinicEquationTestCase):
         )
 
 
-class RossbyHaurwitzWaveTestCase(BaroclinicEquationTestCase):
+class RossbyHaurwitzWaveTestCase(AbstractBaroclinicEquationTestCase):
     """3D Rossby-Haurwitz wave test case."""
     n: Int[Array, ""]
     u0: Float[Array, ""]  # m s-1

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import (
     cast,
+    Union,
     Callable,
     Sequence,
     Any,
@@ -58,7 +59,13 @@ def tree_at(
     replace_fn: Callable[[_Node], Any] = sentinel,
     is_leaf: Callable[[Any], bool] | None = None,
     at_dims: int | Sequence[int] | None = None,
-    at_idxes: int | Sequence[int] | Array | Sequence[int | Array] | None = None,
+    at_idxes: Union[
+        int,
+        Sequence[int],
+        Array,
+        Sequence[Union[int, Array]],
+        None
+    ] = None,
     fill_halo: bool = False,
     fill_hori_halo: bool = False,
     fill_vert_halo: bool = False,

@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 
-import time
 import jax
 import jax.numpy as jnp
 import terraflow.core as tf
 
-t0 = time.perf_counter()
+tf.util.datetime.perf_start("program")
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
@@ -46,12 +45,6 @@ equation.space_operators.dptdt.adv_vert.adv_scheme.upwind(3)
 
 equation.build_default()
 
-block = equation.build_block_from_testcase(
-    coord=coord, para=para, case=testcase
-)
-
-block = equation.prepare_block(block)
-
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
     end_time="2000-01-31T00:00:00",
@@ -59,30 +52,38 @@ time_manager = tf.util.datetime.DateTimeManager(
     dt_dyn="300 seconds",
 )
 
-history = tf.util.history.UnstructuredHistoryset(
-    coord=coord,
-    time_manager=time_manager,
-    case_name="terraflow" + "." + mesh.glevel,
-    output_h1=False,
-    output_h2=False,
-).setup(block)
-
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     dev=dev,
 )
 
-integrate_fn = solver.io_callback(history=history)
+block_cls = equation.build_block_cls(coord=coord)
 
-tf.util.log.logger.info("Start integrating...")
-t1 = time.perf_counter()
+block = block_cls.from_testcase(
+    coord=coord, para=para, solver=solver, case=testcase
+)
+
+history = tf.util.history.UnstructuredHistoryset(
+    time_manager=time_manager,
+    coord=coord,
+    equation=equation,
+    case_name="terraflow" + "." + mesh.glevel,
+    output_h1=False,
+    output_h2=False,
+).setup(block)
+
+integrate_fn = tf.solver.compiled_with_block(
+    block=block,
+    fun=solver.io_callback(history=history),
+)
+
+tf.util.datetime.perf_start("integration")
+
 final = integrate_fn(block)
 jax.block_until_ready(final)
-t2 = time.perf_counter()
-tf.util.log.logger.success(f"Integration time cost {t2 - t1} seconds.")
 
-tf.util.log.logger.success(f"Total time cost {t2 - t0} seconds.")
+tf.util.datetime.perf_end("integration")
 
 tf.util.post_process.CDOPostProcesser.remap_history(
     history=history,
@@ -90,3 +91,5 @@ tf.util.post_process.CDOPostProcesser.remap_history(
     remap=True,
     use_weight=True,
 )
+
+tf.util.datetime.perf_end("program")

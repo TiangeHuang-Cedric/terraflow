@@ -8,7 +8,7 @@ import time
 import subprocess
 from abc import ABC, abstractmethod
 
-from terraflow.util import log
+from terraflow.util import log, datetime
 
 if TYPE_CHECKING:
     from terraflow.util.history.abstract import AbstractHistoryset
@@ -33,6 +33,8 @@ class AbstractPostProcessor(ABC):
             res (float | int): Resolution to be interpolated to, e.g., 1 represents for 1d * 1d.
             remap (bool, optional): If True, perform remapping. Defaults to True.
         """
+        datetime.perf_start("post process")
+
         post_processor = CDOPostProcesser()
         if isinstance(res, float):
             res = int(res) if res.is_integer() else res
@@ -41,15 +43,12 @@ class AbstractPostProcessor(ABC):
                 "Remapping is skipped. To enable remapping, set remap=True."
             )
             return
-        t0 = time.perf_counter()
         for infile in history.get_all_histories(with_h2=False):
             filehead = pathlib.Path(infile).with_suffix("")
             outfile = f"{filehead}.{res}×{res}.nc"
             post_processor.remap_netcdf(infile, outfile, res, *args, **kwargs)
-        t1 = time.perf_counter()
-        log.logger.success(
-            f"CDO post-processing for all history files cost {t1 - t0:.2f} seconds."
-        )
+
+        datetime.perf_end("post process")
 
     @staticmethod
     def run(cmd, silent=False):

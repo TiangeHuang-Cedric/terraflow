@@ -5,16 +5,19 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from terraflow.test_case import baroclinic as baroclinic
     from terraflow.test_case import swe as swe
+    from terraflow.test_case import adv as adv
 
 
 _LAZY_SUBMODULES = {
     "swe": "terraflow.test_case.swe",
     "baroclinic": "terraflow.test_case.baroclinic",
+    "adv": "terraflow.test_case.adv"
 }
 
 __all__ = [
     "swe",
-    "baroclinic"
+    "baroclinic",
+    "adv"
 ]
 
 

@@ -8,7 +8,7 @@ from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
     DiscretizationInfo,
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
 )
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.dynamics.shallow_water.types import ShallowWaterEquationMode
@@ -26,10 +26,10 @@ if TYPE_CHECKING:
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 
-class PressureGradientForce(Operator):
+class PressureGradientForce(DynOperator):
 
     def __init__(
         self,

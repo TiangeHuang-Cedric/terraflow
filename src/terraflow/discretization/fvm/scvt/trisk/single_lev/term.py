@@ -7,7 +7,7 @@ from terraflow.mesh.scvt import operators as op
 
 from terraflow.discretization.abstract import (
     AbstractPrepareSpaceOperators,
-    AbstractEquationOperator
+    AbstractDynamicalEquationOperator
 )
 from terraflow.dynamics.shallow_water import types
 from ..parallel import tree_at
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
     from terraflow.discretization.fvm.scvt.trisk.common.coriolis.schemes import CoriolisForceAtEdge
+    from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
     from ..dynamics_types import Block
 
     Float = typing.Float
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
 
 class FluidThickness(
-    AbstractEquationOperator[
+    AbstractDynamicalEquationOperator[
         FiniteVolumeMethod,
         types.ShallowWaterEquationMode
     ]
@@ -124,7 +125,13 @@ class TendencyOfDivergenceOfMassFlux(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(
+        self,
+        block: Block,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> Block:
         ids, ide = block.coord.mesh.polg_ids, block.coord.mesh.polg_ide
         g = block.para.gravity.unwrap()
         dmf = block.aux.dmf.unwrap()
@@ -170,7 +177,13 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(
+        self,
+        block: Block,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
@@ -212,7 +225,13 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
         self.scheme = PressureGradientForce(
             disc=disc, method=method)
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(
+        self,
+        block: Block,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
@@ -249,7 +268,13 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(
+        self,
+        block: Block,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> Block:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         ke = block.aux.ke.unwrap()
         dundt = block.tend.dundt.unwrap()
@@ -411,6 +436,8 @@ class ExSpaceOperators(
         old_idx: Int[Array, ""] | int,
         star_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
         pass_tag: str,
         explicit: bool
     ) -> BLOCK:
@@ -426,8 +453,8 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dgzdt(block, star_idx)
-            block = self.dundt(block, star_idx)
+            block = self.dgzdt(block, star_idx, dt, substep)
+            block = self.dundt(block, star_idx, dt, substep)
             # ==================================================
         elif pass_tag == "forward_pass":
             # ==================================================
@@ -440,7 +467,7 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dgzdt(block, star_idx)
+            block = self.dgzdt(block, star_idx, dt, substep)
             # ==================================================
         elif pass_tag == "backward_pass":
             # ==================================================
@@ -453,21 +480,38 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dundt.grad_ke(block, star_idx)
-            block = self.dundt.pgf(block, new_idx)
-            block = self.dundt.coriolis(block, star_idx)
+            block = self.dundt.grad_ke(block, star_idx, dt, substep)
+            block = self.dundt.pgf(block, new_idx, dt, substep)
+            block = self.dundt.coriolis(block, star_idx, dt, substep)
             # ==================================================
         else:
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
         return block
 
+    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        return block
+
+    def advection_space_operators(
+        self,
+        batch: AdvBatchType,
+        block: BLOCK,
+        old_idx: Int[Array, ""] | int,
+        star_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        explicit: bool
+    ) -> tuple[AdvBatchType, BLOCK]:
+        return batch, block
+
     def diagnose(
         self,
         block: BLOCK,
-        itime: Array,
+        itime_str: str,
     ) -> BLOCK:
+        itime = block.get_time_idx(itime_str=itime_str)
         block = self.prepare.div(block, itime)
-        block = block.diagnose(itime=itime)
+        block = block.diagnose(itime_str=itime_str)
         return block
 
     def _update_gz(
@@ -549,8 +593,9 @@ class ExSpaceOperators(
         block: BLOCK,
         old_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
+        dt: float,
+        substep: int,
         pass_tag: str,
-        dt: float
     ) -> BLOCK:
         # ==================================================
         # Update gz

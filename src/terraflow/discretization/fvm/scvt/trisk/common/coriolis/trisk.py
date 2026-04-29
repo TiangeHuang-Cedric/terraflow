@@ -14,7 +14,7 @@ from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
 )
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 
 class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
@@ -79,7 +79,7 @@ class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
         )
 
 
-class TriSKCoriolisForceAtEdge(Operator):
+class TriSKCoriolisForceAtEdge(DynOperator):
 
     def __init__(
         self,

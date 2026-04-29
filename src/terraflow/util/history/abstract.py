@@ -1,5 +1,4 @@
 from __future__ import annotations
-from math import exp
 from typing import (
     TypeVar,
     Type,
@@ -17,9 +16,13 @@ import jax.numpy as jnp
 import jax.experimental
 import xarray as xr
 
-from terraflow.util import log, uxarray as tuxr
+from terraflow.util import log, datetime, uxarray as tuxr
 from terraflow.util.device import AbstractDevice
-from terraflow.util.datetime import DateTimeManager
+from terraflow.util.datetime import (
+    DateTimeManager,
+    perf_runtime,
+    format_seconds
+)
 from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
 from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
@@ -31,8 +34,11 @@ from terraflow.layout.field import FieldMetaData, NumericMetaData
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.discretization.abstract import (
+        AbstractEquationSet,
+        AbstractEquationMode,
         AbstractFields,
         AbstractBlock,
+        TracerMetaData
     )
 
     Int = typing.Int
@@ -206,7 +212,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
 
     def output_prepare(self, save_idx: int) -> None:
         jax.experimental.io_callback(
-            self.prepare_for_advance,
+            self._prepare_for_output,
             None,
             save_idx,
             ordered=True
@@ -215,7 +221,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
     def output(
         self,
         block: AbstractBlock,
-        itime: Int[Array, ""] | int,
+        itime_str: str,
         save_idx: int,
         first_call: bool = False
     ) -> None:
@@ -232,27 +238,52 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         Returns:
             None
         """
-        jax.experimental.io_callback(
-            self.advance_forward_in_time,
-            None,
-            block,
-            itime,
-            save_idx,
-            first_call,
-            ordered=True
-        )
+        if itime_str == "old":
+            jax.experimental.io_callback(
+                self._output_old,
+                None,
+                block,
+                save_idx,
+                first_call,
+                ordered=True
+            )
+        elif itime_str == "new":
+            jax.experimental.io_callback(
+                self._output_new,
+                None,
+                block,
+                save_idx,
+                first_call,
+                ordered=True
+            )
+        else:
+            raise ValueError(
+                f"Invalid itime_str: {itime_str}, expected 'old' or 'new'."
+            )
 
     def log_diag(self, itimestep: int) -> None:
+        perf_runtime()
         log.logger.log(
             "RUNTIME",
-            f"==> {self.time_manager.curr_time4itimestep(itimestep)}"
+            f"==> {self.time_manager.curr_time4itimestep(itimestep)}  "
+            f"{format_seconds(datetime.elapsed_seconds_in_integration, precision=16)}  "
+            f"{format_seconds(datetime.elapsed_secondes_in_real_world, precision=16)}"
         )
         return None
 
-    def prepare_for_advance(self, save_interval_idx: int) -> None:
+    def _prepare_for_output(self, save_interval_idx: int) -> None:
+        perf_runtime()
         log.logger.log(
             "RUNTIME",
-            f"==> {self.time_manager.curr_time4save(save_interval_idx)}"
+            f"==> {self.time_manager.curr_time4save(save_interval_idx)}  "
+            f"{format_seconds(datetime.elapsed_seconds_in_integration, precision=16)}  "
+            f"{format_seconds(datetime.elapsed_secondes_in_real_world, precision=16)}"
+        )
+        return None
+
+    def log_runtime(self) -> None:
+        log.logger.success(
+            f"Time cost {format(perf_runtime(), '.16f')} seconds."
         )
         return None
 
@@ -267,13 +298,41 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         )
         return None
 
-    def advance_forward_in_time(
+    def _output_old(
         self,
         block: AbstractBlock,
-        itime: int,
         save_interval_idx: int,
         first_call: bool = False
     ) -> None:
+        return self._output_in_time(
+            block=block,
+            itime_str="old",
+            save_interval_idx=save_interval_idx,
+            first_call=first_call
+        )
+
+    def _output_new(
+        self,
+        block: AbstractBlock,
+        save_interval_idx: int,
+        first_call: bool = False
+    ) -> None:
+        return self._output_in_time(
+            block=block,
+            itime_str="new",
+            save_interval_idx=save_interval_idx,
+            first_call=first_call
+        )
+
+    def _output_in_time(
+        self,
+        block: AbstractBlock,
+        itime_str: str,
+        save_interval_idx: int,
+        first_call: bool = False
+    ) -> None:
+
+        self.log_runtime()
 
         def _set_time_var(h: HY | SHY):
             ds = nc4.Dataset(h.file_path, mode="a")
@@ -282,105 +341,170 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             interval = save_interval_idx * h.time_manager.save_interval_value
             time_var[current_length] = interval
             ds.close()
+
         if self.output_h0:
             self.log_start_write("h0")
             t0 = time.perf_counter()
             _set_time_var(self.h0)
-            self.write_h0(block, itime=itime, first_call=first_call)
+            self.write_h0(block, itime_str=itime_str, first_call=first_call)
             t1 = time.perf_counter()
             self.log_done_write("h0", t1 - t0)
         if self.output_h1:
             self.log_start_write("h1")
             t0 = time.perf_counter()
             _set_time_var(self.h1)
-            self.write_h1(block, itime=itime)
+            self.write_h1(block, itime_str=itime_str)
             t1 = time.perf_counter()
             self.log_done_write("h1", t1 - t0)
         if self.output_h2:
             self.log_start_write("h2")
             t0 = time.perf_counter()
             _set_time_var(self.h2)
-            self.write_h2(block, itime=itime)
+            self.write_h2(block, itime_str=itime_str)
             t1 = time.perf_counter()
             self.log_done_write("h2", t1 - t0)
         return None
 
     def setup_h0(self, block: AbstractBlock) -> None:
         if self.output_h0:
-            self.h0.setup([block.state, block.static, block.aux])
+            self.h0.setup(block.state)
+            self.h0.setup(block.tend)
+            self.h0.setup(block.static)
+            self.h0.setup(block.aux)
+            self.h0.setup(block.tracers)
+            self.h0.setup(block.adv_batch_bg)
+            self.h0.setup(block.adv_batch_pt)
+            for batch in block.adv_batches.values():
+                self.h0.setup(batch)
+            self.h0.end_setup()
 
     def setup_h1(self, block: AbstractBlock) -> None:
         if self.output_h1:
-            self.h1.setup(
-                [
-                    block.state,
-                    block.static,
-                    block.tend,
-                    block.aux,
-                    block.adv_batch_pt
-                ]
-            )
+            self.h1.setup(block.state)
+            self.h1.setup(block.tend)
+            self.h1.setup(block.static)
+            self.h1.setup(block.aux)
+            self.h1.setup(block.adv_batch_bg)
+            self.h1.setup(block.adv_batch_pt)
+            for batch in block.adv_batches.values():
+                self.h1.setup(batch)
+            self.h1.end_setup()
 
     def setup_h2(self, block: AbstractBlock) -> None:
         if self.output_h2:
-            h2_list = []
             if self.output_h0 and not self.output_h1:
-                h2_list = h2_list + [block.state, block.static, block.aux]
+                self.h2.setup(block.state)
+                self.h2.setup(block.tend)
+                self.h2.setup(block.static)
+                self.h2.setup(block.aux)
+                self.h2.setup(block.tracers)
+                self.h2.setup(block.adv_batch_bg)
+                self.h2.setup(block.adv_batch_pt)
+                for batch in block.adv_batches.values():
+                    self.h2.setup(batch)
+                self.h2.end_setup()
             if self.output_h0 and self.output_h1:
-                h2_list = h2_list + [
-                    block.state,
-                    block.tend,
-                    block.static,
-                    block.aux,
-                    block.adv_batch_pt
-                ]
+                self.h2.setup(block.state)
+                self.h2.setup(block.tend)
+                self.h2.setup(block.static)
+                self.h2.setup(block.aux)
+                self.h2.setup(block.tracers)
+                self.h2.setup(block.adv_batch_bg)
+                self.h2.setup(block.adv_batch_pt)
+                for batch in block.adv_batches.values():
+                    self.h2.setup(batch)
+                self.h2.end_setup()
             if not self.output_h0 and self.output_h1:
-                h2_list = h2_list + [
-                    block.state,
-                    block.tend,
-                    block.static,
-                    block.aux,
-                    block.adv_batch_pt
-                ]
+                self.h2.setup(block.state)
+                self.h2.setup(block.tend)
+                self.h2.setup(block.static)
+                self.h2.setup(block.aux)
+                self.h2.setup(block.adv_batch_bg)
+                self.h2.setup(block.adv_batch_pt)
+                for batch in block.adv_batches.values():
+                    self.h2.setup(batch)
+                self.h2.end_setup()
             if not self.output_h0 and not self.output_h1:
-                h2_list = []
-            if h2_list:
-                self.h2.setup(h2_list)
-            else:
                 raise ValueError(
                     "output_h0 and output_h1 are both False, cannot setup h2."
                 )
 
-    def write_h0(self, block: AbstractBlock, itime: int, first_call: bool = False):
+    def write_h0(self, block: AbstractBlock, itime_str: str, first_call: bool = False):
+        itime = block.get_time_idx(itime_str=itime_str)
+        self.h0.write_fields(block.state, expand_idx=itime)
+        self.h0.write_fields(block.tend)
         if first_call:
             self.h0.write_fields(block.static)
-        self.h0.write_fields(block.state, expand_idx=itime)
         self.h0.write_fields(block.aux)
+        for batch in block.adv_batches.values():
+            batch_idx = batch.idx
+            itime_batch = batch.get_time_idx(itime_str=itime_str)
+            self.h0.write_fields(
+                block.tracers,
+                expand_idx=itime_batch,
+                tracer_idx=batch_idx
+            )
+        self.h0.write_fields(block.adv_batch_bg)
+        self.h0.write_fields(block.adv_batch_pt)
+        for batch in block.adv_batches.values():
+            self.h0.write_fields(batch)
 
-    def write_h1(self, block: AbstractBlock, itime: int):
+    def write_h1(self, block: AbstractBlock, itime_str: str):
+        itime = block.get_time_idx(itime_str=itime_str)
         self.h1.write_fields(block.state, expand_idx=itime)
         self.h1.write_fields(block.tend)
         self.h1.write_fields(block.static)
         self.h1.write_fields(block.aux)
+        self.h1.write_fields(block.adv_batch_bg)
         self.h1.write_fields(block.adv_batch_pt)
+        for batch in block.adv_batches.values():
+            self.h1.write_fields(batch)
 
-    def write_h2(self, block: AbstractBlock, itime: int):
+    def write_h2(self, block: AbstractBlock, itime_str: str):
+        itime = block.get_time_idx(itime_str=itime_str)
         if self.output_h0 and not self.output_h1:
             self.h2.write_fields(block.state, expand_idx=itime)
+            self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
+            for batch in block.adv_batches.values():
+                batch_idx = batch.idx
+                itime_batch = batch.get_time_idx(itime_str=itime_str)
+                self.h2.write_fields(
+                    block.tracers,
+                    expand_idx=itime_batch,
+                    tracer_idx=batch_idx
+                )
+            self.h2.write_fields(block.adv_batch_bg)
+            self.h2.write_fields(block.adv_batch_pt)
+            for batch in block.adv_batches.values():
+                self.h2.write_fields(batch)
         if self.output_h0 and self.output_h1:
             self.h2.write_fields(block.state, expand_idx=itime)
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
+            for batch in block.adv_batches.values():
+                batch_idx = batch.idx
+                itime_batch = batch.get_time_idx(itime_str=itime_str)
+                self.h2.write_fields(
+                    block.tracers,
+                    expand_idx=itime_batch,
+                    tracer_idx=batch_idx
+                )
+            self.h2.write_fields(block.adv_batch_bg)
             self.h2.write_fields(block.adv_batch_pt)
+            for batch in block.adv_batches.values():
+                self.h2.write_fields(batch)
         if not self.output_h0 and self.output_h1:
             self.h2.write_fields(block.state, expand_idx=itime)
             self.h2.write_fields(block.tend)
             self.h2.write_fields(block.static)
             self.h2.write_fields(block.aux)
+            self.h2.write_fields(block.adv_batch_bg)
             self.h2.write_fields(block.adv_batch_pt)
+            for batch in block.adv_batches.values():
+                self.h2.write_fields(batch)
         if not self.output_h0 and not self.output_h1:
             raise ValueError(
                 "output_h0 and output_h1 are both False, cannot write h2."
@@ -393,8 +517,9 @@ class UGRIDHistoryset(
 
     def __init__(
         self,
-        coord: CoordinateSystem[HM, VM, HLO, VLO],
         time_manager: DateTimeManager,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        equation: AbstractEquationSet,
         case_name: str = "terraflow",
         file_path: str = "",
         output_h0: bool = True,
@@ -438,8 +563,9 @@ class UnstructuredHistoryset(
 
     def __init__(
         self,
-        coord: CoordinateSystem[UM, VM, HLO, VLO],
         time_manager: DateTimeManager,
+        coord: CoordinateSystem[UM, VM, HLO, VLO],
+        equation: AbstractEquationSet,
         case_name: str = "terraflow",
         file_path: str = "",
         output_h0: bool = True,
@@ -450,6 +576,8 @@ class UnstructuredHistoryset(
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
         **kwargs
     ) -> None:
+        mode: AbstractEquationMode = equation.mode
+        with_vtx = True if not mode.is_advection() else False
         super().__init__(
             coord=coord,
             time_manager=time_manager,
@@ -458,8 +586,8 @@ class UnstructuredHistoryset(
             output_h0=output_h0,
             output_h1=output_h1,
             output_h2=output_h2,
-            h0_opt={"with_vtx": True},
-            h1_opt={"with_vtx": True},
+            h0_opt={"with_vtx": with_vtx},
+            h1_opt={"with_vtx": with_vtx},
             h2_opt={},
             dev=dev,
             float_type=float_type,
@@ -515,13 +643,21 @@ class AbstractHistory(ABC):
     def setup(self, *args, **kwargs) -> Self:
         raise NotImplementedError
 
+    def end_setup(self):
+        self._built = True
+
     def has_built(self) -> bool:
         return self._built
 
     def open_dataset(self) -> nc4.Dataset:
         return nc4.Dataset(self.file_path, mode="r")
 
-    def write_fields(self, fields: AbstractFields, expand_idx: Optional[int] = None) -> None:
+    def write_fields(
+        self,
+        fields: AbstractFields,
+        expand_idx: Optional[Int[Array, ""] | int] = None,
+        tracer_idx: Optional[Int[Array, "ntracers"]] = None
+    ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
         for field_name in fields.keys():
@@ -537,8 +673,24 @@ class AbstractHistory(ABC):
                 )
             if field.meta.is_static:
                 ds.variables[field.meta.name][...] = data
-            else:
+            if not getattr(field.meta, "is_tracer", False):
                 ds.variables[field.meta.name][idx, ...] = data
+            else:
+                if hasattr(fields, "tracers_meta"):
+                    tracers_meta: dict[str, TracerMetaData] = getattr(
+                        fields, "tracers_meta"
+                    )
+                else:
+                    raise ValueError(
+                        "tracers_meta is required for tracer fields."
+                    )
+                if tracer_idx is None:
+                    raise ValueError(
+                        "tracer_idx is required for tracer fields."
+                    )
+                for q_idx, tracer_name in enumerate(tracers_meta.keys()):
+                    if q_idx in tracer_idx:
+                        ds.variables[tracer_name][idx, ...] = data[q_idx, ...]
         ds.close()
         return None
 
@@ -598,7 +750,7 @@ class UGRIDHistory(AbstractHistory):
             int_type=self.int_type
         )
 
-    def setup(self, fields_list: list[AbstractFields]) -> Self:
+    def setup(self, fields: AbstractFields) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -609,11 +761,14 @@ class UGRIDHistory(AbstractHistory):
             self.mesh.setup(use_dual=self.use_dual)
         if not self.vert.has_built():
             self.vert.setup()
-        if self.attr.has_built() and self.time.has_built() and \
-           self.mesh.has_built() and self.vert.has_built():
-            for fields in fields_list:
-                self.add_fields(fields)
-            self._built = True
+        if (
+            self.attr.has_built()
+            and self.time.has_built()
+            and self.mesh.has_built()
+            and self.vert.has_built()
+            and not self._built
+        ):
+            self.add_fields(fields)
         return self
 
     def add_fields(self, fields: AbstractFields) -> None:
@@ -629,13 +784,43 @@ class UGRIDHistory(AbstractHistory):
                 var_dims = tuple(str(dim) for dim in dsxr.dims)
                 if not field.meta.is_static:
                     var_dims = tuple(("time",) + var_dims)
-                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
-                v.mesh = dsxr.attrs.get("mesh", "")
-                v.location = dsxr.attrs.get("location", "")
-                v.coordinates = dsxr.attrs.get("coordinates", "")
-                v.units = dsxr.attrs.get("units", "")
-                v.long_name = dsxr.attrs.get("long_name", "")
-                v.description = dsxr.attrs.get("description", "")
+                if not field.meta.is_tracer:
+                    v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                    v.mesh = dsxr.attrs.get("mesh", "")
+                    v.location = dsxr.attrs.get("location", "")
+                    v.coordinates = dsxr.attrs.get("coordinates", "")
+                    v.units = dsxr.attrs.get("units", "")
+                    v.long_name = dsxr.attrs.get("long_name", "")
+                    v.description = dsxr.attrs.get("description", "")
+                else:
+                    if hasattr(fields, "tracers_meta"):
+                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                            fields, "tracers_meta"
+                        )
+                    else:
+                        raise ValueError(
+                            "tracers_meta is required for tracer fields."
+                        )
+                    for tracer_name, tracer_meta in tracers_meta.items():
+                        q_name = tracer_name
+                        q_long_name = (
+                            dsxr.attrs.get("long_name", "")
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_description = (
+                            dsxr.attrs.get("description", "")
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_units = dsxr.attrs.get("units", "")
+                        v = ds.createVariable(q_name, var_dtype, var_dims)
+                        v.mesh = dsxr.attrs.get("mesh", "")
+                        v.location = dsxr.attrs.get("location", "")
+                        v.coordinates = dsxr.attrs.get("coordinates", "")
+                        v.units = q_units
+                        v.long_name = q_long_name
+                        v.description = q_description
             elif isinstance(field.meta, NumericMetaData):
                 var_dims = ("time",) if not field.meta.is_static else ()
                 v = ds.createVariable(field.meta.name, var_dtype, var_dims)
@@ -703,7 +888,7 @@ class UnstructuredHistory(AbstractHistory):
         )
         self.with_vtx = with_vtx
 
-    def setup(self, fields_list: list[AbstractFields]) -> Self:
+    def setup(self, fields: AbstractFields) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -714,11 +899,14 @@ class UnstructuredHistory(AbstractHistory):
             self.mesh.setup(with_vtx=self.with_vtx)
         if not self.vert.has_built():
             self.vert.setup()
-        if self.attr.has_built() and self.time.has_built() and \
-           self.mesh.has_built() and self.vert.has_built():
-            for fields in fields_list:
-                self.add_fields(fields)
-            self._built = True
+        if (
+            self.attr.has_built()
+            and self.time.has_built()
+            and self.mesh.has_built()
+            and self.vert.has_built()
+            and not self._built
+        ):
+            self.add_fields(fields)
         return self
 
     def add_fields(self, fields: AbstractFields) -> None:
@@ -731,13 +919,43 @@ class UnstructuredHistory(AbstractHistory):
                 var_dims = field.meta.dims
                 if not field.meta.is_static:
                     var_dims = tuple(("time",) + field.meta.dims)
-                v = ds.createVariable(field.meta.name, var_dtype, var_dims)
-                v.hori_location = field.meta.hori_location
-                v.vert_location = field.meta.vert_location
-                v.coordinates = field.meta.coordinates
-                v.units = field.meta.units
-                v.long_name = field.meta.long_name
-                v.description = field.meta.description
+                if not field.meta.is_tracer:
+                    v = ds.createVariable(field.meta.name, var_dtype, var_dims)
+                    v.hori_location = field.meta.hori_location
+                    v.vert_location = field.meta.vert_location
+                    v.coordinates = field.meta.coordinates
+                    v.units = field.meta.units
+                    v.long_name = field.meta.long_name
+                    v.description = field.meta.description
+                else:
+                    if hasattr(fields, "tracers_meta"):
+                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                            fields, "tracers_meta"
+                        )
+                    else:
+                        raise ValueError(
+                            "tracers_meta is required for tracer fields."
+                        )
+                    for tracer_name, tracer_meta in tracers_meta.items():
+                        q_name = tracer_name
+                        q_long_name = (
+                            field.meta.long_name
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_description = (
+                            field.meta.description
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_units = field.meta.units
+                        v = ds.createVariable(q_name, var_dtype, var_dims)
+                        v.hori_location = field.meta.hori_location
+                        v.vert_location = field.meta.vert_location
+                        v.coordinates = field.meta.coordinates
+                        v.units = q_units
+                        v.long_name = q_long_name
+                        v.description = q_description
             elif isinstance(field.meta, NumericMetaData):
                 var_dims = ("time",) if not field.meta.is_static else ()
                 v = ds.createVariable(field.meta.name, var_dtype, var_dims)
@@ -829,7 +1047,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         self.east_west_resolution = east_west_resolution
         self.south_north_resolution = south_north_resolution
 
-    def setup(self, fields_list: list[AbstractFields]) -> Self:
+    def setup(self, fields: AbstractFields) -> Self:
         if self.has_built():
             return self
         if not self.attr.has_built():
@@ -848,24 +1066,30 @@ class Unstructured2StructuredHistory(AbstractHistory):
             )
         if not self.vert.has_built():
             self.vert.setup()
-        if self.attr.has_built() and self.time.has_built() and \
-           self.mesh.has_built() and self.vert.has_built():
-            for fields in fields_list:
-                self.add_fields(fields)
-            self._built = True
+        if (
+            self.attr.has_built()
+            and self.time.has_built()
+            and self.mesh.has_built()
+            and self.vert.has_built()
+            and not self._built
+        ):
+            self.add_fields(fields)
         return self
 
-    def write_fields(self, fields: AbstractFields, expand_idx: Optional[int] = None) -> None:
+    def write_fields(
+        self,
+        fields: AbstractFields,
+        expand_idx: Optional[Int[Array, ""] | int] = None,
+        tracer_idx: Optional[Int[Array, "ntracers"]] = None
+    ) -> None:
         ds = nc4.Dataset(self.file_path, mode="a")
         idx = len(ds.variables["time"]) - 1
+        expand_idx = int(expand_idx) if expand_idx is not None else None
         staggered_var_ds = {}
         for _, field in fields.items():
             if not isinstance(field.meta, FieldMetaData):
                 continue
-            if expand_idx is None:
-                field_data = field.unwrap()
-            else:
-                field_data = field.unwrap()[expand_idx, ...]
+            field_data = field.unwrap()
             staggered_var_ds[field.meta.name] = tuxr.format_terraflow2ugrid(
                 value=field_data,
                 meta=field.meta.to_dict(),
@@ -891,6 +1115,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
         else:
             fields_remapped = xr.Dataset()
         var_dtype = self.float_type
+        # Write remapped fields
         for field_name in fields_remapped.keys():
             field = fields_remapped.variables[field_name]
             output = field.attrs.get("output", None)
@@ -902,23 +1127,49 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     field_data,
                     dtype=var_dtype
                 )
-            else:
+            elif not field.attrs.get("is_tracer", False):
                 ds.variables[str(field_name)][idx, ...] = np.array(
                     field_data,
                     dtype=var_dtype
                 )
+            else:
+                if hasattr(fields, "tracers_meta"):
+                    tracers_meta: dict[str, TracerMetaData] = getattr(
+                        fields, "tracers_meta"
+                    )
+                else:
+                    raise ValueError(
+                        "tracers_meta is required for tracer fields."
+                    )
+                if tracer_idx is None:
+                    raise ValueError(
+                        "tracer_idx is required for tracer fields."
+                    )
+                for q_idx, tracer_name in enumerate(tracers_meta.keys()):
+                    if q_idx in tracer_idx:
+                        ds.variables[tracer_name][idx, ...] = np.array(
+                            field_data[q_idx, ...],
+                            dtype=var_dtype
+                        )
+        # Write NumericMetaData fields
         for _, field in fields.items():
             if not isinstance(field.meta, NumericMetaData):
                 continue
             if field.meta.output not in STRUCTURED_HISTORY_LIST or field.meta.output == "":
                 continue
+            if expand_idx is None:
+                field_data = field.unwrap()
+            else:
+                field_data = field.unwrap()[expand_idx, ...]
             field_name = field.meta.name
             if field.meta.is_static:
                 ds.variables[field_name][...] = np.array(
-                    field.data, dtype=var_dtype)
+                    field_data, dtype=var_dtype
+                )
             else:
                 ds.variables[field_name][idx] = np.array(
-                    field.data, dtype=var_dtype)
+                    field_data, dtype=var_dtype
+                )
         ds.close()
         return None
 
@@ -956,9 +1207,6 @@ class Unstructured2StructuredHistory(AbstractHistory):
         for _, field in fields.items():
             meta = field.meta
             if meta.output not in STRUCTURED_HISTORY_LIST:
-                log.logger.warning(
-                    f"Skip variable {meta.name} for history {self.history_name}."
-                )
                 continue
             if meta.output == "":
                 continue
@@ -978,20 +1226,57 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     raise ValueError(
                         f"Variable {meta.name} has unsupported number of dimensions: {len(da.dims)}."
                     )
+
                 if not is_static:
                     var_dims = tuple(("time",) + var_dims)
-                v = ds.createVariable(
-                    str(meta.name), var_dtype, var_dims
-                )
-                v.setncattr("mesh", da.attrs.get("mesh", ""))
-                v.setncattr("location", da.attrs.get("location", ""))
-                v.setncattr("units", da.attrs.get("units", ""))
-                v.setncattr("long_name", da.attrs.get("long_name", ""))
-                v.setncattr("description", da.attrs.get("description", ""))
-                v.setncattr(
-                    "coordinates",
-                    " ".join([str(k) for k in da.coords.keys()])
-                )
+
+                is_tracer = da.attrs.get("is_tracer", False)
+                if not is_tracer:
+                    v = ds.createVariable(
+                        str(meta.name), var_dtype, var_dims
+                    )
+                    v.setncattr("mesh", da.attrs.get("mesh", ""))
+                    v.setncattr("location", da.attrs.get("location", ""))
+                    v.setncattr("units", da.attrs.get("units", ""))
+                    v.setncattr("long_name", da.attrs.get("long_name", ""))
+                    v.setncattr("description", da.attrs.get("description", ""))
+                    v.setncattr(
+                        "coordinates",
+                        " ".join([str(k) for k in da.coords.keys()])
+                    )
+                else:
+                    if hasattr(fields, "tracers_meta"):
+                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                            fields, "tracers_meta"
+                        )
+                    else:
+                        raise ValueError(
+                            "tracers_meta is required for tracer fields."
+                        )
+                    # Remove ntracers dimension
+                    var_dims = (var_dims[0],) + var_dims[2:]
+                    for tracer_name, tracer_meta in tracers_meta.items():
+                        q_name = tracer_name
+                        q_long_name = (
+                            field.meta.long_name
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_description = (
+                            field.meta.description
+                            + " of "
+                            + tracer_meta.long_name.lower()
+                        )
+                        q_units = field.meta.units
+                        v = ds.createVariable(q_name, var_dtype, var_dims)
+                        v.mesh = da.attrs.get("mesh", "")
+                        v.location = da.attrs.get("location", "")
+                        v.coordinates = " ".join(
+                            [str(k) for k in da.coords.keys()]
+                        )
+                        v.units = q_units
+                        v.long_name = q_long_name
+                        v.description = q_description
             elif isinstance(meta, NumericMetaData):
                 is_static = meta.is_static
                 var_dims = () if is_static else ("time",)

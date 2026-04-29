@@ -43,7 +43,7 @@ def register(model: Catalog) -> None:
 
     model.equterm.register(
         belong_key,
-        group="div_of_mfx",
+        group="div_of_mf",
         alias="builder",
         factory=term.TendencyOfDivergenceOfMassFlux
     )
@@ -103,4 +103,24 @@ def register(model: Catalog) -> None:
         group="vert_adv",
         alias="builder",
         factory=term.TendencyOfNormalVelocityDueToVerticalAdvection
+    )
+
+    from terraflow.discretization.fvm.scvt.trisk.single_lev import adv as term
+
+    belong_key = "earth::atm::adv::vif::continuity_equ::explicit::fvm::triskC::scvt::1level"
+
+    model.equterm.register(
+        belong_key,
+        group="div_of_mf",
+        alias="builder",
+        factory=term.TendencyOfDivergenceOfMassFlux
+    )
+
+    belong_key = "earth::atm::adv::vif::tracer_equ::explicit::fvm::triskC::scvt::1level"
+
+    model.equterm.register(
+        belong_key,
+        group="div_of_tf",
+        alias="builder",
+        factory=term.TendencyOfDivergenceOfTracerFlux
     )

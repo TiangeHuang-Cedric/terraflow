@@ -44,3 +44,18 @@ def register(model: Catalog) -> None:
         alias="space_operators",
         factory=term.ExSpaceOperators,
     )
+
+    from terraflow.discretization.fvm.scvt.trisk.single_lev import adv as term
+    belong_key = "earth::atm::adv::vif::explicit::fvm::triskC::scvt::1level"
+
+    model.equaux.register(
+        belong_key,
+        alias="prepare_space_operators",
+        factory=term.ExPrepareSpaceOperators,
+    )
+
+    model.equaux.register(
+        belong_key,
+        alias="space_operators",
+        factory=term.ExSpaceOperators,
+    )

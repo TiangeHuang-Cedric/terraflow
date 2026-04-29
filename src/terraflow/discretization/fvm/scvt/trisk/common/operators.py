@@ -7,7 +7,7 @@ import equinox as eqx
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as op
 from terraflow.discretization.abstract import (
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
     AbstractEquationMode
 )
 from ..parallel import tree_at
@@ -47,10 +47,10 @@ if TYPE_CHECKING:
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
-Term = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 
-class RelativeVorticityAtDualCell(Term):
+class RelativeVorticityAtDualCell(DynOperator):
 
     def __init__(
         self,
@@ -90,7 +90,7 @@ class RelativeVorticityAtDualCell(Term):
         return block
 
 
-class DivergenceOfVelocityAtCell(Term):
+class DivergenceOfVelocityAtCell(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -129,7 +129,7 @@ class DivergenceOfVelocityAtCell(Term):
         return block
 
 
-class TriSKTangentVelocityAtEdge(Term):
+class TriSKTangentVelocityAtEdge(DynOperator):
 
     def __init__(
         self,
@@ -139,11 +139,7 @@ class TriSKTangentVelocityAtEdge(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(
-        self,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int
-    ) -> BLOCK:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         """Reconstruct tangent velocity at dual edges from normal velocity at edges."""
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
@@ -199,7 +195,7 @@ class TriSKTangentVelocityAtEdge(Term):
         return block
 
 
-class TangentVelocityAtEdge(Term):
+class TangentVelocityAtEdge(DynOperator):
 
     def __init__(
         self,
@@ -209,11 +205,7 @@ class TangentVelocityAtEdge(Term):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(
-        self,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int
-    ) -> BLOCK:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         return self.scheme(block, star_idx)
 
     def trisk(self) -> TriSKTangentVelocityAtEdge:
@@ -239,7 +231,7 @@ class TangentVelocityAtEdge(Term):
         return self
 
 
-class NormalMassFluxAtEdge(Term):
+class NormalMassFluxAtEdge(DynOperator):
 
     def __init__(
         self,
@@ -278,7 +270,7 @@ class NormalMassFluxAtEdge(Term):
         return block
 
 
-class DivergenceOfMassFluxAtCell(Term):
+class DivergenceOfMassFluxAtCell(DynOperator):
 
     def __init__(
         self,
@@ -513,7 +505,7 @@ class InterpPotentialVorticityAtDualEdge:
         return self.adv_scheme.prepare_block(block)
 
 
-class PotentialVorticity(Term):
+class PotentialVorticity(DynOperator):
     interp: InterpPotentialVorticityAtDualEdge
 
     def __init__(
@@ -569,7 +561,7 @@ class PotentialVorticity(Term):
         return self.interp.prepare_block(block)
 
 
-class Ringler2010KineticEnergyAtPrimalCell(Term):
+class Ringler2010KineticEnergyAtPrimalCell(DynOperator):
 
     def __init__(
         self,
@@ -618,7 +610,7 @@ class Ringler2010KineticEnergyAtPrimalCell(Term):
         return block
 
 
-class Gassmann2013KineticEnergyAtPrimalCell(Term):
+class Gassmann2013KineticEnergyAtPrimalCell(DynOperator):
 
     def __init__(
         self,
@@ -675,7 +667,7 @@ class Gassmann2013KineticEnergyAtPrimalCell(Term):
         return block
 
 
-class KineticEnergyAtPrimalCell(Term):
+class KineticEnergyAtPrimalCell(DynOperator):
 
     def __init__(
         self,

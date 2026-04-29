@@ -8,7 +8,7 @@ from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as mesh_op
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
 )
@@ -26,7 +26,7 @@ FDT = ArrayField[StaggeredFieldMetaData]
 
 EM = TypeVar("EM", bound=AbstractEquationMode)
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 if TYPE_CHECKING:
     from terraflow.planet import PlanetParameterSet
@@ -254,7 +254,7 @@ def get_profile_meta():
     }
 
 
-class PerturbationPressureGradientForce(Operator):
+class PerturbationPressureGradientForce(DynOperator):
 
     def __init__(
         self,

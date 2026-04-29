@@ -1463,12 +1463,24 @@ def format_terraflow2ugrid(
     # Determine dims and coordinates
     if len(meta["dims"]) == 1:
         dims = (f"n_{location}",)
-        if len(var.shape) == 2:
-            var = var.squeeze()
+        if len(var.shape) >= 2:
+            if not meta["is_tracer"]:
+                # Only squeeze level dimension
+                # (nlevel, nlocation) -> (nlocation,)
+                var = var.squeeze(axis=0)
+            else:
+                # Only squeeze level dimension
+                # (ntracers, nlevel, nlocation) -> (ntracers, nlocation)
+                var = var.squeeze(axis=1)
     elif len(meta["dims"]) == 2:
-        # Only squeeze level dimension
-        if meta["dims"][0] == "time" and len(var.shape) == 3:
+        if meta["dims"][0] == "time" and len(var.shape) == 3 and not meta["is_tracer"]:
+            # Only squeeze level dimension
+            # (ntime, nlevel, nlocation) -> (ntime, nlocation)
             var = var.squeeze(axis=1)
+        if meta["dims"][0] == "time" and len(var.shape) == 4 and meta["is_tracer"]:
+            # Only squeeze level dimension
+            # (ntime, ntracers, nlevel, nlocation) -> (ntime, ntracers, nlocation)
+            var = var.squeeze(axis=2)
         dims = (meta["dims"][0], f"n_{location}")
     elif len(meta["dims"]) == 3:
         dims = (
@@ -1480,6 +1492,10 @@ def format_terraflow2ugrid(
         raise ValueError(
             f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
         )
+
+    if meta["is_tracer"]:
+        dims = ("ntracers",) + dims
+
     coordinates = f"{location}_lon {location}_lat"
 
     return xr.DataArray(
@@ -1495,6 +1511,7 @@ def format_terraflow2ugrid(
             "description": meta["description"],
             "is_prognostic": meta["is_prognostic"],
             "is_static": meta["is_static"],
+            "is_tracer": meta["is_tracer"],
             "output": meta["output"],
         }
     )

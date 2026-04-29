@@ -1,7 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import deepcopy
-import numbers
 from typing import (
     Callable,
     Generic,
@@ -23,6 +22,7 @@ from typing import (
     TYPE_CHECKING
 )
 from dataclasses import dataclass
+import datetime
 import equinox as eqx
 import types
 import unxt as ux
@@ -31,7 +31,7 @@ import jax.numpy as jnp
 import xarray as xr
 import uxarray as uxr
 
-from terraflow.util import typing, device, uxarray as tuxr
+from terraflow.util import typing, device, datetime as tfdatetime, uxarray as tuxr
 import terraflow.operator as op
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -48,7 +48,13 @@ from terraflow.planet import PlanetParameterSet
 from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
 
+if TYPE_CHECKING:
+    from terraflow.test_case.abstract import AbstractTestCase
+    from terraflow.solver.abstract import AbstractSolver
+
+
 Int = typing.Int
+Float = typing.Float
 Numeric = typing.Numeric
 Array = typing.Array
 
@@ -67,7 +73,8 @@ STATE = TypeVar("STATE", bound="AbstractFields")
 STATIC = TypeVar("STATIC", bound="AbstractFields")
 TEND = TypeVar("TEND", bound="AbstractFields")
 AUX = TypeVar("AUX", bound="AbstractFields")
-ADVBATCH = TypeVar("ADVBATCH", bound="AbstractFields")
+ADVBATCH = TypeVar("ADVBATCH", bound="AbstractAdvBatchType")
+TRACERS = TypeVar("TRACERS", bound="AbstractFields")
 AUXDS = TypeVar("AUXDS", bound="AbstractEquationTermAuxiliaryDataset")
 BLOCK = TypeVar("BLOCK", bound="AbstractBlock")
 
@@ -190,29 +197,39 @@ class AbstractEquationMode(ABC):
     hydrostatic: bool
     nonhydrostatic: bool
     ideal_dry_core: bool
-    advection: bool
+    advection2d: bool
+    advection3d: bool
     output_h1_tend: bool
     state_tile_depth: int
 
-    def __init__(self, *args, **kwargs):
+    def __init__(
+        self,
+        *,
+        baroclinic: bool = False,
+        hydrostatic: bool = False,
+        nonhydrostatic: bool = False,
+        ideal_dry_core: bool = False,
+        advection2d: bool = False,
+        advection3d: bool = False,
+        **kwargs,
+    ):
         object.__setattr__(
-            self, "baroclinic",
-            kwargs.get("baroclinic", False)
+            self, "baroclinic", baroclinic
         )
         object.__setattr__(
-            self, "hydrostatic",
-            kwargs.get("hydrostatic", False))
-        object.__setattr__(
-            self, "nonhydrostatic",
-            kwargs.get("nonhydrostatic", False)
+            self, "hydrostatic", hydrostatic
         )
         object.__setattr__(
-            self, "ideal_dry_core",
-            kwargs.get("ideal_dry_core", False)
+            self, "nonhydrostatic", nonhydrostatic
         )
         object.__setattr__(
-            self, "advection",
-            kwargs.get("advection", False)
+            self, "ideal_dry_core", ideal_dry_core
+        )
+        object.__setattr__(
+            self, "advection2d", advection2d
+        )
+        object.__setattr__(
+            self, "advection3d", advection3d
         )
         object.__setattr__(
             self, "output_h1_tend",
@@ -221,6 +238,82 @@ class AbstractEquationMode(ABC):
         object.__setattr__(
             self, "state_tile_depth",
             kwargs.get("state_tile_depth", 3)
+        )
+
+    def is_barotropic(self) -> bool:
+        return (
+            not self.baroclinic
+            and not self.hydrostatic
+            and not self.nonhydrostatic
+            and not self.ideal_dry_core
+            and not self.advection2d
+            and not self.advection3d
+        )
+
+    def is_baroclinic(self) -> bool:
+        return self.baroclinic
+
+    def is_dry_hydrostatic(self) -> bool:
+        return (
+            self.baroclinic
+            and self.hydrostatic
+            and not self.nonhydrostatic
+            and self.ideal_dry_core
+            and not self.advection2d
+            and not self.advection3d
+        )
+
+    def is_dry_nonhydrostatic(self) -> bool:
+        return (
+            self.baroclinic
+            and not self.hydrostatic
+            and self.nonhydrostatic
+            and self.ideal_dry_core
+            and not self.advection2d
+            and not self.advection3d
+        )
+
+    def is_moist_hydrostatic(self) -> bool:
+        return (
+            self.baroclinic
+            and self.hydrostatic
+            and not self.nonhydrostatic
+            and not self.ideal_dry_core
+            and not self.advection2d
+            and not self.advection3d
+        )
+
+    def is_moist_nonhydrostatic(self) -> bool:
+        return (
+            self.baroclinic
+            and not self.hydrostatic
+            and self.nonhydrostatic
+            and not self.ideal_dry_core
+            and not self.advection2d
+            and not self.advection3d
+        )
+
+    def is_advection(self) -> bool:
+        return self.advection2d or self.advection3d
+
+    def is_advection2d(self) -> bool:
+        return (
+            not self.baroclinic
+            and not self.hydrostatic
+            and not self.nonhydrostatic
+            and not self.ideal_dry_core
+            and self.advection2d
+            and not self.advection3d
+        )
+
+    def is_advection3d(self) -> bool:
+        return (
+            not self.baroclinic
+            and not self.hydrostatic
+            and not self.nonhydrostatic
+            and not self.ideal_dry_core
+            and not self.advection2d
+            and self.advection3d
         )
 
 
@@ -299,16 +392,6 @@ class AbstractEquationTerm(
         )
         self._table = "equterm"
 
-    @abstractmethod
-    def __call__(
-        self,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int,
-        *args: Any,
-        **kwargs: Any
-    ) -> BLOCK:
-        raise NotImplementedError
-
     def disc_info(self) -> Dict[str, str]:
         return {
             "planet": self._disc.planet,
@@ -322,6 +405,43 @@ class AbstractEquationTerm(
             "horizontal_mesh": self._disc.horizontal_mesh,
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
+
+
+class AbstractDynamicalEquationTerm(
+    AbstractEquationTerm[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    @abstractmethod
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> BLOCK:
+        raise NotImplementedError
+
+
+class AbstractAdvectionEquationTerm(
+    AbstractEquationTerm[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    @abstractmethod
+    def __call__(
+        self,
+        batch: AbstractAdvBatchType,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> tuple[AbstractAdvBatchType, BLOCK]:
+        raise NotImplementedError
 
 
 class AbstractEquationForm(
@@ -343,16 +463,6 @@ class AbstractEquationForm(
             mode=mode
         )
         self._table = "equ"
-
-    @abstractmethod
-    def __call__(
-        self,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int,
-        *args: Any,
-        **kwargs: Any
-    ) -> BLOCK:
-        raise NotImplementedError
 
     @staticmethod
     @abstractmethod
@@ -399,8 +509,46 @@ class AbstractEquationForm(
         return navigate("equterm", id_col=id_col, id_val=id_val)
 
 
-class AbstractContinuityEquForm(
+class AbstractDynamicalEquationForm(
     AbstractEquationForm[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    @abstractmethod
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> BLOCK:
+        raise NotImplementedError
+
+
+class AbstractAdvectionEquationForm(
+    AbstractEquationForm[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+
+    @abstractmethod
+    def __call__(
+        self,
+        batch: AbstractAdvBatchType,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> tuple[AbstractAdvBatchType, BLOCK]:
+        raise NotImplementedError
+
+
+class AbstractContinuityEquForm(
+    AbstractDynamicalEquationForm[DM, EM],
     Generic[DM, EM],
     ABC
 ):
@@ -408,14 +556,22 @@ class AbstractContinuityEquForm(
 
 
 class AbstractMomentumEquForm(
-        AbstractEquationForm[DM, EM],
+        AbstractDynamicalEquationForm[DM, EM],
         Generic[DM, EM],
         ABC):
     pass
 
 
 class AbstractThermodynamicEquForm(
-    AbstractEquationForm[DM, EM],
+    AbstractDynamicalEquationForm[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    pass
+
+
+class AbstractTracerEquForm(
+    AbstractAdvectionEquationForm[DM, EM],
     Generic[DM, EM],
     ABC
 ):
@@ -458,15 +614,6 @@ class AbstractEquationOperator(
             mode=mode
         )
 
-    def __call__(
-        self,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int,
-        *args: Any,
-        **kwargs: Any
-    ) -> BLOCK:
-        raise NotImplementedError
-
     def disc_info(self) -> Dict[str, str]:
         return {
             "planet": self._disc.planet,
@@ -480,6 +627,37 @@ class AbstractEquationOperator(
             "horizontal_mesh": self._disc.horizontal_mesh,
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
+
+
+class AbstractDynamicalEquationOperator(
+    AbstractEquationOperator[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        *args: Any,
+        **kwargs: Any
+    ) -> BLOCK:
+        raise NotImplementedError
+
+
+class AbstractAdvectionEquationOperator(
+    AbstractEquationOperator[DM, EM],
+    Generic[DM, EM],
+    ABC
+):
+    def __call__(
+        self,
+        batch: "AbstractAdvBatchType",
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        *args: Any,
+        **kwargs: Any
+    ) -> tuple["AbstractAdvBatchType", BLOCK]:
+        raise NotImplementedError
 
 
 class AbstractPrepareSpaceOperators(
@@ -500,7 +678,12 @@ class AbstractPrepareSpaceOperators(
         )
         self._table = "equaux"
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int, *args, **kwargs) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        *args, **kwargs
+    ) -> BLOCK:
         raise NotImplementedError
 
     @abstractmethod
@@ -554,6 +737,8 @@ class AbstractSpaceOperators(
         old_idx: int,
         star_idx: Int[Array, ""] | int,
         new_idx: int,
+        dt: Float[Array, ""] | float,
+        substep: int,
         *args,
         **kwargs
     ) -> BLOCK:
@@ -565,8 +750,38 @@ class AbstractSpaceOperators(
         raise NotImplementedError
 
     @abstractmethod
-    def update_state(self, state: Any, tend: Any, *args, **kwargs) -> Any:
+    def update_state(
+        self,
+        block: BLOCK,
+        old_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args,
+        **kwargs
+    ) -> BLOCK:
         """Update the state of the block after applying space operators."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        """Prepare the block for the advection stepper."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def advection_space_operators(
+        self,
+        batch: ADVBATCH,
+        block: BLOCK,
+        old_idx: Int[Array, ""] | int,
+        star_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args,
+        **kwargs
+    ) -> tuple[ADVBATCH, BLOCK]:
+        """Return the advection stepper function to be called in the advection step."""
         raise NotImplementedError
 
     @property
@@ -635,13 +850,7 @@ class AbstractEquationSet(
         raise NotImplementedError
 
     @abstractmethod
-    def build_block_from_testcase(
-        self,
-        coord: CoordinateSystem[HM, VM, HLO, VLO],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[Any] = None
-    ) -> Any:
+    def build_block_cls(self, coord: CoordinateSystem) -> Any:
         """Build the initial block from a testcase."""
         raise NotImplementedError
 
@@ -1151,6 +1360,14 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
     name: str = eqx.field(static=True)
     hori_loc: str = eqx.field(static=True)
     vert_loc: str = eqx.field(static=True)
+    dt: float = eqx.field(static=True)
+    dts_substep: Float[Array, "nsubsteps"]
+    nsubsteps: int = eqx.field(static=True)
+    nsteps: int = eqx.field(static=True)
+    istep: Array
+    idx: Int[Array, "ntracers_in_batch"]
+    old: Int[Array, ""]
+    new: Int[Array, ""]
 
     def __init__(
         self,
@@ -1158,11 +1375,28 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         batch_hori_loc: str,
         batch_vert_loc: str,
         mode: AbstractEquationMode,
+        dt: float,
+        dts_substep: Float[Array, "nsubsteps"],
+        dt_dyn: float,
+        idx: Optional[Int[Array, "ntracers_in_batch"]] = None,
         **fields: ArrayField[FMT]
     ):
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "hori_loc", batch_hori_loc)
         object.__setattr__(self, "vert_loc", batch_vert_loc)
+        object.__setattr__(self, "dt", dt)
+        object.__setattr__(self, "dts_substep", dts_substep)
+        if dts_substep.shape == ():
+            object.__setattr__(self, "nsubsteps", 0)
+        else:
+            object.__setattr__(self, "nsubsteps", dts_substep.shape[0])
+        object.__setattr__(self, "nsteps", int(dt / dt_dyn))
+        object.__setattr__(self, "istep", jnp.array(0))
+        if idx is None:
+            idx = jnp.array([])
+        object.__setattr__(self, "idx", idx)
+        object.__setattr__(self, "old", jnp.array(0))
+        object.__setattr__(self, "new", jnp.array(1))
         super().__init__(mode=mode, **fields)
 
     @staticmethod
@@ -1207,6 +1441,10 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         mode: AbstractEquationMode,
         array_dict: Dict[str, Array],
         meta: Dict[str, FMT],
+        dt: float,
+        dts_substep: Float[Array, "nsubsteps"],
+        dt_dyn: float,
+        idx: Optional[Int[Array, "ntracers_in_batch"]] = None
     ) -> Self:
         new_variables: Dict[str, ArrayField[FMT]] = {}
         for key, var in array_dict.items():
@@ -1221,6 +1459,10 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
             batch_hori_loc=batch_hori_loc,
             batch_vert_loc=batch_vert_loc,
             mode=mode,
+            dt=dt,
+            dts_substep=dts_substep,
+            dt_dyn=dt_dyn,
+            idx=idx,
             **new_variables,
         )
 
@@ -1231,7 +1473,11 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         batch_hori_loc: str,
         batch_vert_loc: str,
         coord: CoordinateSystem,
-        equation: AbstractEquationSet
+        equation: AbstractEquationSet,
+        dt: float,
+        dts_substep: Float[Array, "nsubsteps"],
+        dt_dyn: float,
+        idx: Optional[Int[Array, "ntracers_in_batch"]] = None,
     ) -> Self:
         meta = cls.default_meta(
             name=name,
@@ -1251,6 +1497,10 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
             batch_hori_loc=batch_hori_loc,
             batch_vert_loc=batch_vert_loc,
             mode=equation.mode,
+            dt=dt,
+            dts_substep=dts_substep,
+            dt_dyn=dt_dyn,
+            idx=idx,
             **exist_fields
         )
 
@@ -1264,6 +1514,10 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
             batch_hori_loc="",
             batch_vert_loc="",
             mode=mode,
+            dt=0.0,
+            dts_substep=jnp.zeros(()),
+            dt_dyn=1.0,
+            idx=None,
             **exist_fields
         )
 
@@ -1295,6 +1549,81 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
                 "Cannot convert to default unit on incompatible variable types."
                 "Please check if all variables are Fields."
             )
+
+    def swap_time_indices(self) -> Self:
+        return eqx.tree_at(
+            lambda b: (b.old, b.new),
+            self,
+            (self.new, self.old)
+        )
+
+    def get_time_idx(self, itime_str: str) -> Int[Array, ""]:
+        if itime_str == "old":
+            return self.old
+        elif itime_str == "new":
+            return self.new
+        else:
+            raise ValueError(
+                f"Invalid time index '{itime_str}'. Expected 'old' or 'new'."
+            )
+
+    def is_run_tracer_istep(self) -> Int[Array, ""]:
+        """Determine whether to run tracer."""
+        return self.istep == (self.nsteps - 1)
+
+    def update_istep(self) -> Self:
+        istep = self.istep
+        nsteps = self.nsteps
+
+        def not_reset_istep(batch: Self):
+            return eqx.tree_at(
+                where=lambda b: b.istep,
+                pytree=batch,
+                replace=istep + 1
+            )
+
+        def reset_istep(batch: Self):
+            return eqx.tree_at(
+                where=lambda b: b.istep,
+                pytree=batch,
+                replace=jnp.array(0, dtype=istep.dtype)
+            )
+
+        return jax.lax.cond(
+            pred=istep == nsteps - 1,
+            true_fun=reset_istep,
+            false_fun=not_reset_istep,
+            operand=self
+        )
+
+
+class TracerMetaData:
+    batch_name: str = eqx.field(static=True, default="")
+    dt: datetime.timedelta = eqx.field(
+        static=True,
+        default=datetime.timedelta(0)
+    )
+    dt_seconds: float = eqx.field(static=True, default=0.0)
+    name: str = eqx.field(static=True, default="")
+    long_name: str = eqx.field(static=True, default="")
+    unit: str = eqx.field(static=True, default="")
+
+    def __init__(
+        self,
+        batch_name: str,
+        dt: datetime.timedelta,
+        name: str,
+        long_name: str,
+        unit: Optional[str] = None,
+    ):
+        object.__setattr__(self, "batch_name", batch_name)
+        object.__setattr__(self, "dt", dt)
+        object.__setattr__(self, "dt_seconds", dt.total_seconds())
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "long_name", long_name)
+        if unit is None:
+            unit = ""
+        object.__setattr__(self, "unit", unit)
 
 
 class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
@@ -1429,7 +1758,10 @@ class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
 class AbstractBlock(
     ABC,
     eqx.Module,
-    Generic[HM, VM, HLO, VLO, STATE, TEND, STATIC, AUX, ADVBATCH, AUXDS]
+    Generic[
+        HM, VM, HLO, VLO,
+        STATE, TEND, STATIC, AUX, ADVBATCH, TRACERS, AUXDS
+    ]
 ):
     mode: AbstractEquationMode = eqx.field(static=True)
     old: Array
@@ -1440,8 +1772,12 @@ class AbstractBlock(
     tend: TEND
     static: STATIC
     aux: AUX
+    adv_batch_bg: ADVBATCH
     adv_batch_pt: ADVBATCH
+    adv_batches: dict[str, ADVBATCH]
+    tracers: TRACERS
     equaux: AUXDS
+    test_case: AbstractTestCase | None = eqx.field(default=None, static=True)
 
     @classmethod
     @abstractmethod
@@ -1449,7 +1785,7 @@ class AbstractBlock(
         cls,
         coord: CoordinateSystem[HM, VM, HLO, VLO],
         para: PlanetParameterSet,
-        equation: AbstractEquationSet,
+        solver: AbstractSolver,
         *,
         case: Any = None,
     ) -> Self:
@@ -1467,7 +1803,7 @@ class AbstractBlock(
     def coord(self) -> CoordinateSystem[HM, VM, HLO, VLO]:
         return self._coord
 
-    def diagnose(self, itime: Int[Array, ""] | int) -> Self:
+    def diagnose(self, itime_str: str) -> Self:
         return self
 
     def swap_time_indices(self) -> Self:
@@ -1477,10 +1813,51 @@ class AbstractBlock(
             (self.new, self.old)
         )
 
+    def swap_batches_time_indices(self) -> Self:
+        for batch_name, batch in self.adv_batches.items():
+
+            def swap_batch_time_indices(block: Self) -> Self:
+                return eqx.tree_at(
+                    lambda b: b.adv_batches[batch_name],
+                    block,
+                    batch.swap_time_indices()
+                )
+
+            def do_nothing(block: Self) -> Self:
+                return block
+
+            # This method is called after advection stepper (in which istep is updated),
+            # so we check whether to swap time indices based on the updated istep.
+            self = jax.lax.cond(
+                pred=batch.istep == 0,
+                true_fun=swap_batch_time_indices,
+                false_fun=do_nothing,
+                operand=self
+            )
+
+        return self
+
+    def get_time_idx(self, itime_str: str) -> Int[Array, ""]:
+        if itime_str == "old":
+            return self.old
+        elif itime_str == "new":
+            return self.new
+        else:
+            raise ValueError(
+                f"Invalid time index '{itime_str}'. Expected 'old' or 'new'."
+            )
+
 
 class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 
-    def __init__(self, equation: ES, jit: bool = False, trajectory: bool = False):
+    def __init__(
+        self,
+        time_manager: tfdatetime.DateTimeManager,
+        equation: ES,
+        jit: bool = False,
+        trajectory: bool = False
+    ):
+        self.time_manager = time_manager
         self._equation = equation
         self.jit = jit
         self.trajectory = trajectory
@@ -1642,6 +2019,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
     @classmethod
     def from_equation(
         cls,
+        time_manager: tfdatetime.DateTimeManager,
         coord: CoordinateSystem,
         para: PlanetParameterSet,
         equation: ExVif_SWE_SCVT_TriSKCGrid_FVM,
@@ -1655,6 +2033,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
     @classmethod
     def from_equation(
         cls,
+        time_manager: tfdatetime.DateTimeManager,
         coord: CoordinateSystem,
         para: PlanetParameterSet,
         equation: AbstractEquationSet,
@@ -1667,6 +2046,7 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
     @classmethod
     def from_equation(
         cls,
+        time_manager: tfdatetime.DateTimeManager,
         coord: CoordinateSystem,
         para: PlanetParameterSet,
         equation: AbstractEquationSet,
@@ -1677,4 +2057,10 @@ class DiagnosticToolsBuilder(Generic[DIAG]):
         diag_factory = cls.select(
             coord=coord, para=para, equation=equation
         )
-        return diag_factory(equation, jit=jit, trajectory=trajectory, **kwargs)
+        return diag_factory(
+            time_manager=time_manager,
+            equation=equation,
+            jit=jit,
+            trajectory=trajectory,
+            **kwargs
+        )

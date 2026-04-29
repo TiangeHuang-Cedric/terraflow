@@ -9,7 +9,7 @@ from typing import (
 import jax
 import jax.numpy as jnp
 
-from terraflow.util import typing, uxarray as tuxr
+from terraflow.util import typing, datetime, uxarray as tuxr
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
@@ -26,6 +26,7 @@ from terraflow.discretization.abstract import (
     AbstractDiagnosticTools,
 )
 from .term import ExSpaceOperators
+from ..tracer import Tracer
 
 if TYPE_CHECKING:
     from .. import dynamics_types as vars
@@ -61,12 +62,16 @@ class DiagnosticsTools(
 
     def __init__(
         self,
+        time_manager: datetime.DateTimeManager,
         equation: Equation,
         jit: bool = True,
         trajectory: bool = False
     ):
         super().__init__(
-            equation, jit=jit, trajectory=trajectory
+            time_manager=time_manager,
+            equation=equation,
+            jit=jit,
+            trajectory=trajectory
         )
 
     @staticmethod
@@ -161,6 +166,7 @@ class DiagnosticsTools(
         from .. import dynamics_types as vars
         from ..common.adv.batch import AdvBatchType
         state = self.expand_dims_on_state(state)
+        dt_dyn = self.time_manager.dt_dyn.total_seconds()
         block = vars.Block(
             mode=self.equation.mode,
             _coord=coord,
@@ -171,7 +177,19 @@ class DiagnosticsTools(
             static=static,
             tend=vars.Tendency.from_coord(coord=coord, equation=self.equation),
             aux=vars.Auxiliary.from_coord(coord=coord, equation=self.equation),
+            adv_batch_bg=AdvBatchType.from_coord(
+                name="bg",
+                batch_hori_loc=MeshEntity.Cell,
+                batch_vert_loc="",
+                coord=coord,
+                equation=self.equation,
+                dt=dt_dyn,
+                dts_substep=jnp.zeros(()),
+                dt_dyn=dt_dyn,
+            ),
             adv_batch_pt=AdvBatchType.empty(mode=self.equation.mode),
+            adv_batches={},
+            tracers=Tracer.empty(mode=self.equation.mode),
             equaux=equaux
         )
         if self.jit:
@@ -190,6 +208,8 @@ class DiagnosticsTools(
                 old_idx=0,
                 star_idx=0,
                 new_idx=1,
+                dt=jnp.array(dt_dyn),
+                substep=0,
                 pass_tag="all_pass",
                 explicit=True
             )
@@ -200,6 +220,8 @@ class DiagnosticsTools(
                 old_idx=jnp.array(0),
                 star_idx=jnp.array(0),
                 new_idx=jnp.array(1),
+                dt=jnp.array(dt_dyn),
+                substep=0,
                 pass_tag="all_pass",
                 explicit=True
             )

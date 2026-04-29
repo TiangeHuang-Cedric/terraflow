@@ -11,7 +11,7 @@ from terraflow.mesh.scvt.operators import (
     interp_weighted_add_plg2dua
 )
 from terraflow.discretization.abstract import (
-    AbstractEquationOperator,
+    AbstractDynamicalEquationOperator,
     AbstractPrepareSpaceOperators,
 )
 from terraflow.dynamics.baroclinic import types
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         UpwindVerticalAdvection
     )
     from terraflow.discretization.abstract import DiscretizationInfo
+    from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
     from ..dynamics_types import Block
 
     Float = typing.Float
@@ -37,10 +38,10 @@ if TYPE_CHECKING:
 
 BEM = TypeVar("BEM", bound=types.AbstractBaroclinicEquationMode)
 
-Operator = AbstractEquationOperator[FiniteVolumeMethod, BEM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, BEM]
 
 
-class Temperature(Operator):
+class Temperature(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -88,7 +89,7 @@ class Temperature(Operator):
         return block
 
 
-class TangentMassFluxAtEdge(Operator):
+class TangentMassFluxAtEdge(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -126,7 +127,7 @@ class TangentMassFluxAtEdge(Operator):
         return block
 
 
-class VerticalMassFluxAtHalfLev(Operator):
+class VerticalMassFluxAtHalfLev(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -172,7 +173,7 @@ class VerticalMassFluxAtHalfLev(Operator):
         return block
 
 
-class DryAirWeight(Operator):
+class DryAirWeight(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -226,7 +227,7 @@ class DryAirWeight(Operator):
         return block
 
 
-class DeltaDryAirWeight(Operator):
+class DeltaDryAirWeight(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -288,7 +289,7 @@ class DeltaDryAirWeight(Operator):
         return block
 
 
-class DensityOfDryAir(Operator):
+class DensityOfDryAir(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -332,7 +333,7 @@ class DensityOfDryAir(Operator):
         return block
 
 
-class Geopotential(Operator):
+class Geopotential(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -401,7 +402,7 @@ class Geopotential(Operator):
         return block
 
 
-class HydrostaticPressure(Operator):
+class HydrostaticPressure(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -464,7 +465,7 @@ class HydrostaticPressure(Operator):
         return block
 
 
-class Pressure(Operator):
+class Pressure(DynOperator):
     # nh
     def __init__(
         self,
@@ -513,7 +514,7 @@ class Pressure(Operator):
         return block
 
 
-class PotentialTemperatureHorizontalAdvection(Operator):
+class PotentialTemperatureHorizontalAdvection(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -530,7 +531,7 @@ class PotentialTemperatureHorizontalAdvection(Operator):
         coord = block.coord
         aux = block.equaux.adv
         # ==========================================================
-        batch = self.adv_scheme(
+        batch = self.adv_scheme.calc_tracer_hflx(
             q=pt,
             batch=batch,
             coord=coord,
@@ -557,7 +558,7 @@ class PotentialTemperatureHorizontalAdvection(Operator):
         return self
 
 
-class PotentialTemperatureVerticalAdvection(Operator):
+class PotentialTemperatureVerticalAdvection(DynOperator):
     def __init__(
         self,
         disc: DiscretizationInfo,
@@ -572,7 +573,11 @@ class PotentialTemperatureVerticalAdvection(Operator):
         pt = block.state.pt.unwrap()[star_idx, :, :]
         batch = block.adv_batch_pt
         # ==========================================================
-        batch = self.adv_scheme(q=pt, batch=batch, coord=block.coord)
+        batch = self.adv_scheme.calc_tracer_vflx(
+            q=pt,
+            batch=batch,
+            coord=block.coord
+        )
         # ==========================================================
         return eqx.tree_at(
             lambda b: b.adv_batch_pt,
@@ -605,7 +610,13 @@ class TendencyOfDryAirMassAtSurface(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.polg_ids, mesh.polg_ide
@@ -651,26 +662,28 @@ class TendencyOfPotentialTemperatureDueToDivergenceOfFlux(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.polg_ids, mesh.polg_ide
         kds, kde = vert.full_kds, vert.full_kde
         un = block.state.un.unwrap()[star_idx, :, :]
         dmg = block.state.dmg.unwrap()[star_idx, :, :]
-        ut = block.aux.ut.unwrap()
         mfn = block.aux.mfn.unwrap()
-        mft = block.aux.mft.unwrap()
         mfz_lev = block.aux.mfz_lev.unwrap()
         batch = block.adv_batch_pt
         dptdt_dptfn = block.tend.dptdt_dptfn.unwrap()
         dptdt = block.tend.dptdt.unwrap()
         # ==========================================================
-        batch = batch.set_wind(
+        batch = batch.associate(
             un=un,
-            ut=ut,
             mfn=mfn,
-            mft=mft,
             mfz=mfz_lev,
             m=dmg
         )
@@ -724,7 +737,13 @@ class TendencyOfPotentialTemperatureDueToVerticalAdvection(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.polg_ids, mesh.polg_ide
@@ -773,7 +792,13 @@ class TendencyOfNormalVelocityDueToVerticalAdvection(
         super().__init__(disc=disc, method=method, mode=mode)
         self.interp = hybrid_op.InterpMethod()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -842,7 +867,13 @@ class TendencyOfNormalVelocityDueToPressureGradientForce(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -888,7 +919,13 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             disc=disc, method=method, mode=mode
         )
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -930,7 +967,13 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
         ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -1154,6 +1197,8 @@ class ExSpaceOperators(
         old_idx: Int[Array, ""] | int,
         star_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
         pass_tag: str,
         explicit: bool
     ) -> BLOCK:
@@ -1169,10 +1214,10 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dmgsdt(block, star_idx)
+            block = self.dmgsdt(block, star_idx, dt, substep)
             block = self.mfz_lev(block, star_idx)
-            block = self.dptdt(block, star_idx)
-            block = self.dundt(block, star_idx)
+            block = self.dptdt(block, star_idx, dt, substep)
+            block = self.dundt(block, star_idx, dt, substep)
             # ==================================================
         elif pass_tag == "forward_pass":
             # ==================================================
@@ -1185,9 +1230,9 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dmgsdt(block, star_idx)
+            block = self.dmgsdt(block, star_idx, dt, substep)
             block = self.mfz_lev(block, star_idx)
-            block = self.dptdt(block, star_idx)
+            block = self.dptdt(block, star_idx, dt, substep)
             # ==================================================
         elif pass_tag == "backward_pass":
             # ==================================================
@@ -1200,10 +1245,10 @@ class ExSpaceOperators(
             )
             # ==================================================
             # Calculate tendencies
-            block = self.dundt.grad_ke(block, star_idx)
-            block = self.dundt.pgf(block, new_idx)
-            block = self.dundt.coriolis(block, star_idx)
-            block = self.dundt.adv_vert(block, star_idx)
+            block = self.dundt.grad_ke(block, star_idx, dt, substep)
+            block = self.dundt.pgf(block, new_idx, dt, substep)
+            block = self.dundt.coriolis(block, star_idx, dt, substep)
+            block = self.dundt.adv_vert(block, star_idx, dt, substep)
             # ==================================================
         else:
             raise ValueError(
@@ -1211,13 +1256,30 @@ class ExSpaceOperators(
             )
         return block
 
+    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+        return block
+
+    def advection_space_operators(
+        self,
+        batch: AdvBatchType,
+        block: BLOCK,
+        old_idx: Int[Array, ""] | int,
+        star_idx: Int[Array, ""] | int,
+        new_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        explicit: bool
+    ) -> tuple[AdvBatchType, BLOCK]:
+        return batch, block
+
     def diagnose(
         self,
         block: BLOCK,
-        itime: Int[Array, ""] | int,
+        itime_str: str,
     ) -> BLOCK:
+        itime = block.get_time_idx(itime_str=itime_str)
         block = self.prepare.div(block, itime)
-        block = block.diagnose(itime=itime)
+        block = block.diagnose(itime_str=itime_str)
         return block
 
     def _update_mgs(
@@ -1352,6 +1414,7 @@ class ExSpaceOperators(
         old_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
         dt: float,
+        substep: int,
         pass_tag: str,
     ) -> BLOCK:
         # ================================================

@@ -1,11 +1,10 @@
 from __future__ import annotations
 from typing import (
-    cast,
     TypeVar,
-    Optional,
     Generic,
     Self,
     overload,
+    Callable,
     TYPE_CHECKING
 )
 
@@ -16,7 +15,6 @@ from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
 from terraflow.operator import AbstractDiscretizationMethod
-from terraflow.test_case.baroclinic import BaroclinicEquationTestCase
 from terraflow.dynamics.baroclinic import types
 from terraflow.solver.abstract import AbstractExplicitODE
 import terraflow.discretization.abstract as disc_types
@@ -72,7 +70,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         return "explicit"
 
     @overload
-    def build_block_from_testcase(
+    def build_block_cls(
         self,
         coord: CoordinateSystem[
             SphericalCentroidVoronoiTessellations,
@@ -80,29 +78,20 @@ class ExVifDryHydrostaticEquationSet4UGRID(
             TriSKBasedCGridStaggeringLayout,
             HybridVertCoordLayout
         ],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[BaroclinicEquationTestCase] = None
-    ) -> fvm_scvt_trisk_vars.Block:
+    ) -> type[fvm_scvt_trisk_vars.Block]:
         ...
 
     @overload
-    def build_block_from_testcase(
+    def build_block_cls(
         self,
         coord: CoordinateSystem[UHM, VM, HLO, VLO],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[BaroclinicEquationTestCase] = None
-    ) -> disc_types.AbstractBlock:
+    ) -> type[disc_types.AbstractBlock]:
         ...
 
-    def build_block_from_testcase(  # type: ignore[override]
+    def build_block_cls(
         self,
         coord: CoordinateSystem[UHM, VM, HLO, VLO],
-        para: PlanetParameterSet,
-        *,
-        case: Optional[BaroclinicEquationTestCase] = None
-    ) -> disc_types.AbstractBlock:
+    ) -> type[disc_types.AbstractBlock]:
         from terraflow.operator import FiniteVolumeMethod
         from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
         from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -116,26 +105,11 @@ class ExVifDryHydrostaticEquationSet4UGRID(
             isinstance(coord.vert_layout, HybridVertCoordLayout)
         ):
             from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
-            block_cls = Block
-            coord_specialized = cast(
-                CoordinateSystem[
-                    SphericalCentroidVoronoiTessellations,
-                    HybridVertCoordinate,
-                    TriSKBasedCGridStaggeringLayout,
-                    HybridVertCoordLayout
-                ],
-                coord
-            )
+            return Block
         else:
             raise NotImplementedError(
                 "Unsupported combination of method and coordinate system for building block. "
             )
-        return block_cls.from_testcase(
-            coord=coord_specialized,
-            para=para,
-            equation=self,
-            case=case
-        )
 
     def build_default(self) -> Self:
         if not self.has_built():
@@ -148,13 +122,32 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         log.logger.success("Prepared auxiliary and data.")
         return block
 
-    def explicit_terms(self, block: BLOCK, *args, **kwargs) -> BLOCK:
-        return self.space_operators(
-            block,
-            *args,
-            **kwargs,
-            explicit=True
-        )
+    def explicit_terms(self, advection: bool = False, *args, **kwargs) -> Callable:
+
+        if not advection:
+            def _wrap_dynamics(block: BLOCK, *args, **kwargs) -> BLOCK:
+                return self.space_operators(
+                    block=block,
+                    *args,
+                    **kwargs,
+                    explicit=True
+                )
+            return _wrap_dynamics
+        else:
+            def _wrap_advection(
+                batch: disc_types.AbstractAdvBatchType,
+                block: BLOCK,
+                *args,
+                **kwargs
+            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
+                return self.space_operators.advection_space_operators(
+                    batch,
+                    block,
+                    *args,
+                    **kwargs,
+                    explicit=True
+                )
+            return _wrap_advection
 
 
 class DryHydrostaticEquationBuilder:

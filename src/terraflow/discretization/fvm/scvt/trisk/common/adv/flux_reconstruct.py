@@ -131,6 +131,12 @@ class FluxReconstructAtEdgeOnPrimalMesh:
         self._built = True
         return self.scheme
 
+    def wrf1(self) -> "WRF1AtEdgeOnPrimalMesh":
+        self.scheme_name = "wrf1"
+        self.scheme = WRF1AtEdgeOnPrimalMesh()
+        self._built = True
+        return self.scheme
+
     @overload
     def wrf3(
         self,
@@ -234,6 +240,12 @@ class FluxReconstructAtEdgeOnDualMesh:
     def central_difference(self) -> "CentralDifference2AtEdgeOnDualMesh":
         self.scheme_name = "central_difference"
         self.scheme = CentralDifference2AtEdgeOnDualMesh()
+        self._built = True
+        return self.scheme
+
+    def wrf1(self) -> "WRF1AtEdgeOnDualMesh":
+        self.scheme_name = "wrf1"
+        self.scheme = WRF1AtEdgeOnDualMesh()
         self._built = True
         return self.scheme
 
@@ -386,6 +398,42 @@ class CentralDifference2AtEdgeOnDualMesh:
             return res
         else:
             return x_at_dual_edge.at[kds:kde+1, ids:ide+1].set(res)
+
+    def prepare_block(self, block: Block) -> Block:
+        return block
+
+
+class WRF1AtEdgeOnPrimalMesh:
+
+    def __call__(
+        self,
+        x_at_primal_cell: Float[Array, "nlev nCell"],
+        normal_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        *,
+        x_at_primal_edge: Float[Array, "nlev nEdge"] | None = None,
+        **kwargs
+    ):
+        mesh = coord.mesh
+        vert = coord.vert
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        kds, kde = vert.full_kds, vert.full_kde
+        # =================================================
+        res = jax.vmap(
+            wrf_1st_order,
+            in_axes=(0, 0, None, None),
+            out_axes=0
+        )(
+            x_at_primal_cell[kds:kde+1, :],
+            normal_u_at_edge[kds:kde+1, ids:ide+1],
+            mesh.dual.edge.endpoints[ids:ide+1, :],
+            mesh.aux.edpnr_eddtg[ids:ide+1],
+        )
+        # =================================================
+        if x_at_primal_edge is None:
+            return res
+        else:
+            return x_at_primal_edge.at[kds:kde+1, ids:ide+1].set(res)
 
     def prepare_block(self, block: Block) -> Block:
         return block
@@ -584,6 +632,41 @@ class HybridWRF56AtEdgeOnPrimalMesh(AbstractWRF56AtEdgeOnPrimalMesh):
 
     def __init__(self, beta: FloatType):
         super().__init__(beta=beta)
+
+
+class WRF1AtEdgeOnDualMesh:
+    def __call__(
+        self,
+        x_at_dual_cell: Float[Array, "nlev nCell"],
+        tangent_u_at_edge: Float[Array, "nlev nEdge"],
+        coord: CoordSys,
+        *,
+        x_at_dual_edge: Float[Array, "nlev nEdge"] | None = None,
+        **kwargs
+    ) -> Float[Array, "nlev nEdge"]:
+        mesh = coord.mesh
+        vert = coord.vert
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        kds, kde = vert.full_kds, vert.full_kde
+        # =================================================
+        res = jax.vmap(
+            wrf_1st_order,
+            in_axes=(0, 0, None, None),
+            out_axes=0
+        )(
+            x_at_dual_cell[kds:kde+1, :],
+            tangent_u_at_edge[kds:kde+1, ids:ide+1],
+            mesh.primal.edge.endpoints[ids:ide+1, :],
+            mesh.aux.edp12_edptg[ids:ide+1],
+        )
+        # =================================================
+        if x_at_dual_edge is None:
+            return res
+        else:
+            return x_at_dual_edge.at[kds:kde+1, ids:ide+1].set(res)
+
+    def prepare_block(self, block: Block) -> Block:
+        return block
 
 
 class WRFPure3AtEdgeOnDualMesh:
@@ -804,6 +887,21 @@ def central_difference_2nd_order(
     x1 = x_at_cell[v1]
     x2 = x_at_cell[v2]
     return 0.5 * (x1 + x2)
+
+
+def wrf_1st_order(
+    x_at_cell: Float[Array, "nCell"],
+    normal_u: Float[Array, "nEdge"],
+    edd_v: Int[Array, "nEdge 2"],
+    direction_marker: Float[Array, "nEdge"],
+) -> Float[Array, "nEdge"]:
+    v1 = edd_v[:, 0]
+    v2 = edd_v[:, 1]
+    wind = normal_u * direction_marker
+    return (
+        0.5 * (x_at_cell[v1] + x_at_cell[v2])
+        - 0.5 * jnp.sign(wind) * (x_at_cell[v2] - x_at_cell[v1])
+    )
 
 
 def wrf_pure_3rd_order(

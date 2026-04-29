@@ -1,29 +1,41 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, TypeVar, Optional
 import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import typing
-from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
-from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout.abstract import CoordinateSystem
-from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
-from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.fvm.scvt.trisk.common.adv import batch
 from terraflow.discretization.fvm.scvt.trisk.common.adv import types, flux_reconstruct as fr
 
 Float = typing.Float
 Array = typing.Array
 
-CoordSys = CoordinateSystem[
-    SphericalCentroidVoronoiTessellations,
-    HybridVertCoordinate,
-    TriSKBasedCGridStaggeringLayout,
-    HybridVertCoordLayout
-]
 
 if TYPE_CHECKING:
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.layout.abstract import CoordinateSystem
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+
+    CoordSysOneLayer = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        OneLayerVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        OneLayerVertCoordLayout
+    ]
+
+    CoordSysHybrid = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        HybridVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        HybridVertCoordLayout
+    ]
+
+    CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
 
 
 class UpwindHorizontalAdvectionAtCell:
@@ -32,6 +44,8 @@ class UpwindHorizontalAdvectionAtCell:
         self.order = order
         if self.order == 0:
             self.scheme = fr.CentralDifference2AtEdgeOnPrimalMesh()
+        elif self.order == 1:
+            self.scheme = fr.WRF1AtEdgeOnPrimalMesh()
         elif self.order == 3:
             if optimized:
                 self.scheme = fr.WRFPure3AtEdgeOnPrimalMesh()
@@ -44,7 +58,36 @@ class UpwindHorizontalAdvectionAtCell:
                 f"Upwind advection of order {self.order} is not implemented."
             )
 
-    def __call__(
+    def calc_mass_hflx(
+        self,
+        m: Array,
+        batch: batch.AdvBatchType,
+        coord: CoordSys,
+        aux: types.AdvectionAuxiliaryDataset,
+    ) -> batch.AdvBatchType:
+        mesh = coord.mesh
+        vert = coord.vert
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        kds, kde = vert.full_kds, vert.full_kde
+        un = batch.un.unwrap()
+        mfn = batch.mfn.unwrap()
+        # =================================================
+        mfn = mfn.at[kds:kde+1, ids:ide+1].set(
+            self.scheme(
+                x_at_primal_cell=m,
+                normal_u_at_edge=un,
+                coord=coord,
+                aux=aux
+            ) * un[kds:kde+1, ids:ide+1]
+        )
+        # =================================================
+        return eqx.tree_at(
+            lambda b: b.mfn.data,
+            batch,
+            mfn
+        )
+
+    def calc_tracer_hflx(
         self,
         q: Array,
         batch: batch.AdvBatchType,
@@ -85,6 +128,8 @@ class UpwindHorizontalAdvectionAtVtx:
         self.order = order
         if self.order == 0:
             self.scheme = fr.CentralDifference2AtEdgeOnDualMesh()
+        elif self.order == 1:
+            self.scheme = fr.WRF1AtEdgeOnDualMesh()
         elif self.order == 3:
             if optimized:
                 self.scheme = fr.WRFPure3AtEdgeOnDualMesh(use_mbs=use_mbs)
@@ -97,7 +142,36 @@ class UpwindHorizontalAdvectionAtVtx:
                 f"Upwind advection of order {self.order} is not implemented."
             )
 
-    def __call__(
+    def calc_mass_hflx(
+        self,
+        m: Array,
+        batch: batch.AdvBatchType,
+        coord: CoordSys,
+        aux: types.AdvectionAuxiliaryDataset,
+    ) -> batch.AdvBatchType:
+        mesh = coord.mesh
+        vert = coord.vert
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        kds, kde = vert.full_kds, vert.full_kde
+        un = batch.un.unwrap()
+        mfn = batch.mfn.unwrap()
+        # =================================================
+        mfn = mfn.at[kds:kde+1, ids:ide+1].set(
+            self.scheme(
+                x_at_dual_cell=m,
+                tangent_u_at_edge=un,
+                coord=coord,
+                aux=aux
+            ) * un[kds:kde+1, ids:ide+1]
+        )
+        # =================================================
+        return eqx.tree_at(
+            lambda b: b.mfn.data,
+            batch,
+            mfn
+        )
+
+    def calc_tracer_hflx(
         self,
         q: Array,
         batch: batch.AdvBatchType,
@@ -108,17 +182,17 @@ class UpwindHorizontalAdvectionAtVtx:
         vert = coord.vert
         ids, ide = mesh.edge_ids, mesh.edge_ide
         kds, kde = vert.full_kds, vert.full_kde
-        ut = batch.ut.unwrap()
-        mft = batch.mft.unwrap()
+        un = batch.un.unwrap()
+        mfn = batch.mfn.unwrap()
         qmfn = batch.qmfn.unwrap()
         # =================================================
         qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(
             self.scheme(
                 x_at_dual_cell=q,
-                tangent_u_at_edge=ut,
+                tangent_u_at_edge=un,
                 coord=coord,
                 aux=aux
-            ) * mft[kds:kde+1, ids:ide+1]
+            ) * mfn[kds:kde+1, ids:ide+1]
         )
         # =================================================
         return eqx.tree_at(
@@ -157,10 +231,10 @@ class UpwindVerticalAdvection:
                 f"Upwind advection of order {self.order} is not implemented."
             )
 
-    def __call__(
+    def calc_tracer_vflx(
         self,
         q: Array,
-        coord: CoordSys,
+        coord: CoordSysHybrid,
         batch: batch.AdvBatchType,
     ) -> batch.AdvBatchType:
         if batch.vert_loc == "cell":
@@ -189,15 +263,15 @@ class UpwindVerticalAdvection:
         coord: CoordSys,
         batch: batch.AdvBatchType,
     ) -> batch.AdvBatchType:
-        mfz = batch.mfz.unwrap()
+        mfz_lev = batch.mfz.unwrap()
         qmfz_lev = batch.qmfz.unwrap()
         qmfz_lev = self.adv_vflx_at_cell(
             coord=coord,
             q=q,
             qmfz_lev=qmfz_lev,
-            mfz_lev=mfz,
+            mfz_lev=mfz_lev,
             wgt=self.wgt
-        )
+        ) * mfz_lev
         return eqx.tree_at(
             lambda b: b.qmfz.data,
             batch,
@@ -218,7 +292,7 @@ class UpwindVerticalAdvection:
             qmfz=qmfz,
             mfz=mfz,
             wgt=self.wgt
-        )
+        ) * mfz
         return eqx.tree_at(
             lambda b: b.qmfz.data,
             batch,
@@ -239,11 +313,10 @@ def upwind0_adv_vflx_at_cell(
     kds, kde = vert.half_kds, vert.half_kde
     # =================================================
     # half_kds + 1 <= k <= half_kde - 1
-    mid_mfz_lev = mfz_lev[kds+1:kde, ids:ide+1]
     mid = 0.5 * (
         q[kds:kde-1, ids:ide+1]
         + q[kds+1:kde, ids:ide+1]
-    ) * mid_mfz_lev
+    )
     # =================================================
     if qmfz_lev is None:
         return jnp.pad(
@@ -276,7 +349,7 @@ def upwind1_adv_vflx_at_cell(
         wgt=wgt,
         q_0=q_0,
         q_plus_1=q_plus_1
-    ) * mid_mfz_lev
+    )
     # =================================================
     if qmfz_lev is None:
         return jnp.pad(
@@ -305,7 +378,7 @@ def upwind3_adv_vflx_at_cell(
     # k = half_kds + 1
     top1 = 0.5 * (
         q[kds, ids:ide+1] + q[kds+1, ids:ide+1]
-    ) * mfz_lev[kds+1, ids:ide+1]
+    )
     # =================================================
     # half_kds + 2 <= k <= half_kde - 2
     q_minus_1 = q[kds:kde-3, ids:ide+1]
@@ -321,12 +394,12 @@ def upwind3_adv_vflx_at_cell(
         q_0=q_0,
         q_plus_1=q_plus_1,
         q_plus_2=q_plus_2
-    ) * mid_mfz_lev
+    )
     # =================================================
     # k = half_kde - 1
     bottom1 = 0.5 * (
         q[kde-2, ids:ide+1] + q[kde-1, ids:ide+1]
-    ) * mfz_lev[kde-1, ids:ide+1]
+    )
     # =================================================
     # k = half_kde
     bottom0 = jnp.zeros_like(q[kde-1, :])
@@ -367,7 +440,7 @@ def upwind5_adv_vflx_at_cell(
     # half_kds + 1 <= k <= half_kds + 2
     top1 = 0.5 * (
         q[kds:kds+2, ids:ide+1] + q[kds+1:kds+3, ids:ide+1]
-    ) * mfz_lev[kds+1:kds+3, ids:ide+1]
+    )
     # =================================================
     # half_kds + 3 <= k <= half_kde - 3
     q_minus_2 = q[kds:kde-5, ids:ide+1]
@@ -387,12 +460,12 @@ def upwind5_adv_vflx_at_cell(
         q_plus_1=q_plus_1,
         q_plus_2=q_plus_2,
         q_plus_3=q_plus_3
-    ) * mid_mfz_lev
+    )
     # =================================================
     # half_kde - 2 <= k <= half_kde - 1
     bottom1 = 0.5 * (
         q[kde-3:kde-1, ids:ide+1] + q[kde-2:kde, ids:ide+1]
-    ) * mfz_lev[kde-2:kde, ids:ide+1]
+    )
     # =================================================
     # k = half_kde
     bottom0 = jnp.zeros_like(q[kde-1, ids:ide+1])
@@ -430,7 +503,7 @@ def upwind0_adv_vflx_at_lev(
     # full_kds <= k <= full_kde
     res = 0.5 * (
         q_lev[kds:kde+1, ids:ide+1] + q_lev[kds+1:kde+2, ids:ide+1]
-    ) * mfz[kds:kde+1, ids:ide+1]
+    )
     # =================================================
     if qmfz is None:
         return res
@@ -458,7 +531,7 @@ def upwind1_adv_vflx_at_lev(
         wgt=wgt,
         q_0=q_0,
         q_plus_1=q_plus_1
-    ) * mfz_tmp
+    )
     # =================================================
     if qmfz is None:
         return res
@@ -479,7 +552,7 @@ def upwind3_adv_vflx_at_lev(
     # k = full_kds
     top = 0.5 * (
         q_lev[kds, ids:ide+1] + q_lev[kds+1, ids:ide+1]
-    ) * mfz[kds, ids:ide+1]
+    )
     # =================================================
     # full_kds + 1 <= k <= full_kde - 1
     q_minus_1 = q_lev[kds:kde-1, ids:ide+1]
@@ -495,12 +568,12 @@ def upwind3_adv_vflx_at_lev(
         q_0=q_0,
         q_plus_1=q_plus_1,
         q_plus_2=q_plus_2
-    ) * mid_mfz
+    )
     # =================================================
     # k = full_kde
     bottom = 0.5 * (
         q_lev[kde, ids:ide+1] + q_lev[kde+1, ids:ide+1]
-    ) * mfz[kde, ids:ide+1]
+    )
     # =================================================
     if qmfz is None:
         return jnp.concatenate([top[None, :], mid, bottom[None, :]], axis=0)
@@ -524,7 +597,7 @@ def upwind5_adv_vflx_at_lev(
     # full_kds <= k <= full_kds + 1
     top = 0.5 * (
         q_lev[kds:kds+2, ids:ide+1] + q_lev[kds+1:kds+3, ids:ide+1]
-    ) * mfz[kds:kds+2, ids:ide+1]
+    )
     # =================================================
     # full_kds + 2 <= k <= full_kde - 2
     q_minus_2 = q_lev[kds:kde-3, ids:ide+1]
@@ -544,12 +617,12 @@ def upwind5_adv_vflx_at_lev(
         q_plus_1=q_plus_1,
         q_plus_2=q_plus_2,
         q_plus_3=q_plus_3
-    ) * mid_mfz
+    )
     # =================================================
     # full_kde - 1 <= k <= full_kde
     bottom_mid = 0.5 * (
         q_lev[kde-1:kde+1, ids:ide+1] + q_lev[kde:kde+2, ids:ide+1]
-    ) * mfz[kde-1:kde+1, ids:ide+1]
+    )
     # =================================================
     if qmfz is None:
         return jnp.concatenate([top, mid, bottom_mid], axis=0)

@@ -372,3 +372,22 @@ def pinv_svd(A: Float[Array, "m n"], rtol=1e-15):
     S_inv = jnp.linalg.pinv(jnp.diag(S), rcond=tol)
     A_pinv = VT.T @ S_inv @ U.T
     return A_pinv
+
+
+def great_circle(
+    R: Float[Array, "..."],
+    lon1: Float[Array, "..."],
+    lat1: Float[Array, "..."],
+    lon2: Float[Array, "..."],
+    lat2: Float[Array, "..."],
+) -> Float[Array, "..."]:
+    return R * jnp.arccos(
+        jnp.minimum(
+            1.0,
+            jnp.maximum(
+                -1.0,
+                jnp.sin(lat1) * jnp.sin(lat2)
+                + jnp.cos(lat1) * jnp.cos(lat2) * jnp.cos(lon1 - lon2)
+            )
+        )
+    )

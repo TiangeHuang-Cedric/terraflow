@@ -75,10 +75,26 @@ equation.space_operators.prepare.pv.interp.upwind(3)
 equation.build_default()
 
 # %%
-block = equation.build_block_from_testcase(
-    coord=coord, para=para, case=testcase)
+time_manager = tf.util.datetime.DateTimeManager(
+    start_time="2000-01-01T00:00:00",
+    end_time="2000-01-21T00:00:00",
+    save_interval="6 hours",
+    dt_dyn="300 seconds",
+)
 
-block = equation.prepare_block(block)
+# %%
+solver = tf.solver.ExRungeKutta3Solver(
+    equation=equation,
+    time_manager=time_manager,
+    dev=dev,
+)
+
+# %%
+block_cls = equation.build_block_cls(coord=coord)
+
+block = block_cls.from_testcase( 
+    coord=coord, para=para, solver=solver, case=testcase
+)
 
 # %% [markdown]
 # ## Plot using easygems

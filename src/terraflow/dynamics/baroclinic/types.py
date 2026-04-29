@@ -13,6 +13,7 @@ import terraflow.discretization.abstract as disc_types
 if TYPE_CHECKING:
     from terraflow.util import typing
     Int = typing.Int
+    Float = typing.Float
     Array = typing.Array
 
 HM = TypeVar("HM", bound=AbstractMesh)
@@ -38,7 +39,6 @@ class AbstractBaroclinicEquationMode(
         hydrostatic: bool = False,
         nonhydrostatic: bool = False,
         ideal_dry_core: bool = False,
-        advection: bool = False,
         **kwargs
     ):
         super().__init__(
@@ -46,7 +46,8 @@ class AbstractBaroclinicEquationMode(
             hydrostatic=hydrostatic,
             nonhydrostatic=nonhydrostatic,
             ideal_dry_core=ideal_dry_core,
-            advection=advection,
+            advection2d=False,
+            advection3d=False,
             **kwargs
         )
 
@@ -148,7 +149,7 @@ class AbstractDryHydrostaticEquationSet(
 
 
 class AbstractBaroclinicEquationTerm(
-    disc_types.AbstractEquationTerm[DM, BEM],
+    disc_types.AbstractDynamicalEquationTerm[DM, BEM],
     Generic[DM, BEM],
     ABC
 ):
@@ -166,7 +167,7 @@ class AbstractBaroclinicEquationTerm(
 
 
 class AbstractBaroclinicEquationForm(
-    disc_types.AbstractEquationForm[DM, BEM],
+    disc_types.AbstractDynamicalEquationForm[DM, BEM],
     Generic[DM, BEM],
     ABC
 ):
@@ -323,8 +324,14 @@ class ExContinuityEqu(
         )
         self.div_mfs = self.init_div_mfs()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        return self.div_mfs(block, star_idx)
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        return self.div_mfs(block, star_idx, dt, substep)
 
     @staticmethod
     def alias_name() -> str:
@@ -386,9 +393,15 @@ class ExThermodynamicEqu(
         self.div_mft = self.init_div_mft()
         self.adv_vert = self.init_adv_vert()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        block = self.div_mft(block, star_idx)
-        block = self.adv_vert(block, star_idx)
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        block = self.div_mft(block, star_idx, dt, substep)
+        block = self.adv_vert(block, star_idx, dt, substep)
         return block
 
     @staticmethod
@@ -475,11 +488,17 @@ class ExNormalMomentumEqu4UGRID(
         self.adv_vert = self.init_vertical_advection()
         self.pgf = self.init_pgf()
 
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        block = self.coriolis(block, star_idx)
-        block = self.grad_ke(block, star_idx)
-        block = self.adv_vert(block, star_idx)
-        block = self.pgf(block, star_idx)
+    def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        block = self.coriolis(block, star_idx, dt, substep)
+        block = self.grad_ke(block, star_idx, dt, substep)
+        block = self.adv_vert(block, star_idx, dt, substep)
+        block = self.pgf(block, star_idx, dt, substep)
         return block
 
     @staticmethod

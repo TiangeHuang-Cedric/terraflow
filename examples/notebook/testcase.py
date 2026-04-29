@@ -76,12 +76,6 @@ equation.space_operators.prepare.pv.interp.pure_upwind(3)
 equation.build_default()
 
 # %%
-block = equation.build_block_from_testcase(
-    coord=coord, para=para, case=testcase)
-
-block = equation.prepare_block(block)
-
-# %%
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
     end_time="2000-01-21T00:00:00",
@@ -89,10 +83,18 @@ time_manager = tf.util.datetime.DateTimeManager(
     dt_dyn="300 seconds",
 )
 
+# %%
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     dev=dev,
+)
+
+# %%
+block_cls = equation.build_block_cls(coord=coord)
+
+block = block_cls.from_testcase( 
+    coord=coord, para=para, solver=solver, case=testcase
 )
 
 # %%
@@ -106,6 +108,7 @@ trajectory = jax.block_until_ready(trajectory)
 
 # %%
 diag_tools = tf.discretization.DiagnosticTools.from_equation(
+    time_manager=time_manager,
     coord=coord,
     para=para,
     equation=equation,
@@ -113,6 +116,7 @@ diag_tools = tf.discretization.DiagnosticTools.from_equation(
 )
 
 trajectory_tools = tf.discretization.DiagnosticTools.from_equation(
+    time_manager=time_manager,
     coord=coord,
     para=para,
     equation=equation,

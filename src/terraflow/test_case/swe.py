@@ -11,7 +11,7 @@ Float = typing.Float
 Array = typing.Array
 
 
-class ShallowWaterEquationTestCase(AbstractTestCase):
+class AbstractShallowWaterEquationTestCase(AbstractTestCase):
     """Base class for shallow water dynamics test cases."""
 
     def init_normal_velocity(
@@ -78,7 +78,7 @@ class ShallowWaterEquationTestCase(AbstractTestCase):
         )
 
 
-class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
+class MountainZonalFlowTestCase(AbstractShallowWaterEquationTestCase):
     """Mountain zonal flow test case (Williamson et al. 1992, Test Case 5).
 
     This test case simulates a zonal flow over an isolated mountain.
@@ -171,7 +171,7 @@ class MountainZonalFlowTestCase(ShallowWaterEquationTestCase):
         return -u0 * jnp.sin(lon) * jnp.sin(alpha)
 
 
-class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
+class RossbyHaurwitzWaveTestCase(AbstractShallowWaterEquationTestCase):
     """Rossby-Haurwitz wave test case (Williamson et al. 1992, Test Case 6).
 
     This test case simulates a Rossby-Haurwitz wave in a shallow water
@@ -286,7 +286,7 @@ class RossbyHaurwitzWaveTestCase(ShallowWaterEquationTestCase):
         return v
 
 
-class JetZonalFlowTestCase(ShallowWaterEquationTestCase):
+class JetZonalFlowTestCase(AbstractShallowWaterEquationTestCase):
     """Jet zonal flow test case (Galewsky et al. 2004).
 
     This test case simulates a zonal jet flow in a shallow water atmosphere model.

@@ -1,12 +1,7 @@
 from __future__ import annotations
-from typing import Self, TYPE_CHECKING
+from typing import Self, TYPE_CHECKING, TypeVar
 
 from terraflow.util import typing
-from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
-from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-from terraflow.layout.abstract import CoordinateSystem
-from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
-from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.discretization.fvm.scvt.trisk.common.adv import batch
 from terraflow.discretization.fvm.scvt.trisk.common.adv import types, upwind
 
@@ -14,14 +9,29 @@ Array = typing.Array
 
 if TYPE_CHECKING:
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.layout.abstract import CoordinateSystem
+    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 
+    CoordSysOneLayer = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        OneLayerVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        OneLayerVertCoordLayout
+    ]
 
-CoordSys = CoordinateSystem[
-    SphericalCentroidVoronoiTessellations,
-    HybridVertCoordinate,
-    TriSKBasedCGridStaggeringLayout,
-    HybridVertCoordLayout
-]
+    CoordSysHybrid = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        HybridVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        HybridVertCoordLayout
+    ]
+
+    CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
 
 
 class HorizontalAdvectionSchemeAtCell:
@@ -29,14 +39,28 @@ class HorizontalAdvectionSchemeAtCell:
     def __init__(self):
         self._built = False
 
-    def __call__(
+    def calc_mass_hflx(
+        self,
+        m: Array,
+        batch: batch.AdvBatchType,
+        coord: CoordSys,
+        aux: types.AdvectionAuxiliaryDataset,
+    ):
+        return self.scheme.calc_mass_hflx(
+            m=m,
+            batch=batch,
+            coord=coord,
+            aux=aux
+        )
+
+    def calc_tracer_hflx(
         self,
         q: Array,
         batch: batch.AdvBatchType,
         coord: CoordSys,
         aux: types.AdvectionAuxiliaryDataset,
     ) -> batch.AdvBatchType:
-        return self.scheme(
+        return self.scheme.calc_tracer_hflx(
             q=q,
             batch=batch,
             coord=coord,
@@ -76,7 +100,7 @@ class HorizontalAdvectionSchemeAtVtx:
         coord: CoordSys,
         aux: types.AdvectionAuxiliaryDataset,
     ) -> batch.AdvBatchType:
-        return self.scheme(
+        return self.scheme.calc_tracer_hflx(
             q=q,
             batch=batch,
             coord=coord,
@@ -112,13 +136,13 @@ class VerticalAdvectionScheme:
     def __init__(self):
         self._built = False
 
-    def __call__(
+    def calc_tracer_vflx(
         self,
         q: Array,
         batch: batch.AdvBatchType,
-        coord: CoordSys,
+        coord: CoordSysHybrid,
     ) -> batch.AdvBatchType:
-        return self.scheme(
+        return self.scheme.calc_tracer_vflx(
             q=q,
             coord=coord,
             batch=batch,
