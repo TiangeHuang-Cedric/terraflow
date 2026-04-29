@@ -1,3 +1,4 @@
+import time
 from typing import (
     Self,
     cast,
@@ -209,7 +210,9 @@ class Block(
             adv_batches = {}
             tracers = Tracer.empty(mode=mode)
         # ================================================
+        float_type = coord.dev.float_type
         return cls(
+            elapsed_seconds=jnp.array(0.0, dtype=float_type),
             mode=mode,
             old=jnp.array(0, dtype=jnp.int32),
             new=jnp.array(1, dtype=jnp.int32),
@@ -284,6 +287,7 @@ class Block(
                         "Invalid test case for advection equation"
                     )
                 block = advection2d_case_init_fn(
+                    time_in_seconds=jnp.array(0.0, dtype=coord.dev.float_type),
                     coord=coord,
                     para=para,
                     solver=solver,
@@ -319,12 +323,20 @@ class Block(
         return solver.equation.prepare_block(block)
 
     def testcase_set_un(self, itime: Int[Array, ""] | int) -> Self:
+        dt_dyn = self.adv_batch_bg.dt
+        elapsed_seconds = self.elapsed_seconds + dt_dyn
+        self = eqx.tree_at(
+            lambda b: b.elapsed_seconds,
+            self,
+            elapsed_seconds
+        )
         if self.test_case is None:
             raise ValueError(
                 "Test case is not provided for the block. Cannot set un.")
         else:
             if isinstance(self.test_case, AbstractAdvectionEquation2DTestCase):
-                un = init_un_in_barotropic_case(
+                un = init_un_in_advection2d_case(
+                    time_in_seconds=elapsed_seconds,
                     coord=self.coord,
                     mode=self.mode,
                     test_case=self.test_case
@@ -988,6 +1000,7 @@ def baroclinic_rossby_wave_case_init_fn(
 
 
 def advection2d_case_init_fn(
+    time_in_seconds: Float[Array, ""],
     coord: CoordSysOneLayer,
     para: PlanetParameterSet,
     solver: AbstractSolver,
@@ -1011,8 +1024,11 @@ def advection2d_case_init_fn(
     dmg = init_background_in_advection2d_case(
         coord=coord, mode=mode, test_case=test_case
     )
-    un = init_un_in_barotropic_case(
-        coord=coord, mode=mode, test_case=test_case
+    un = init_un_in_advection2d_case(
+        time_in_seconds=time_in_seconds,
+        coord=coord,
+        mode=mode,
+        test_case=test_case
     )
     q = init_tracers_in_advection2d_case(
         coord=coord, mode=mode, test_case=test_case
@@ -1062,7 +1078,7 @@ def init_z_in_barotropic_case(
 def init_un_in_barotropic_case(
     coord: CoordSys,
     mode: AbstractEquationMode,
-    test_case: AbstractShallowWaterEquationTestCase | AbstractAdvectionEquation2DTestCase,
+    test_case: AbstractShallowWaterEquationTestCase,
     *args,
     **kwargs
 ) -> Array:
@@ -1330,6 +1346,33 @@ def init_tracers_in_advection2d_case(
     q = test_case.init_tracers(lon, lat, *args, **kwargs)
     ntracers = q.shape[0]
     return q.reshape((ntracers, 1,) + lon.shape)
+
+
+def init_un_in_advection2d_case(
+    time_in_seconds: Float[Array, ""],
+    coord: CoordSys,
+    mode: AbstractEquationMode,
+    test_case: AbstractAdvectionEquation2DTestCase,
+    *args,
+    **kwargs
+) -> Array:
+    meta = default_state_meta(mode=mode)["un"]
+    if not isinstance(meta, StaggeredFieldMetaData):
+        raise ValueError(
+            f"Invalid meta type for un variable: {type(meta)}"
+        )
+    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
+    if horizontal_coord is None:
+        raise ValueError(
+            "Horizontal coordinate information is missing for un variable."
+        )
+    lon = horizontal_coord["lon"]
+    lat = horizontal_coord["lat"]
+    cart = horizontal_coord["cart"]
+    nr = horizontal_coord["nr_orient"]
+    return test_case.init_normal_velocity(
+        time_in_seconds, lon, lat, cart, nr
+    ).reshape((1,) + lon.shape)  # add leading axis for vmap
 
 
 def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:

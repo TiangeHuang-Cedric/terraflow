@@ -1763,6 +1763,7 @@ class AbstractBlock(
         STATE, TEND, STATIC, AUX, ADVBATCH, TRACERS, AUXDS
     ]
 ):
+    elapsed_seconds: Float[Array, ""]
     mode: AbstractEquationMode = eqx.field(static=True)
     old: Array
     new: Array

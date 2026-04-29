@@ -391,3 +391,25 @@ def great_circle(
             )
         )
     )
+
+
+def lonlat2xyz(
+    lon: Float[Array, "..."],
+    lat: Float[Array, "..."],
+    radius: Float[Array, "..."]
+) -> Float[Array, "... 3"]:
+    """Convert longitude and latitude to Cartesian coordinates.
+
+    Args:
+        lon: Float[Array, "..."], longitude in radians.
+        lat: Float[Array, "..."], latitude in radians.
+        radius: Float[Array, "..."], radius of the sphere.
+
+    Returns:
+        Float[Array, "... 3"], Cartesian coordinates corresponding to the input longitude and latitude.
+    """
+    cos_lat = jnp.cos(lat)
+    x = radius * cos_lat * jnp.cos(lon)
+    y = radius * cos_lat * jnp.sin(lon)
+    z = radius * jnp.sin(lat)
+    return jnp.stack([x, y, z], axis=-1)
