@@ -1,10 +1,9 @@
 from __future__ import annotations
-from typing import Self, TYPE_CHECKING
+from typing import Any, Dict, Self, TYPE_CHECKING
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as op
-
 from terraflow.discretization.abstract import (
     AbstractPrepareSpaceOperators,
     AbstractDynamicalEquationOperator
@@ -14,13 +13,13 @@ from ..parallel import tree_at
 
 
 if TYPE_CHECKING:
+    from terraflow.util.model_config import ModelConfig
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.layout.abstract import CoordinateSystem
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
-    from terraflow.discretization.fvm.scvt.trisk.common.coriolis.schemes import CoriolisForceAtEdge
     from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
     from ..dynamics_types import Block
 
@@ -54,8 +53,8 @@ class FluidThickness(
             method=method,
             mode=types.ShallowWaterEquationMode()
         )
-        from ..common.adv.flux_reconstruct import FluxReconstructAtEdgeOnPrimalMesh
-        self.recon_at_edge = FluxReconstructAtEdgeOnPrimalMesh()
+        from ..common.adv.flux_reconstruct import CentralDifference2AtEdgeOnPrimalMesh
+        self.recon_at_edge = CentralDifference2AtEdgeOnPrimalMesh()
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
@@ -103,9 +102,11 @@ class FluidThickness(
             fill_halo=True
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.recon_at_edge.build_default()
             self._built = True
         return self
 
@@ -152,7 +153,10 @@ class TendencyOfDivergenceOfMassFlux(
             replace=(dgzdt, dgzdt_dmf)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -200,9 +204,13 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             replace=dundt
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.scheme.config2dict()
+        return self._update_config(cfg=cfg)
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.scheme.build_default()
+            self.scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -222,8 +230,7 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.pgf.swm import PressureGradientForce
-        self.scheme = PressureGradientForce(
-            disc=disc, method=method)
+        self.scheme = PressureGradientForce(disc=disc, method=method)
 
     def __call__(
         self,
@@ -248,8 +255,14 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
             replace=dundt
         )
 
-    def build_default(self) -> Self:
-        self._built = True
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.scheme.config2dict()
+        return self._update_config(cfg=cfg)
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self.has_built():
+            self.scheme.build_with_config(cfg=cfg)
+            self._built = True
         return self
 
     def prepare_block(self, block: Block) -> Block:
@@ -298,7 +311,10 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
             fill_halo=True
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -387,16 +403,25 @@ class ExPrepareSpaceOperators(
             pass
         return block
 
-    def build_default(self, coriolis_scheme: CoriolisForceAtEdge) -> "ExPrepareSpaceOperators":
+    def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.mfn.config2dict())
+        self._cfg.update(self.dmf.config2dict())
+        self._cfg.update(self.ut.config2dict())
+        self._cfg.update(self.vor.config2dict())
+        self._cfg.update(self.pv.config2dict())
+        self._cfg.update(self.ke.config2dict())
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.dmg.build_default()
-            self.mfn.build_default()
-            self.dmf.build_default()
-            self.div.build_default()
-            self.vor.build_default()
-            self.ut.build_default(coriolis_scheme=coriolis_scheme)
-            self.pv.build_default()
-            self.ke.build_default()
+            self.dmg.build_with_config(cfg)
+            self.mfn.build_with_config(cfg)
+            self.dmf.build_with_config(cfg)
+            self.div.build_with_config(cfg)
+            self.vor.build_with_config(cfg)
+            self.ut.build_with_config(cfg)
+            self.pv.build_with_config(cfg)
+            self.ke.build_with_config(cfg)
             self._built = True
         return self
 
@@ -488,21 +513,8 @@ class ExSpaceOperators(
             raise ValueError(f"Unknown pass_tag: {pass_tag}")
         return block
 
-    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+    def advection_stepper(self, block: BLOCK, explicit: bool) -> BLOCK:
         return block
-
-    def advection_space_operators(
-        self,
-        batch: AdvBatchType,
-        block: BLOCK,
-        old_idx: Int[Array, ""] | int,
-        star_idx: Int[Array, ""] | int,
-        new_idx: Int[Array, ""] | int,
-        dt: Float[Array, ""] | float,
-        substep: int,
-        explicit: bool
-    ) -> tuple[AdvBatchType, BLOCK]:
-        return batch, block
 
     def diagnose(
         self,
@@ -618,13 +630,17 @@ class ExSpaceOperators(
         # ================================================
         return block
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.dgzdt.config2dict())
+        self._cfg.update(self.dundt.config2dict())
+        self._cfg.update(self.prepare.config2dict())
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.dgzdt.build_default()
-            self.dundt.build_default()
-            self.prepare.build_default(
-                coriolis_scheme=self.dundt.coriolis.scheme
-            )
+            self.dgzdt.build_with_config(cfg)
+            self.dundt.build_with_config(cfg)
+            self.prepare.build_with_config(cfg)
             self._built = True
         return self
 

@@ -1,10 +1,15 @@
 from __future__ import annotations
-from typing import Self, TYPE_CHECKING
+from typing import Self, Any, TypeVar, TYPE_CHECKING
 import jax
 
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.model_config import ModelConfig
+    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
     from terraflow.discretization.fvm.scvt.trisk.common.adv import batch
     from terraflow.discretization.fvm.scvt.trisk.common.adv.fct import (
@@ -16,16 +21,22 @@ if TYPE_CHECKING:
     Float = typing.Float
     Array = typing.Array
 
+    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
+    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
+
+    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+
 
 class HorizontalLimiterAtCell:
 
     def __init__(self):
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(
         self,
         q: Float[Array, "nlev ncell"],
-        q_old: Float[Array, "nlev ncell"],
+        mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
         block: Block,
         dt: Float[Array, ""] | float,
@@ -34,7 +45,7 @@ class HorizontalLimiterAtCell:
         def do_limiter(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return self.scheme(
                 q=q,
-                q_old=q_old,
+                mq_old=mq_old,
                 batch=batch,
                 block=block,
                 dt=dt
@@ -55,41 +66,56 @@ class HorizontalLimiterAtCell:
         self.scheme = fct.FluxCorrectedTransportHorizontalLimiterAtCell(
             regression=regression
         )
-        self.use_limiter = True
         self.scheme_name = "fct"
+        self._cfg["limiter_type"] = "fct"
+        self._cfg["fct_regression_h"] = int(regression)
         self._built = True
         return self.scheme
 
     def no_limiter(self) -> NoLimiter:
         self.scheme = NoLimiter()
-        self.use_limiter = False
         self.scheme_name = "none"
+        self._cfg["limiter_type"] = "none"
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict[str, Any]:
+        self._cfg.update(
+            self.scheme.config2dict()
+        )
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self._built:
-            self.fct().build_default()
+            if cfg.limiter_type == "fct":
+                self.fct(regression=cfg.fct_regression_h)
+            elif cfg.limiter_type == "none":
+                self.no_limiter()
+            else:
+                raise ValueError(
+                    f"Unsupported limiter type: {cfg.limiter_type}"
+                )
         if not self.scheme.has_built():
-            self.scheme.build_default()
+            self.scheme.build_with_config(cfg=cfg)
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
 
 class VerticalLimiterAtCell:
 
     def __init__(self):
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(
         self,
         q: Float[Array, "nlev ncell"],
-        q_old: Float[Array, "nlev ncell"],
+        mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
         block: Block,
         dt: Float[Array, ""] | float,
@@ -99,7 +125,7 @@ class VerticalLimiterAtCell:
         def do_limiter(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return self.scheme(
                 q=q,
-                q_old=q_old,
+                mq_old=mq_old,
                 batch=batch,
                 block=block,
                 dt=dt
@@ -120,25 +146,42 @@ class VerticalLimiterAtCell:
         self.scheme = fct.FluxCorrectedTransportVerticalLimiterAtCell(
             regression=regression
         )
+        self.scheme_name = "fct"
+        self._cfg["limiter_type"] = "fct"
+        self._cfg["fct_regression_v"] = int(regression)
         self._built = True
         return self.scheme
 
     def no_limiter(self) -> NoLimiter:
         self.scheme = NoLimiter()
+        self.scheme_name = "none"
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict[str, Any]:
+        self._cfg.update(
+            self.scheme.config2dict()
+        )
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self._built:
-            self.fct()
+            if cfg.limiter_type == "fct":
+                self.fct(regression=cfg.fct_regression_v)
+            elif cfg.limiter_type == "none":
+                self.no_limiter()
+            else:
+                raise ValueError(
+                    f"Unsupported limiter type: {cfg.limiter_type}"
+                )
         if not self.scheme.has_built():
-            self.scheme.build_default()
+            self.scheme.build_with_config(cfg=cfg)
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
 
@@ -149,7 +192,8 @@ class NoLimiter:
 
     def __call__(
         self,
-        q_old: Float[Array, "nlev ncell"],
+        q: Float[Array, "nlev ncell"],
+        mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
         block: Block,
         dt: Float[Array, ""] | float,
@@ -161,9 +205,12 @@ class NoLimiter:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict[str, Any]:
+        return {}
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block

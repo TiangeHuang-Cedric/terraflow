@@ -1,4 +1,4 @@
-import time
+from __future__ import annotations
 from typing import (
     Self,
     cast,
@@ -6,27 +6,24 @@ from typing import (
     Optional,
     TypeVar,
     Generic,
-    Union,
+    TYPE_CHECKING
 )
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 
-from terraflow.util import typing, formula, log
-from terraflow.planet import PlanetParameterSet
+from terraflow.util import log
 from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.abstract import (
     CoordinateSystem,
-    Basis,
     MeshEntity,
     VertLoc,
 )
-from terraflow.layout.field import ArrayField, StaggeredFieldMetaData, NumericMetaData
 from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-from terraflow.test_case.abstract import AbstractTestCase
 from terraflow.test_case.swe import (
     AbstractShallowWaterEquationTestCase,
     MountainZonalFlowTestCase
@@ -39,9 +36,10 @@ from terraflow.test_case.baroclinic import (
 )
 from terraflow.test_case.adv import (
     AbstractAdvectionEquation2DTestCase,
-    SolidRotationTestCase
+    AbstractAdvectionEquation3DTestCase,
+    SolidRotationTestCase,
+    DCMIP12TestCase
 )
-from terraflow.dynamics.adv.types import AbstractAdvectionEquationSet2D
 from terraflow.solver.abstract import AbstractSolver
 from terraflow.discretization.abstract import (
     AbstractEquationMode,
@@ -50,24 +48,42 @@ from terraflow.discretization.abstract import (
     AbstractFields,
     AbstractEquationTermAuxiliaryDataset
 )
+from terraflow.layout.field import ArrayField, StaggeredFieldMetaData, NumericMetaData
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
-from terraflow.discretization.fvm.scvt.trisk.tracer import Tracer, default_tracer_meta
+from terraflow.discretization.fvm.scvt.trisk.tracer import Tracer
 from terraflow.discretization.fvm.scvt.trisk.common.pgf.types import PressureGradientForceDataset
 from terraflow.discretization.fvm.scvt.trisk.common.coriolis.types import CoriolisForceAtEdgeData
 from terraflow.discretization.fvm.scvt.trisk.common.adv.types import AdvectionAuxiliaryDataset
 from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
-
-Int = typing.Int
-Float = typing.Float
-Array = typing.Array
-PyTree = typing.PyTree
-
-FDT = ArrayField[StaggeredFieldMetaData]
-NDT = ArrayField[NumericMetaData]
+from .element_meta import (
+    default_state_meta,
+    default_tendency_meta,
+    default_static_meta,
+    default_auxiliary_meta
+)
+from .test_case.swm import barotropic_case_init_fn
+from .test_case.baroclinic import (
+    baroclinic_steady_state_case_init_fn,
+    baroclinic_mountain_wave_case_init_fn,
+    baroclinic_rossby_wave_case_init_fn
+)
+from .test_case.adv import (
+    advection2d_case_init_fn,
+    advection2d_case_set_uv_fn,
+    dcmip12_case_init_fn,
+    dcmip12_case_set_uv_fn
+)
 
 VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
 VLO = TypeVar("VLO", OneLayerVertCoordLayout, HybridVertCoordLayout)
-ES = TypeVar("ES", bound=AbstractEquationSet)
+FDT = ArrayField[StaggeredFieldMetaData]
+NDT = ArrayField[NumericMetaData]
+
+NLEVP = "ilev"
+NLEV = "lev"
+NCELL = "cell"
+NEDGE = "edge"
+NVTX = "vtx"
 
 CoordSys = CoordinateSystem[
     SphericalCentroidVoronoiTessellations,
@@ -90,20 +106,17 @@ CoordSysHybrid = CoordinateSystem[
     HybridVertCoordLayout
 ]
 
-NLEVP = "ilev"
-NLEV = "lev"
-NCELL = "cell"
-NEDGE = "edge"
-NVTX = "vtx"
+if TYPE_CHECKING:
+    from terraflow.util import typing
+    from terraflow.planet import PlanetParameterSet
+    from terraflow.test_case.abstract import AbstractTestCase
 
-Element = Union[
-    "State",
-    "Tendency",
-    "Static",
-    "Auxiliary",
-    AdvBatchType,
-    dict[str, AdvBatchType],
-]
+    Int = typing.Int
+    Float = typing.Float
+    Array = typing.Array
+    PyTree = typing.PyTree
+
+    ES = TypeVar("ES", bound=AbstractEquationSet)
 
 
 class Block(
@@ -241,7 +254,8 @@ class Block(
     ) -> Self:
         # =======================================================
         equation = solver.equation
-        if equation.mode.is_baroclinic():
+        mode: AbstractEquationMode = equation.mode
+        if mode.is_baroclinic():
             # ==============================================
             # Baroclinic case
             if case is None:
@@ -276,10 +290,10 @@ class Block(
                     f"Initialization for case {type(case)} is not implemented yet."
                 )
             # ==============================================
-        elif equation.mode.is_advection():
+        elif mode.is_advection():
             # ==============================================
             # Advection case
-            if isinstance(equation, AbstractAdvectionEquationSet2D):
+            if mode.is_advection2d():
                 if case is None:
                     case = SolidRotationTestCase(para)
                 elif not isinstance(case, AbstractAdvectionEquation2DTestCase):
@@ -293,12 +307,34 @@ class Block(
                     solver=solver,
                     test_case=case
                 )
+            elif mode.is_advection3d():
+                if case is None:
+                    case = DCMIP12TestCase(para)
+                elif not isinstance(case, AbstractAdvectionEquation3DTestCase):
+                    raise ValueError(
+                        "Invalid test case for 3D advection equation"
+                    )
+                if isinstance(case, DCMIP12TestCase):
+                    block = dcmip12_case_init_fn(
+                        time_in_seconds=jnp.array(
+                            0.0,
+                            dtype=coord.dev.float_type
+                        ),
+                        coord=coord,
+                        para=para,
+                        solver=solver,
+                        test_case=case
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Initialization for case {type(case)} is not implemented yet."
+                    )
             else:
                 raise NotImplementedError(
                     "Unvalid equation type for advection testcase initialization"
                 )
             # ==============================================
-        elif equation.mode.is_barotropic():
+        elif mode.is_barotropic():
             # ==============================================
             # Barotropic case
             if case is None:
@@ -322,7 +358,7 @@ class Block(
         # =======================================================
         return solver.equation.prepare_block(block)
 
-    def testcase_set_un(self, itime: Int[Array, ""] | int) -> Self:
+    def testcase_set_uv(self, itime: Int[Array, ""] | int) -> Self:
         dt_dyn = self.adv_batch_bg.dt
         elapsed_seconds = self.elapsed_seconds + dt_dyn
         self = eqx.tree_at(
@@ -332,28 +368,37 @@ class Block(
         )
         if self.test_case is None:
             raise ValueError(
-                "Test case is not provided for the block. Cannot set un.")
+                "Test case is not provided for the block. Cannot set un."
+            )
         else:
             if isinstance(self.test_case, AbstractAdvectionEquation2DTestCase):
-                un = init_un_in_advection2d_case(
-                    time_in_seconds=elapsed_seconds,
-                    coord=self.coord,
-                    mode=self.mode,
-                    test_case=self.test_case
+                self = cast(
+                    Self,
+                    advection2d_case_set_uv_fn(
+                        block=self,
+                        test_case=self.test_case,
+                        itime=itime
+                    )
                 )
-                coord = cast(CoordSys, self.coord)
-                return tree_at(
-                    coord=coord,
-                    where=lambda b: b.state.un,
-                    pytree=self,
-                    replace=un,
-                    at_dims=0,
-                    at_idxes=itime
-                )
+            elif isinstance(self.test_case, AbstractAdvectionEquation3DTestCase):
+                if isinstance(self.test_case, DCMIP12TestCase):
+                    self = cast(
+                        Self,
+                        dcmip12_case_set_uv_fn(
+                            block=self,
+                            test_case=self.test_case,
+                            itime=itime
+                        )
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Initialization of un for test case {type(self.test_case)} is not implemented yet."
+                    )
             else:
                 raise NotImplementedError(
                     f"Initialization of un for test case {type(self.test_case)} is not implemented yet."
                 )
+            return self
 
     def diagnose_uv(self, itime_str: str) -> Self:
         # =======================================================
@@ -616,6 +661,50 @@ class Block(
             replace=self.tend.reset(pass_tag=pass_tag),
         )
 
+    def set_new_tracer_mass4batches(self) -> Self:
+        # ==========================================
+        # Set new tracer mass for current batch
+        m_new = self.adv_batch_bg.m.unwrap()
+        for batch in self.adv_batches.values():
+
+            def replace_tracer_mass(b: Self) -> Self:
+                mq_new = b.tracers.mq.unwrap()
+                q_new = b.tracers.q.unwrap()[batch.new, batch.idx, :, :]
+                mq_new = mq_new.at[batch.new, batch.idx, :, :].set(
+                    m_new * q_new
+                )
+                return eqx.tree_at(
+                    lambda b: b.tracers.mq.data,
+                    b,
+                    mq_new,
+                )
+
+            def do_nothing(b: Self) -> Self:
+                return b
+
+            self = jax.lax.cond(
+                pred=batch.is_run_tracer_istep(),
+                true_fun=replace_tracer_mass,
+                false_fun=do_nothing,
+                operand=self
+            )
+        # ==========================================
+        return self
+
+    def set_new_mass4batches(self) -> Self:
+        # ==========================================
+        # Set new mass for current batch
+        m_new = self.adv_batch_bg.m.unwrap()
+        for batch_name, batch in self.adv_batches.items():
+            batch: AdvBatchType = batch.set_new_mass(m_new=m_new)
+            self = eqx.tree_at(
+                lambda b: b.adv_batches[batch_name],
+                self,
+                batch
+            )
+        # ==========================================
+        return self
+
 
 class State(AbstractFields[StaggeredFieldMetaData]):
     mode: AbstractEquationMode = eqx.field(static=True)
@@ -746,6 +835,7 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
     v: FDT
     un_lev: FDT
     ut: FDT
+    we_lev: FDT
     div: FDT
     vor: FDT
     pv_vtx: FDT
@@ -780,1622 +870,3 @@ class EquationTermAuxDataset(AbstractEquationTermAuxiliaryDataset):
             coriolis=coriolis,
             adv=adv
         )
-
-
-FD = ArrayField[StaggeredFieldMetaData]
-
-
-def barotropic_case_init_fn(
-    coord: CoordSysOneLayer,
-    para: PlanetParameterSet,
-    solver: AbstractSolver,
-    *,
-    test_case: AbstractShallowWaterEquationTestCase,
-) -> Block:
-    g = para.gravity.unwrap()
-    block = Block.from_model(
-        coord=coord,
-        para=para,
-        solver=solver,
-        test_case=test_case
-    )
-    mode = solver.equation.mode
-    un = init_un_in_barotropic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    gz = init_z_in_barotropic_case(
-        coord=coord, mode=mode, test_case=test_case
-    ) * g
-    gzs = init_zs_in_barotropic_case(
-        coord=coord, mode=mode, test_case=test_case
-    ) * g
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (b.state.un, b.state.gz),
-        pytree=block,
-        replace=(un, gz),
-        at_dims=(0, 0),
-        at_idxes=(0, 0)
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: b.static.gzs,
-        pytree=block,
-        replace=gzs
-    )
-    return block
-
-
-def baroclinic_steady_state_case_init_fn(
-    coord: CoordSysHybrid,
-    para: PlanetParameterSet,
-    solver: AbstractSolver,
-    *,
-    test_case: SteadyStateTestCase,
-) -> Block:
-    full_kds = coord.vert.full_kds
-    full_kde = coord.vert.full_kde
-    block = Block.from_model(
-        coord=coord,
-        para=para,
-        solver=solver,
-        test_case=test_case
-    )
-    mode = solver.equation.mode
-    gzs = init_gzs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    gz = init_gz_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    gz_lev = init_gz_lev_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    mgs = init_mgs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, gzs=gzs
-    )
-    mg = coord.vert.calc_mg(mgs, ks=full_kds, ke=full_kde)
-    t = init_t_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    pt = formula.dry_potential_temperature(t=t, p=mg, para=para)
-    un = init_un_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    ref_ps = mgs
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (
-            b.state.mgs, b.state.mg,
-            b.state.gz, b.state.gz_lev,
-            b.state.un, b.state.pt
-        ),
-        pytree=block,
-        replace=(mgs, mg, gz, gz_lev, un, pt),
-        at_dims=(0,) * 6,
-        at_idxes=(0,) * 6
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
-        pytree=block,
-        replace=(gzs, ref_ps),
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: b.aux.t,
-        pytree=block,
-        replace=t,
-    )
-    return block
-
-
-def baroclinic_mountain_wave_case_init_fn(
-    coord: CoordSysHybrid,
-    para: PlanetParameterSet,
-    solver: AbstractSolver,
-    *,
-    test_case: MountainWaveTestCase,
-) -> Block:
-    full_kds = coord.vert.full_kds
-    full_kde = coord.vert.full_kde
-    block = Block.from_model(
-        coord=coord,
-        para=para,
-        solver=solver,
-        test_case=test_case
-    )
-    mode = solver.equation.mode
-    gzs = init_gzs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    mgs = init_mgs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, gzs=gzs
-    )
-    mg = coord.vert.calc_mg(mgs=mgs, ks=full_kds, ke=full_kde)
-    pt = init_pt_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, mg=mg
-    )
-    un = init_un_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    ref_ps = mgs
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (
-            b.state.mgs, b.state.mg, b.state.un, b.state.pt
-        ),
-        pytree=block,
-        replace=(mgs, mg, un, pt),
-        at_dims=(0,) * 4,
-        at_idxes=(0,) * 4
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
-        pytree=block,
-        replace=(gzs, ref_ps)
-    )
-    return block
-
-
-def baroclinic_rossby_wave_case_init_fn(
-    coord: CoordSysHybrid,
-    para: PlanetParameterSet,
-    solver: AbstractSolver,
-    *,
-    test_case: RossbyHaurwitzWaveTestCase,
-) -> Block:
-    full_kds = coord.vert.full_kds
-    full_kde = coord.vert.full_kde
-    half_kds = coord.vert.half_kds
-    half_kde = coord.vert.half_kde
-    block = Block.from_model(
-        coord=coord,
-        para=para,
-        solver=solver,
-        test_case=test_case
-    )
-    mode = solver.equation.mode
-    un = init_un_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    gzs = init_gzs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    mgs = init_mgs_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, gzs=gzs
-    )
-    mg = coord.vert.calc_mg(mgs=mgs, ks=full_kds, ke=full_kde)
-    mg_lev = coord.vert.calc_mg_lev(mgs=mgs, ks=half_kds, ke=half_kde)
-    pt = init_pt_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, mg=mg
-    )
-    gz = init_gz_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, mg=mg
-    )
-    gz_lev = init_gz_lev_in_baroclinic_case(
-        coord=coord, mode=mode, test_case=test_case, mg=mg_lev
-    )
-    ref_ps = mgs
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (
-            b.state.mgs, b.state.mg, b.state.mg_lev,
-            b.state.gz, b.state.gz_lev,
-            b.state.un, b.state.pt
-        ),
-        pytree=block,
-        replace=(mgs, mg, mg_lev, gz, gz_lev, un, pt),
-        at_dims=(0,) * 7,
-        at_idxes=(0,) * 7
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
-        pytree=block,
-        replace=(gzs, ref_ps)
-    )
-    return block
-
-
-def advection2d_case_init_fn(
-    time_in_seconds: Float[Array, ""],
-    coord: CoordSysOneLayer,
-    para: PlanetParameterSet,
-    solver: AbstractSolver,
-    *,
-    test_case: AbstractAdvectionEquation2DTestCase,
-) -> Block:
-    mode = solver.equation.mode
-    block = Block.from_model(
-        coord=coord,
-        para=para,
-        solver=solver,
-        tracers=Tracer.add_tracers(
-            mode=mode,
-            coord=coord,
-            tracers_meta=test_case.init_tracers_meta(
-                dt_adv=solver.dt_adv
-            )
-        ),
-        test_case=test_case
-    )
-    dmg = init_background_in_advection2d_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    un = init_un_in_advection2d_case(
-        time_in_seconds=time_in_seconds,
-        coord=coord,
-        mode=mode,
-        test_case=test_case
-    )
-    q = init_tracers_in_advection2d_case(
-        coord=coord, mode=mode, test_case=test_case
-    )
-    block = tree_at(
-        coord=coord,
-        where=lambda b: (b.state.dmg, b.state.un),
-        pytree=block,
-        replace=(dmg, un),
-        at_dims=(0, 0),
-        at_idxes=(0, 0)
-    )
-    return tree_at(
-        coord=coord,
-        where=lambda b: b.tracers.q,
-        pytree=block,
-        replace=q,
-        at_dims=0,
-        at_idxes=0,
-    )
-
-
-def init_z_in_barotropic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractShallowWaterEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["gz"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for gz variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            "Horizontal coordinate information is missing for gz variable."
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    return test_case.init_geopotential_height(
-        lon, lat
-    ).reshape((1,) + lon.shape)  # add leading axis for vmap
-
-
-def init_un_in_barotropic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractShallowWaterEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["un"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for un variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            "Horizontal coordinate information is missing for un variable."
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    cart = horizontal_coord["cart"]
-    nr = horizontal_coord["nr_orient"]
-    return test_case.init_normal_velocity(
-        lon, lat, cart, nr
-    ).reshape((1,) + lon.shape)  # add leading axis for vmap
-
-
-def init_zs_in_barotropic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractShallowWaterEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_static_meta(mode=mode)["gzs"]
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            "Horizontal coordinate information is missing for gzs variable."
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    return test_case.init_topography(lon, lat)
-
-
-def init_mgs_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    gzs: Array,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["mgs"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for mgs variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    return test_case.init_mgs(lon, lat, gzs)
-
-
-def init_t_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_auxiliary_meta(mode=mode)["t"]
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    vertical_coord = meta.get_vert_position(coord).vertical_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    if vertical_coord is None:
-        raise ValueError(
-            f"Vertical coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    eta = vertical_coord
-    return test_case.init_t(lon, lat, eta)
-
-
-def init_pt_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    mg: Array,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["pt"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for pt variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    vertical_coord = meta.get_vert_position(coord).vertical_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    if vertical_coord is None:
-        raise ValueError(
-            f"Vertical coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    eta = vertical_coord
-    return test_case.init_pt(lon, lat, eta, mg)
-
-
-def init_un_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["un"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for un variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    vertical_coord = meta.get_vert_position(coord).vertical_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    if vertical_coord is None:
-        raise ValueError(
-            f"Vertical coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    eta = vertical_coord
-    cart = horizontal_coord["cart"]
-    nr = horizontal_coord["nr_orient"]
-    return test_case.init_normal_velocity(
-        lon, lat, eta, cart, nr
-    )
-
-
-def init_gzs_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_static_meta(mode=mode)["gzs"]
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    return test_case.init_gzs(lon, lat)
-
-
-def init_gz_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["gz"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for gz variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    vertical_coord = meta.get_vert_position(coord).vertical_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    if vertical_coord is None:
-        raise ValueError(
-            f"Vertical coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    eta = vertical_coord
-    return test_case.init_gz(lon, lat, eta, *args, **kwargs)
-
-
-def init_gz_lev_in_baroclinic_case(
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractBaroclinicEquationTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["gz_lev"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for gz_lev variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    vertical_coord = meta.get_vert_position(coord).vertical_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    if vertical_coord is None:
-        raise ValueError(
-            f"Vertical coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    eta = vertical_coord
-    return test_case.init_gz(lon, lat, eta, *args, **kwargs)
-
-
-def init_background_in_advection2d_case(
-    coord: CoordSysOneLayer,
-    mode: AbstractEquationMode,
-    test_case: AbstractAdvectionEquation2DTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["dmg"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for dmg variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    return test_case.init_background(lon, lat, *args, **kwargs)
-
-
-def init_tracers_in_advection2d_case(
-    coord: CoordSysOneLayer,
-    mode: AbstractEquationMode,
-    test_case: AbstractAdvectionEquation2DTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    # set to 1 just for return metadata
-    meta = default_tracer_meta(mode, ntracers=1)["q"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for tracer variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            f"Horizontal coordinate information is missing for meta: {meta}"
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    q = test_case.init_tracers(lon, lat, *args, **kwargs)
-    ntracers = q.shape[0]
-    return q.reshape((ntracers, 1,) + lon.shape)
-
-
-def init_un_in_advection2d_case(
-    time_in_seconds: Float[Array, ""],
-    coord: CoordSys,
-    mode: AbstractEquationMode,
-    test_case: AbstractAdvectionEquation2DTestCase,
-    *args,
-    **kwargs
-) -> Array:
-    meta = default_state_meta(mode=mode)["un"]
-    if not isinstance(meta, StaggeredFieldMetaData):
-        raise ValueError(
-            f"Invalid meta type for un variable: {type(meta)}"
-        )
-    horizontal_coord = meta.get_hori_position(coord).horizontal_coord
-    if horizontal_coord is None:
-        raise ValueError(
-            "Horizontal coordinate information is missing for un variable."
-        )
-    lon = horizontal_coord["lon"]
-    lat = horizontal_coord["lat"]
-    cart = horizontal_coord["cart"]
-    nr = horizontal_coord["nr_orient"]
-    return test_case.init_normal_velocity(
-        time_in_seconds, lon, lat, cart, nr
-    ).reshape((1,) + lon.shape)  # add leading axis for vmap
-
-
-def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
-    meta: dict[str, StaggeredFieldMetaData | NumericMetaData] = {}
-    if mode.is_barotropic() or mode.is_advection2d():
-        meta["un"] = StaggeredFieldMetaData(
-            name="un",
-            dims=(NEDGE,),
-            long_name="Normal velocity at edge",
-            description="Normal velocity at edge",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location="",
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    if mode.is_baroclinic() or mode.is_advection3d():
-        meta["un"] = StaggeredFieldMetaData(
-            name="un",
-            dims=(NLEV, NEDGE,),
-            long_name="Normal velocity at edge",
-            description="Normal velocity at edge",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    if mode.is_barotropic():
-        meta["gz"] = StaggeredFieldMetaData(
-            name="gz",
-            dims=(NCELL,),
-            long_name="Geopotential at primal cell center",
-            description="Geopotential at primal cell center",
-            units="m2 / s2",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    elif mode.is_baroclinic() or mode.is_advection3d():
-        meta["gz"] = StaggeredFieldMetaData(
-            name="gz",
-            dims=(NLEV, NCELL,),
-            long_name="Geopotential at primal cell center",
-            description="Geopotential at primal cell center",
-            units="m2 / s2",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.baroclinic else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0" if (not mode.is_advection3d()) else ""
-        )
-    if mode.is_baroclinic():
-        meta["gz_lev"] = StaggeredFieldMetaData(
-            name="gz_lev",
-            dims=(NLEVP, NCELL,),
-            long_name="Geopotential at primal cell center and vertical level",
-            description="Geopotential at primal cell center and vertical level",
-            units="m2 / s2",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-        meta["mg"] = StaggeredFieldMetaData(
-            name="mg",
-            dims=(NLEV, NCELL,),
-            long_name="Dry air weight at primal cell center and full level",
-            description="Dry air weight at primal cell center and full level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["mg_lev"] = StaggeredFieldMetaData(
-            name="mg_lev",
-            dims=(NLEVP, NCELL,),
-            long_name="Dry air weight at primal cell center and half level",
-            description="Dry air weight at primal cell center and half level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["mgs"] = StaggeredFieldMetaData(
-            name="mgs",
-            dims=(NCELL,),
-            long_name="Dry air weight on surface at primal cell center and full level",
-            description="Dry air weight on surface at primal cell center and full level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["dmg"] = StaggeredFieldMetaData(
-            name="dmg",
-            dims=(NLEV, NCELL,),
-            long_name="Difference of dry air weight at primal cell center between the neighboring half levels",
-            description="Difference of dry air weight at primal cell center between the neighboring half levels",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["dmg_e"] = StaggeredFieldMetaData(
-            name="dmg_e",
-            dims=(NLEV, NEDGE,),
-            long_name="Difference of dry air weight at edge between the neighboring half levels",
-            description="Difference of dry air weight at edge between the neighboring half levels",
-            units="Pa",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["dmg_vtx"] = StaggeredFieldMetaData(
-            name="dmg_vtx",
-            dims=(NLEV, NVTX,),
-            long_name="Difference of dry air weight at dual cell center between the neighboring half levels",
-            description="Difference of dry air weight at dual cell center between the neighboring half levels",
-            units="Pa",
-            hori_location=MeshEntity.Vtx,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_vtx lat_vtx",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["dmg_lev"] = StaggeredFieldMetaData(
-            name="dmg_lev",
-            dims=(NLEVP, NCELL,),
-            long_name="Difference of dry air weight at primal cell center between the neighboring full levels",
-            description="Difference of dry air weight at primal cell center between the neighboring full levels",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["pt"] = StaggeredFieldMetaData(
-            name="pt",
-            dims=(NLEV, NCELL,),
-            long_name="Potential temperature at primal cell center and vertical level",
-            description="Potential temperature at primal cell center and vertical level",
-            units="K",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    if mode.is_advection3d():
-        meta["dmg"] = StaggeredFieldMetaData(
-            name="dmg",
-            dims=(NLEV, NCELL,),
-            long_name="Difference of dry air weight at primal cell center between the neighboring half levels",
-            description="Difference of dry air weight at primal cell center between the neighboring half levels",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-    if mode.is_barotropic() or mode.is_advection2d():
-        meta["dmg"] = StaggeredFieldMetaData(
-            name="dmg",
-            dims=(NCELL,),
-            long_name="Fluid thickness at primal cell",
-            description="Fluid thickness at primal cell",
-            units="m",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-    if mode.is_barotropic():
-        meta["dmg_e"] = StaggeredFieldMetaData(
-            name="dmg_e",
-            dims=(NEDGE,),
-            long_name="Fluid thickness at edge",
-            description="Fluid thickness at edge",
-            units="m",
-            hori_location=MeshEntity.Edge,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-    if mode.is_barotropic():
-        meta["dmg_vtx"] = StaggeredFieldMetaData(
-            name="dmg_vtx",
-            dims=(NVTX,),
-            long_name="Fluid thickness at dual cell center",
-            description="Fluid thickness at dual cell center",
-            units="m",
-            hori_location=MeshEntity.Vtx,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_vtx lat_vtx",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-    if mode.is_baroclinic():
-        meta["ph"] = StaggeredFieldMetaData(
-            name="ph",
-            dims=(NLEV, NCELL,),
-            long_name="Hydrostatic pressure at primal cell center",
-            description="Hydrostatic pressure at primal cell center",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-        meta["ph_lev"] = StaggeredFieldMetaData(
-            name="ph_lev",
-            dims=(NLEVP, NCELL,),
-            long_name="Hydrostatic pressure at primal cell center and vertical level",
-            description="Hydrostatic pressure at primal cell center and vertical level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h1"
-        )
-        meta["phs"] = StaggeredFieldMetaData(
-            name="phs",
-            dims=(NCELL,),
-            long_name="Surface hydrostatic pressure at primal cell center",
-            description="Surface hydrostatic pressure at primal cell center",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-        meta["p"] = StaggeredFieldMetaData(
-            name="p",
-            dims=(NLEV, NCELL,),
-            long_name="Pressure at primal cell center and vertical level",
-            description="Pressure at primal cell center and vertical level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.nonhydrostatic else ""
-        )
-        meta["p_lev"] = StaggeredFieldMetaData(
-            name="p_lev",
-            dims=(NLEVP, NCELL),
-            long_name="Pressure at primal cell center and vertical level",
-            description="Pressure at primal cell center and vertical level",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.nonhydrostatic else ""
-        )
-    if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
-        meta["tm"] = NumericMetaData(
-            name="tm",
-            long_name="Total mass",
-            description="Total mass",
-            units="kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["tpe"] = NumericMetaData(
-            name="tpe",
-            long_name="Total potential vorticity enstrophy",
-            description="Total potential vorticity enstrophy",
-            units="J/kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-        meta["te"] = NumericMetaData(
-            name="te",
-            long_name="Total energy",
-            description="Total energy",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-        meta["te_ke"] = NumericMetaData(
-            name="te_ke",
-            long_name="Total energy due to kinetic energy",
-            description="Total energy due to kinetic energy",
-            units="J/kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output=""
-        )
-        meta["te_pe"] = NumericMetaData(
-            name="te_pe",
-            long_name="Total energy due to potential energy",
-            description="Total energy due to potential energy",
-            units="J/kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output=""
-        )
-    if mode.is_baroclinic():
-        meta["te_ie"] = NumericMetaData(
-            name="te_ie",
-            long_name="Total energy due to internal energy",
-            description="Total energy due to internal energy",
-            units="J/kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output=""
-        )
-        meta["tpt"] = NumericMetaData(
-            name="tpt",
-            long_name="Total potential temperature",
-            description="Total potential temperature",
-            units="K",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    if mode.is_advection():
-        meta["tq"] = NumericMetaData(
-            name="tq",
-            long_name="Total tracer dry mixing ratio",
-            description="Total tracer dry mixing ratio",
-            units="m3 kg/kg",
-            is_static=False,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
-            output="h0"
-        )
-    return meta
-
-
-def default_tendency_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-    meta: dict[str, StaggeredFieldMetaData] = {}
-    if mode.is_barotropic():
-        meta["dgzdt"] = StaggeredFieldMetaData(
-            name="dgzdt",
-            dims=(NCELL,),
-            long_name="Tendency of geopotential",
-            description="Tendency of geopotential calculated from state variables",
-            units="m2 / s3",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["dgzdt_dmf"] = StaggeredFieldMetaData(
-            name="dgzdt_dmf",
-            dims=(NCELL,),
-            long_name="Tendency of geopotential due to mass flux divergence",
-            description="Tendency of geopotential due to mass flux divergence calculated from state variables",
-            units="m2 / s3",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-    if mode.is_baroclinic():
-        meta["dmgsdt"] = StaggeredFieldMetaData(
-            name="dmgsdt",
-            dims=(NCELL,),
-            long_name="Tendency of dry air weight at primal cell center and full level",
-            description="Tendency of dry air weight at primal cell center and full level",
-            units="Pa / s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["dmgsdt_dmf"] = StaggeredFieldMetaData(
-            name="dmgsdt_dmf",
-            dims=(NCELL,),
-            long_name="Tendency of dry air weight at primal cell center and full level due to mass flux divergence",
-            description="Tendency of dry air weight at primal cell center and full level due to mass flux divergence calculated from state variables",
-            units="Pa / s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-        meta["dptdt"] = StaggeredFieldMetaData(
-            name="dptdt",
-            dims=(NLEV, NCELL,),
-            long_name="Tendency of potential temperature at primal cell center and vertical level",
-            description="Tendency of potential temperature at primal cell center and vertical level",
-            units="K / s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["dptdt_dptfn"] = StaggeredFieldMetaData(
-            name="dptdt_dptfn",
-            dims=(NLEV, NCELL,),
-            long_name="Tendency of potential temperature at primal cell center and vertical level due to horizontal advection",
-            description="Tendency of potential temperature at primal cell center and vertical level due to horizontal advection",
-            units="K / s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-        meta["dptdt_ptvf"] = StaggeredFieldMetaData(
-            name="dptdt_ptvf",
-            dims=(NLEV, NCELL,),
-            long_name="Tendency of potential temperature at primal cell center and vertical level due to vertical advection",
-            description="Tendency of potential temperature at primal cell center and vertical level due to vertical advection",
-            units="K / s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["dundt"] = StaggeredFieldMetaData(
-            name="dundt",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tendency of normal velocity at edge",
-            description="Tendency of normal velocity at edge",
-            units="m / s2",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["dundt_coriolis"] = StaggeredFieldMetaData(
-            name="dundt_coriolis",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tendency of normal velocity at edge due to Coriolis force",
-            description="Tendency of normal velocity at edge due to Coriolis force",
-            units="m / s2",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-        meta["dundt_grad_ke"] = StaggeredFieldMetaData(
-            name="dundt_grad_ke",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tendency of normal velocity at edge due to gradient of kinetic energy",
-            description="Tendency of normal velocity at edge due to gradient of kinetic energy",
-            units="m / s2",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-        meta["dundt_pgf"] = StaggeredFieldMetaData(
-            name="dundt_pgf",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tendency of normal velocity at edge due to pressure gradient force",
-            description="Tendency of normal velocity at edge due to pressure gradient force",
-            units="m / s2",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-    if mode.is_baroclinic():
-        meta["dundt_wedundeta"] = StaggeredFieldMetaData(
-            name="dundt_wedundeta",
-            dims=(NLEV, NEDGE,),
-            long_name="Tendency of normal velocity at edge due to vertical advection",
-            description="Tendency of normal velocity at edge due to vertical advection",
-            units="m / s2",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if mode.output_h1_tend else ""
-        )
-    return meta
-
-
-def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
-    meta: dict[str, StaggeredFieldMetaData] = {}
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["gzs"] = StaggeredFieldMetaData(
-            name="gzs",
-            dims=(NCELL,),
-            long_name="Surface geopotential at primal cell center",
-            description="Surface geopotential at primal cell center",
-            units="m2 / s2",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_static=True,
-            output="h0"
-        )
-    if mode.is_baroclinic():
-        meta["ref_ps"] = StaggeredFieldMetaData(
-            name="ref_ps",
-            dims=(NCELL,),
-            long_name="Reference surface pressure at primal cell center",
-            description="Reference surface pressure at primal cell center",
-            units="Pa",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Sfc,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            is_static=False,
-            output="h1"
-        )
-    return meta
-
-
-def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
-    meta: dict[str, StaggeredFieldMetaData] = {}
-    if mode.is_barotropic() or mode.is_advection2d():
-        meta["u"] = StaggeredFieldMetaData(
-            name="u",
-            dims=(NCELL,),
-            long_name="Zonal velocity at primal cell center",
-            description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["v"] = StaggeredFieldMetaData(
-            name="v",
-            dims=(NCELL,),
-            long_name="Meridional velocity at primal cell center",
-            description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-    if mode.is_baroclinic() or mode.is_advection3d():
-        meta["u"] = StaggeredFieldMetaData(
-            name="u",
-            dims=(NLEV, NCELL,),
-            long_name="Zonal velocity at primal cell center",
-            description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["v"] = StaggeredFieldMetaData(
-            name="v",
-            dims=(NLEV, NCELL,),
-            long_name="Meridional velocity at primal cell center",
-            description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-    if mode.is_baroclinic():
-        meta["un_lev"] = StaggeredFieldMetaData(
-            name="un_lev",
-            dims=(NLEVP, NEDGE,),
-            long_name="Normal velocity at edge and half level",
-            description="Normal velocity at edge and half level",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Normal,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=True,
-            output=""
-        )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["ut"] = StaggeredFieldMetaData(
-            name="ut",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tangential velocity at edge",
-            description="Tangential velocity at edge reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["div"] = StaggeredFieldMetaData(
-            name="div",
-            dims=(NLEV, NCELL,) if mode.is_baroclinic() else (NCELL,),
-            long_name="Divergence at primal cell center",
-            description="Divergence at primal cell center",
-            units="1/s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["vor"] = StaggeredFieldMetaData(
-            name="vor",
-            dims=(NLEV, NVTX,) if mode.is_baroclinic() else (NVTX,),
-            long_name="Relative vorticity at dual cell center",
-            description="Relative vorticity at dual cell center",
-            units="1/s",
-            hori_location=MeshEntity.Vtx,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_vtx lat_vtx",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["pv_vtx"] = StaggeredFieldMetaData(
-            name="pv_vtx",
-            dims=(NLEV, NVTX,) if mode.is_baroclinic() else (NVTX,),
-            long_name="Potential vorticity at dual cell center",
-            description="Potential vorticity at dual cell center",
-            units="Pa-1 s-1",
-            hori_location=MeshEntity.Vtx,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_vtx lat_vtx",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["pv_e"] = StaggeredFieldMetaData(
-            name="pv_e",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Potential vorticity at edge",
-            description="Potential vorticity at edge",
-            units="Pa-1 s-1",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["ke"] = StaggeredFieldMetaData(
-            name="ke",
-            dims=(NLEV, NCELL,) if mode.is_baroclinic() else (NCELL,),
-            long_name="Kinetic energy at primal cell center",
-            description="Kinetic energy at primal cell center",
-            units="m2 / s2",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["mfn"] = StaggeredFieldMetaData(
-            name="mfn",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Mass flux at edge midpoint",
-            description="Mass flux at edge midpoint",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-    if mode.is_baroclinic():
-        meta["mft"] = StaggeredFieldMetaData(
-            name="mft",
-            dims=(NLEV, NEDGE,),
-            long_name="Mass flux at edge midpoint reconstructed from tangential velocity",
-            description="Mass flux at edge midpoint reconstructed from tangential velocity",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["mfz_lev"] = StaggeredFieldMetaData(
-            name="mfz_lev",
-            dims=(NLEVP, NCELL,),
-            long_name="Vertical mass flux at primal cell center and half level",
-            description="Vertical mass flux at primal cell center and half level",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["mfz_e_lev"] = StaggeredFieldMetaData(
-            name="mfz_e_lev",
-            dims=(NLEVP, NEDGE,),
-            long_name="Vertical mass flux at edge and half level",
-            description="Vertical mass flux at edge and half level",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Lev,
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output=""
-        )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["dmf"] = StaggeredFieldMetaData(
-            name="dmf",
-            dims=(NLEV, NCELL,) if mode.is_baroclinic() else (NCELL,),
-            long_name="Divergence of mass flux at primal cell center",
-            description="Divergence of mass flux at primal cell center",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-    if mode.is_baroclinic():
-        meta["t"] = StaggeredFieldMetaData(
-            name="t",
-            dims=(NLEV, NCELL,),
-            long_name="Temperature at primal cell center",
-            description="Temperature at primal cell center",
-            units="K",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["tv"] = StaggeredFieldMetaData(
-            name="tv",
-            dims=(NLEV, NCELL,),
-            long_name="Virtual temperature at primal cell center",
-            description="Virtual temperature at primal cell center",
-            units="K",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-        meta["rhod"] = StaggeredFieldMetaData(
-            name="rhod",
-            dims=(NLEV, NCELL,),
-            long_name="Density of dry air at primal cell center",
-            description="Density of dry air at primal cell center",
-            units="kg / m3",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-    return meta

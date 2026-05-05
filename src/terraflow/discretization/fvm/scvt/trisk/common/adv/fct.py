@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Callable, Optional, Self, TypeVar, TYPE_CHECKING
+from typing import Callable, Optional, Any, Self, TypeVar, TYPE_CHECKING
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -16,6 +16,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.adv.upwind import upwind1_ad
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.model_config import ModelConfig
     from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
@@ -46,6 +47,11 @@ if TYPE_CHECKING:
     ]
 
     CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
+
+    Block_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
+    Block_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
+
+    BLOCK = TypeVar("BLOCK", Block_OneLayer, Block_Hybrid)
 
 
 class FluxCorrectedTransportData((AbstractEquationTermAuxiliaryData)):
@@ -84,6 +90,7 @@ class FluxCorrectedTransportData((AbstractEquationTermAuxiliaryData)):
 class LowOrderHorizontalAdvectionSchemeAtCell:
 
     def __init__(self):
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(
@@ -119,24 +126,34 @@ class LowOrderHorizontalAdvectionSchemeAtCell:
 
     def upwind1(self) -> WRF1AtEdgeOnPrimalMesh:
         self.scheme = WRF1AtEdgeOnPrimalMesh()
+        self._cfg["fct_lo_scheme_h"] = "upwind1"
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.upwind1()
+    def config2dict(self) -> dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self._built:
+            if cfg.fct_lo_scheme_h == "upwind1":
+                self.upwind1()
+            else:
+                raise ValueError(
+                    f"Unsupported low order scheme: {cfg.fct_lo_scheme_h} for FCT horizontal limiter."
+                )
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
 
 class LowOrderVerticalAdvectionSchemeAtCell:
 
     def __init__(self):
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(
@@ -150,7 +167,7 @@ class LowOrderVerticalAdvectionSchemeAtCell:
         mesh = coord.mesh
         vert = coord.vert
         ids, ide = mesh.polg_ids, mesh.polg_ide
-        kds, kde = vert.full_kds, vert.full_kde
+        kds, kde = vert.half_kds, vert.half_kde
         mfz_lev = batch.mfz.unwrap()
         qmfz_lo_lev = block.equaux.adv.fct.qmfz_lo
         # =============================================
@@ -173,18 +190,27 @@ class LowOrderVerticalAdvectionSchemeAtCell:
 
     def upwind1(self) -> Callable:
         self.scheme = upwind1_adv_vflx_at_cell
+        self._cfg["fct_lo_scheme_v"] = "upwind1"
         self._built = True
         return self.scheme
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.upwind1()
+    def config2dict(self) -> dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self._built:
+            if cfg.fct_lo_scheme_v == "upwind1":
+                self.upwind1()
+            else:
+                raise ValueError(
+                    f"Unsupported low order scheme: {cfg.fct_lo_scheme_v} for FCT vertical limiter."
+                )
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -193,12 +219,13 @@ class FluxCorrectedTransportHorizontalLimiterAtCell:
     def __init__(self, regression: bool = True):
         self.low_order_scheme = LowOrderHorizontalAdvectionSchemeAtCell()
         self.regression = regression
+        self._cfg = {}
         self._built = False
 
     def __call__(
         self,
         q: Float[Array, "nlev ncell"],
-        q_old: Float[Array, "nlev ncell"],
+        mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
         block: Block,
         dt: Float[Array, ""] | float
@@ -216,10 +243,9 @@ class FluxCorrectedTransportHorizontalLimiterAtCell:
         qmfn_lo = block.equaux.adv.fct.qmfn_lo
         limited_qmfn = fct_hori_limiter_at_cell_on_single_tracer(
             q=q,
-            q_old=q_old,
+            mq_old=mq_old,
             qmfn_lo=qmfn_lo,
             qmfn_ho=qmfn_ho,
-            dmg_old=batch.m.unwrap(),
             dmg_new=block.adv_batch_bg.m.unwrap(),
             coord=coord,
             para=block.para,
@@ -239,13 +265,21 @@ class FluxCorrectedTransportHorizontalLimiterAtCell:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict[str, Any]:
+        self._cfg.update(
+            self.low_order_scheme.config2dict()
+        )
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.low_order_scheme.build_default()
+            self.regression = cfg.fct_regression_h
+            if not self.low_order_scheme.has_built():
+                self.low_order_scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         if not block.equaux.adv.fct.has_initialized():
             fct = FluxCorrectedTransportData.from_coord(coord=block.coord)
             block = eqx.tree_at(
@@ -260,12 +294,13 @@ class FluxCorrectedTransportVerticalLimiterAtCell:
     def __init__(self, regression: bool = True):
         self.low_order_scheme = LowOrderVerticalAdvectionSchemeAtCell()
         self.regression = regression
+        self._cfg = {}
         self._built = False
 
     def __call__(
         self,
         q: Float[Array, "nlev ncell"],
-        q_old: Float[Array, "nlev ncell"],
+        mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
         block: Block,
         dt: Float[Array, ""] | float
@@ -284,10 +319,9 @@ class FluxCorrectedTransportVerticalLimiterAtCell:
         qmfz_lo = block.equaux.adv.fct.qmfz_lo
         limted_qmfz = fct_vert_limiter_at_cell_on_single_tracer(
             q=q,
-            q_old=q_old,
+            mq_old=mq_old,
             qmfz_lo=qmfz_lo,
             qmfz_ho=qmfz_ho,
-            dmg_old=batch.m.unwrap(),
             dmg_new=block.adv_batch_bg.m.unwrap(),
             coord=coord,
             dt=dt,
@@ -306,13 +340,21 @@ class FluxCorrectedTransportVerticalLimiterAtCell:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict[str, Any]:
+        self._cfg.update(
+            self.low_order_scheme.config2dict()
+        )
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.low_order_scheme.build_default()
+            self.regression = cfg.fct_regression_h
+            if not self.low_order_scheme.has_built():
+                self.low_order_scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         if not block.equaux.adv.fct.has_initialized():
             fct = FluxCorrectedTransportData.from_coord(coord=block.coord)
             block = eqx.tree_at(
@@ -325,10 +367,9 @@ class FluxCorrectedTransportVerticalLimiterAtCell:
 
 def fct_hori_limiter_at_cell_on_single_tracer(
     q: Float[Array, "nlev ncell"],
-    q_old: Float[Array, "nlev ncell"],
+    mq_old: Float[Array, "nlev ncell"],
     qmfn_lo: Float[Array, "nlev nedge"],
     qmfn_ho: Float[Array, "nlev nedge"],
-    dmg_old: Float[Array, "nlev ncell"],
     dmg_new: Float[Array, "nlev ncell"],
     coord: CoordSys,
     para: PlanetParameterSet,
@@ -344,8 +385,7 @@ def fct_hori_limiter_at_cell_on_single_tracer(
     kds, kde = vert.full_kds, vert.full_kde
     edp_leng = mesh._edp.length[e_ids:e_ihe+1]
     q_ = q[kds:kde+1, p_ids:p_ihe+1]
-    q_old_ = q_old[kds:kde+1, p_ids:p_ihe+1]
-    dmg_old_ = dmg_old[kds:kde+1, p_ids:p_ihe+1]
+    mq_old_ = mq_old[kds:kde+1, p_ids:p_ihe+1]
     dmg_new_ = dmg_new[kds:kde+1, p_ids:p_ihe+1]
     # ========================================================
     # Calculate anti-diffusive fluxes
@@ -361,7 +401,7 @@ def fct_hori_limiter_at_cell_on_single_tracer(
         para=para,
         hori_end_at="halo0",
     )
-    q_td = (dmg_old_ * q_old_ - dt * div) / dmg_new_
+    q_td = (mq_old_ - dt * div) / dmg_new_
     # ========================================================
     # Calculate limiter R values (nlev, ncell)
     polg_edge = mesh._plg.edge[p_ids:p_ihe+1, :]
@@ -507,10 +547,9 @@ def fct_hori_limiter_at_cell_on_single_tracer(
 
 def fct_vert_limiter_at_cell_on_single_tracer(
     q: Float[Array, "nlev ncell"],
-    q_old: Float[Array, "nlev ncell"],
+    mq_old: Float[Array, "nlev ncell"],
     qmfz_lo: Float[Array, "nlev+1 ncell"],
     qmfz_ho: Float[Array, "nlev+1 ncell"],
-    dmg_old: Float[Array, "nlev ncell"],
     dmg_new: Float[Array, "nlev+1 ncell"],
     coord: CoordSys,
     dt: Float[Array, ""] | float,
@@ -522,18 +561,17 @@ def fct_vert_limiter_at_cell_on_single_tracer(
     ids, ide = mesh.polg_ids, mesh.polg_ide
     kds, kde = vert.full_kds, vert.full_kde
     q_ = q[kds:kde+1, ids:ide+1]
-    q_old_ = q_old[kds:kde+1, ids:ide+1]
-    dmg_old_ = dmg_old[kds:kde+1, ids:ide+1]
+    mq_old_ = mq_old[kds:kde+1, ids:ide+1]
     dmg_new_ = dmg_new[kds:kde+1, ids:ide+1]
     # ========================================================
     # Calculate anti-diffusive fluxes at half levels
     # ad_flux is at half level (half_kds to half_kde, ids to ide)
-    ad_flux = qmfz_ho[kds+1:kde, ids:ide+1] - qmfz_lo[kds+1:kde, ids:ide+1]
+    ad_flux = qmfz_ho[kds+1:kde+1, ids:ide+1] - qmfz_lo[kds+1:kde+1, ids:ide+1]
     ad_flux = jnp.pad(ad_flux, ((1, 1), (0, 0)))
     # ========================================================
     # Calculate the updated low order solution
-    tmp = (qmfz_lo[kds+1:kde+1, ids:ide+1] - qmfz_lo[kds:kde, ids:ide+1])
-    q_td = dmg_old_ * q_old_ - dt * tmp / dmg_new_  # (nlev, ncell)
+    tmp = (qmfz_lo[kds+1:kde+2, ids:ide+1] - qmfz_lo[kds:kde+1, ids:ide+1])
+    q_td = mq_old_ - dt * tmp / dmg_new_  # (nlev, ncell)
     # ========================================================
     # Calculate limiter R values
     # =============================================
@@ -551,7 +589,7 @@ def fct_vert_limiter_at_cell_on_single_tracer(
     qmax_mid = jnp.maximum(
         jnp.maximum(
             q_[1:-1, :],
-            jnp.maximum(q_[:2, :], q_[2:, :]),
+            jnp.maximum(q_[:-2, :], q_[2:, :]),
         ),
         jnp.maximum(
             q_td[1:-1, :],
@@ -619,9 +657,9 @@ def fct_vert_limiter_at_cell_on_single_tracer(
             zeros
         )  # (nlev, ncell)
     else:
-        if q_old.dtype == jnp.float32:
+        if q.dtype == jnp.float32:
             kesi = 1.e-40
-        elif q_old.dtype == jnp.float64:
+        elif q.dtype == jnp.float64:
             kesi = 1.e-80
         else:
             raise ValueError("Unsupported data type for q.")
@@ -629,21 +667,23 @@ def fct_vert_limiter_at_cell_on_single_tracer(
         r_out = jnp.minimum(ones, m_out / (p_out + kesi))  # (nlev, ncell)
     # ========================================================
     # Calculate limited mass flux at half level
-    n_cell = ide - ids + 1
+    cell_range = jnp.arange(ids, ide+1)
     mark = jnp.rint(
         -0.5 * jnp.sign(ad_flux[kds+1:kde+1, ids:ide+1]) + 0.5
     ).astype(jnp.int32).squeeze()  # 0 or 1 (nlev, ncell)
-    ilev = jnp.arange(kds+1, kde)[:, None]
+    ilev = jnp.arange(kds+1, kde+1)[:, None]
     v_upwind = ilev - (1 - mark)  # (nlev, ncell)
-    v_dowind = ilev - mark  # (nlev, ncell)
+    v_dowind = ilev - mark        # (nlev, ncell)
     coef = jnp.minimum(
-        r_in[v_dowind, jnp.arange(n_cell)],
-        r_out[v_upwind, jnp.arange(n_cell)]
+        r_in[v_dowind, cell_range],
+        r_out[v_upwind, cell_range]
     )  # (nlev, ncell)
-    res = qmfz_lo + coef * (qmfz_ho - qmfz_lo)
+    qmfz_lo_ = qmfz_lo[kds+1:kde+1, ids:ide+1]
+    qmfz_ho_ = qmfz_ho[kds+1:kde+1, ids:ide+1]
+    res = qmfz_lo_ + coef * (qmfz_ho_ - qmfz_lo_)
     res = jnp.pad(res, ((1, 1), (0, 0)))  # Pad the top and bottom with zeros
     # ========================================================
     if qmfz is None:
         return res
     else:
-        return qmfz.at[kds:kde+1, ids:ide+1].set(res)
+        return qmfz.at[kds:kde+2, ids:ide+1].set(res)

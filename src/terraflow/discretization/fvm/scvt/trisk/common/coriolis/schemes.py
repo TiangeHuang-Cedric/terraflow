@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Self, TypeVar, TYPE_CHECKING
+from typing import Any, Dict, Self, TypeVar, TYPE_CHECKING
 
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
@@ -11,6 +11,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.coriolis import trisk
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.model_config import ModelConfig
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
 
     Int = typing.Int
@@ -39,14 +40,23 @@ class CoriolisForceAtEdge(DynOperator):
         self.scheme = trisk.TriSKCoriolisForceAtEdge(
             disc=self.disc, method=self.method, mode=self.mode
         )
+        self._cfg["coriolis_scheme"] = "trisk"
         self._built = True
         return self.scheme
 
-    def prepare_block(self, block: Block) -> Block:
-        return self.scheme.prepare_block(block)
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
 
-    def build_default(self) -> Self:
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self._built:
-            self.trisk()
+            if cfg.coriolis_scheme == "trisk":
+                self.trisk()
+            else:
+                raise ValueError(
+                    f"Unsupported Coriolis force scheme {cfg.coriolis_scheme}."
+                )
             self._built = True
         return self
+
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)

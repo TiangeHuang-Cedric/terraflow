@@ -105,6 +105,7 @@ class SteadyStateTestCase(AbstractBaroclinicEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "ss"
         self.name = "Steady State"
         self.description = "Steady state test case for baroclinic dynamics."
         self.references = (
@@ -150,7 +151,7 @@ class SteadyStateTestCase(AbstractBaroclinicEquationTestCase):
         """Initialize zonal (u) velocity component for steady state test case."""
         etav = (eta - self.eta0) * jnp.pi / 2
 
-        def _wrap(etav):
+        def _wrap(etav: Array):
             return self.u0 * jnp.cos(etav) ** 1.5 * jnp.sin(2 * lat) ** 2
 
         return jax.vmap(_wrap, in_axes=0, out_axes=0)(etav)
@@ -246,6 +247,7 @@ class MountainWaveTestCase(AbstractBaroclinicEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "mz"
         self.name = "Mountain Wave"
         self.description = "Baroclinic wave test case with a mountain perturbation."
         self.references = (
@@ -350,6 +352,7 @@ class RossbyHaurwitzWaveTestCase(AbstractBaroclinicEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "rh"
         self.name = "3D Rossby-Haurwitz Wave"
         self.description = "3D Rossby-Haurwitz wave test case for baroclinic dynamics."
         self.references = (

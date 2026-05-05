@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeVar, Self, TYPE_CHECKING
+from typing import Dict, TypeVar, Self, Any, TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 import equinox as eqx
@@ -10,10 +10,12 @@ from terraflow.discretization.abstract import (
     AbstractDynamicalEquationOperator,
     AbstractEquationMode
 )
+from terraflow.util.model_config import ModelConfig
 from ..parallel import tree_at
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.model_config import ModelConfig
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -23,7 +25,6 @@ if TYPE_CHECKING:
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
-    from .coriolis.schemes import CoriolisForceAtEdge
 
     IntType = typing.IntType
     FloatType = typing.FloatType
@@ -81,7 +82,10 @@ class RelativeVorticityAtDualCell(DynOperator):
             fill_halo=True
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -120,7 +124,10 @@ class DivergenceOfVelocityAtCell(DynOperator):
             fill_halo=True
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -178,7 +185,10 @@ class TriSKTangentVelocityAtEdge(DynOperator):
             fill_halo=True
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -212,23 +222,25 @@ class TangentVelocityAtEdge(DynOperator):
         self.scheme = TriSKTangentVelocityAtEdge(
             disc=self.disc, method=self.method, mode=self.mode
         )
+        self._cfg["ut_scheme"] = "trisk"
         self._built = True
         return self.scheme
 
-    def prepare_block(self, block: Block) -> Block:
-        return self.scheme.prepare_block(block)
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
 
-    def build_default(self, coriolis_scheme: CoriolisForceAtEdge) -> Self:
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            from .coriolis.trisk import TriSKCoriolisForceAtEdge
-            if isinstance(coriolis_scheme.scheme, TriSKCoriolisForceAtEdge):
+            if cfg.coriolis_scheme == "trisk":
                 self.trisk()
             else:
                 raise ValueError(
-                    "Unsupported coriolis scheme for tangent velocity reconstruction."
+                    f"Unsupported coriolis scheme {cfg.coriolis_scheme} for tangent velocity reconstruction."
                 )
-            self._built = True
         return self
+
+    def prepare_block(self, block: Block) -> Block:
+        return self.scheme.prepare_block(block)
 
 
 class NormalMassFluxAtEdge(DynOperator):
@@ -261,7 +273,10 @@ class NormalMassFluxAtEdge(DynOperator):
             replace=mfn
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -298,7 +313,10 @@ class DivergenceOfMassFluxAtCell(DynOperator):
             replace=dmf,
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -313,6 +331,7 @@ class InterpPotentialVorticityMidpoint:
         from .adv.flux_reconstruct import CentralDifference2AtEdgeOnDualMesh
         self.recon_scheme = CentralDifference2AtEdgeOnDualMesh()
         self.order = 2
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
@@ -328,7 +347,10 @@ class InterpPotentialVorticityMidpoint:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -364,6 +386,7 @@ class InterpPotentialVorticityUpwind:
                 f"Unsupported order {order} for upwind interpolation."
             )
         self.order = order
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
@@ -395,7 +418,10 @@ class InterpPotentialVorticityUpwind:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -424,6 +450,7 @@ class InterpPotentialVorticityPureUpwind:
                 f"Unsupported order {order} for pure upwind interpolation."
             )
         self.order = order
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
@@ -442,7 +469,10 @@ class InterpPotentialVorticityPureUpwind:
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -454,6 +484,7 @@ class InterpPotentialVorticityPureUpwind:
 class InterpPotentialVorticityAtDualEdge:
 
     def __init__(self):
+        self._cfg: dict[str, Any] = {}
         self._built = False
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> Array:
@@ -461,6 +492,7 @@ class InterpPotentialVorticityAtDualEdge:
 
     def midpoint(self) -> Self:
         self.adv_scheme = InterpPotentialVorticityMidpoint()
+        self._cfg["pv_adv_scheme"] = "midpoint"
         self._built = True
         return self
 
@@ -475,6 +507,10 @@ class InterpPotentialVorticityAtDualEdge:
             use_mbs=use_mbs,
             optimized=optimized
         )
+        self._cfg["pv_adv_scheme"] = "upwind"
+        self._cfg["upwind_order_pv"] = order
+        self._cfg["upwind_use_mbs_pv"] = int(use_mbs)
+        self._cfg["upwind_optimized_pv"] = int(optimized)
         self._built = True
         return self
 
@@ -489,16 +525,39 @@ class InterpPotentialVorticityAtDualEdge:
             use_mbs=use_mbs,
             optimized=optimized
         )
+        self._cfg["pv_adv_scheme"] = "pure_upwind"
+        self._cfg["upwind_order_pv"] = order
+        self._cfg["upwind_use_mbs_pv"] = int(use_mbs)
+        self._cfg["upwind_optimized_pv"] = int(optimized)
         self._built = True
         return self
 
     def has_built(self) -> bool:
         return self._built
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.upwind(order=3)
-            self._built = True
+            if cfg.pv_adv_scheme == "upwind":
+                self.upwind(
+                    order=cfg.upwind_order_pv,
+                    use_mbs=cfg.upwind_use_mbs_pv,
+                    optimized=cfg.upwind_optimized_pv
+                )
+            elif cfg.pv_adv_scheme == "pure_upwind":
+                self.pure_upwind(
+                    order=cfg.upwind_order_pv,
+                    use_mbs=cfg.upwind_use_mbs_pv,
+                    optimized=cfg.upwind_optimized_pv
+                )
+            elif cfg.pv_adv_scheme == "midpoint":
+                self.midpoint()
+            else:
+                raise ValueError(
+                    f"Unsupported PV advection scheme {cfg.pv_adv_scheme}."
+                )
         return self
 
     def prepare_block(self, block: Block) -> Block:
@@ -551,9 +610,14 @@ class PotentialVorticity(DynOperator):
             fill_halo=True
         )
 
-    def build_default(self) -> "PotentialVorticity":
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.interp.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.interp.build_default()
+            self.interp.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -601,7 +665,10 @@ class Ringler2010KineticEnergyAtPrimalCell(DynOperator):
             field_fn=lambda x: x**2
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -657,9 +724,12 @@ class Gassmann2013KineticEnergyAtPrimalCell(DynOperator):
             fill_halo=True,
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.ringler_2010.build_default()
+            self.ringler_2010.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -689,6 +759,8 @@ class KineticEnergyAtPrimalCell(DynOperator):
             disc=self._disc, method=self.method, mode=self.mode,
         )
         self.scheme.gamma = gamma
+        self._cfg["ke_scheme"] = "gassmann_2013"
+        self._cfg["ke_gamma"] = gamma
         self._built = True
         return self.scheme
 
@@ -697,12 +769,25 @@ class KineticEnergyAtPrimalCell(DynOperator):
         self.scheme = Ringler2010KineticEnergyAtPrimalCell(
             disc=self._disc, method=self.method, mode=self.mode
         )
+        self._cfg["ke_scheme"] = "ringler_2010"
         self._built = True
         return self.scheme
 
-    def build_default(self) -> "KineticEnergyAtPrimalCell":
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.scheme.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.gassmann_2013()
+            if cfg.ke_scheme == "ringler_2010":
+                self.ringler_2010()
+            elif cfg.ke_scheme == "gassmann_2013":
+                self.gassmann_2013(gamma=cfg.ke_gamma)
+            else:
+                raise ValueError(
+                    f"Unsupported kinetic energy scheme {cfg.ke_scheme}."
+                )
         return self
 
     def prepare_block(self, block: Block) -> Block:

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, TypeVar, Self
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
@@ -15,6 +15,7 @@ from terraflow.dynamics.shallow_water.types import ShallowWaterEquationMode
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 
 if TYPE_CHECKING:
+    from terraflow.util.model_config import ModelConfig
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
 
     Int = typing.Int
@@ -65,7 +66,11 @@ class PressureGradientForce(DynOperator):
             replace=dundt_pgf
         )
 
-    def build_default(self) -> "PressureGradientForce":
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        self._cfg["pgf_scheme"] = "swm"
         self._built = True
         return self
 

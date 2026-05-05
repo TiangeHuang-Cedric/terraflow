@@ -45,6 +45,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
     ntracers: int = eqx.field(static=True)
     tracers_meta: dict[str, TracerMetaData] = eqx.field(static=True)
     q: FDT
+    mq: FDT
     qm: FDT
     qm_lev: FDT
 
@@ -101,6 +102,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
                 mode=mode,
                 tracers_meta=tracers_meta,
                 q=meta["q"].zeros_like(coord),
+                mq=meta["mq"].zeros_like(coord),
                 qm=meta["qm"].zeros_like(coord),
                 qm_lev=meta["qm_lev"].zeros_like(coord),
             )
@@ -109,6 +111,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
                 mode=mode,
                 tracers_meta=tracers_meta,
                 q=meta["q"].zeros_like(coord),
+                mq=meta["mq"].zeros_like(coord),
                 qm=meta["qm"].zeros_like(coord),
                 qm_lev=ArrayField.empty(),
             )
@@ -157,6 +160,25 @@ def default_tracer_meta(
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
             output="h0",
+        )
+        meta["mq"] = StaggeredFieldMetaData(
+            name="mq",
+            long_name="Tracer mass dry mixing ratio",
+            description="Tracer mass dry mixing ratio",
+            dims=(NLEV, NCELL),
+            units="Pa kg/kg",
+            hori_location=MeshEntity.Cell,
+            vert_location=VertLoc.Cell,
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
+            staggered_kind="C",
+            mesh_name="primal",
+            is_tracer=True,
+            ntracers=ntracers,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
+            output="h1",
         )
         meta["qm"] = StaggeredFieldMetaData(
             name="qm",
@@ -215,6 +237,25 @@ def default_tracer_meta(
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
             output="h0",
+        )
+        meta["mq"] = StaggeredFieldMetaData(
+            name="mq",
+            long_name="Tracer mass dry mixing ratio",
+            description="Tracer mass dry mixing ratio",
+            dims=(NCELL,),
+            units="Pa kg/kg",
+            hori_location=MeshEntity.Cell,
+            vert_location="",
+            basis=Basis.Scalar,
+            coordinates="lon_cell lat_cell",
+            staggered_kind="C",
+            mesh_name="primal",
+            is_tracer=True,
+            ntracers=ntracers,
+            is_expand_dims=True,
+            expand_axis=0,
+            expand_axis_length=mode.state_tile_depth,
+            output="h1",
         )
         meta["qm"] = StaggeredFieldMetaData(
             name="qm",

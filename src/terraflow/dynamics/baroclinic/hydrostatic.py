@@ -1,5 +1,7 @@
 from __future__ import annotations
 from typing import (
+    Any,
+    Dict,
     TypeVar,
     Generic,
     Self,
@@ -8,7 +10,7 @@ from typing import (
     TYPE_CHECKING
 )
 
-from terraflow.util import log
+from terraflow.util import log, model_config
 from terraflow.planet import PlanetParameterSet
 from terraflow.mesh.abstract import AbstractUnstructuredMesh
 from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
@@ -111,9 +113,21 @@ class ExVifDryHydrostaticEquationSet4UGRID(
                 "Unsupported combination of method and coordinate system for building block. "
             )
 
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self._space_operators.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
     def build_default(self) -> Self:
+        cfg = model_config.ModelConfig()
+        self.build_with_config(cfg=cfg)
+        self._cfg = self.config2dict()
+        return self
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.space_operators.build_default()
+            self.space_operators.build_with_config(cfg=cfg)
+            self._cfg = cfg.to_dict()
             self._built = True
         return self
 
@@ -135,13 +149,11 @@ class ExVifDryHydrostaticEquationSet4UGRID(
             return _wrap_dynamics
         else:
             def _wrap_advection(
-                batch: disc_types.AbstractAdvBatchType,
                 block: BLOCK,
                 *args,
                 **kwargs
-            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-                return self.space_operators.advection_space_operators(
-                    batch,
+            ) -> BLOCK:
+                return self.space_operators.advection_stepper(
                     block,
                     *args,
                     **kwargs,
@@ -151,6 +163,64 @@ class ExVifDryHydrostaticEquationSet4UGRID(
 
 
 class DryHydrostaticEquationBuilder:
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[
+            SphericalCentroidVoronoiTessellations,
+            HybridVertCoordinate,
+            TriSKBasedCGridStaggeringLayout,
+            HybridVertCoordLayout
+        ],
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        output_h1_tend: bool = False,
+        state_tile_depth: int = 3,
+    ) -> ExVif_DHDC_SCVT_TriSKCGrid_FVM:
+        ...
+
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[UHM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs
+    ) -> types.AbstractDryHydrostaticEquationSet:
+        ...
+
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[UHM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs
+    ) -> types.AbstractDryHydrostaticEquationSet:
+        equation = cls.from_model(
+            coord=coord,
+            para=para,
+            method=method,
+            form=form,
+            ode_kind=ode_kind,
+            *args,
+            **kwargs
+        )
+        equation.build_with_config(cfg=config)
+        return equation
 
     @overload
     @classmethod

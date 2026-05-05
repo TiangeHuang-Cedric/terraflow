@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from turtle import up
+
 import jax
 import jax.numpy as jnp
 import terraflow.core as tf
@@ -12,6 +14,10 @@ grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
+para = tf.planet.PlanetParameterSet.from_si(
+    planet="earth", component="atmosphere", dev=dev
+)
+
 mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file=grist_0d_file,
     grist_2d_file=grist_2d_file,
@@ -23,26 +29,23 @@ vert = tf.vert_coord.OneLayerVertCoordinate()
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
-para = tf.planet.PlanetParameterSet.from_si(
-    planet="earth", component="atmosphere", dev=dev
-)
-
 method = tf.operator.FiniteVolumeMethod()
 
 testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
-equation = tf.dynamics.ShallowWaterEquation.from_model(
+config = tf.util.model_config.ModelConfig(
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+)
+
+equation = tf.dynamics.ShallowWaterEquation.build_with_config(
+    config=config,
     coord=coord,
     para=para,
     method=method,
     form="vector_invariant",
     ode_kind="explicit",
 )
-
-equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
-equation.space_operators.prepare.pv.interp.pure_upwind(3)
-
-equation.build_default()
 
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",

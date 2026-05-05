@@ -167,6 +167,7 @@ class DiagnosticsTools(
         state = self.expand_dims_on_state(state)
         dt_dyn = self.solver.dt_dyn.total_seconds()
         block = vars.Block(
+            elapsed_seconds=jnp.array(0),
             mode=self.equation.mode,
             _coord=coord,
             para=para,

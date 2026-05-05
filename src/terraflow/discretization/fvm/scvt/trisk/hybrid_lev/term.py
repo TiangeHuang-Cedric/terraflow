@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, Self, TypeVar
 import equinox as eqx
 import jax.numpy as jnp
 
@@ -19,16 +19,16 @@ from . import operators as hybrid_op
 from ..parallel import tree_at
 
 if TYPE_CHECKING:
+    from terraflow.util.model_config import ModelConfig
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.fvm.scvt.trisk.common.coriolis.schemes import CoriolisForceAtEdge
     from terraflow.discretization.fvm.scvt.trisk.common.adv.upwind import (
         UpwindHorizontalAdvectionAtCell,
         UpwindVerticalAdvection
     )
     from terraflow.discretization.abstract import DiscretizationInfo
-    from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
     from ..dynamics_types import Block
+    from terraflow.dynamics.adv.types import AdvectionEquation3DMode
 
     Float = typing.Float
     Int = typing.Int
@@ -80,7 +80,10 @@ class Temperature(DynOperator):
             replace=(t, tv)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -118,7 +121,10 @@ class TangentMassFluxAtEdge(DynOperator):
             replace=mft
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -164,7 +170,10 @@ class VerticalMassFluxAtHalfLev(DynOperator):
             replace=mfz_lev,
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -178,7 +187,7 @@ class DryAirWeight(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -218,7 +227,10 @@ class DryAirWeight(DynOperator):
             at_idxes=(star_idx, star_idx)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -232,7 +244,7 @@ class DeltaDryAirWeight(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.interp = hybrid_op.InterpMethod()
@@ -280,7 +292,10 @@ class DeltaDryAirWeight(DynOperator):
             at_idxes=(star_idx, star_idx, star_idx, star_idx)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -324,7 +339,10 @@ class DensityOfDryAir(DynOperator):
             replace=rhod
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -338,7 +356,7 @@ class Geopotential(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -393,7 +411,10 @@ class Geopotential(DynOperator):
             at_idxes=(star_idx, star_idx)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -456,7 +477,10 @@ class HydrostaticPressure(DynOperator):
             at_idxes=(star_idx, star_idx, star_idx)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -505,7 +529,10 @@ class Pressure(DynOperator):
             at_idxes=(star_idx, star_idx)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -546,16 +573,22 @@ class PotentialTemperatureHorizontalAdvection(DynOperator):
 
     def upwind(self, order: int = 3, optimized: bool = True) -> UpwindHorizontalAdvectionAtCell:
         self.adv_scheme.upwind(order=order, optimized=optimized)
+        self._cfg["adv_scheme"] = "upwind"
+        self._cfg["upwind_order"] = order
+        self._cfg["upwind_optimized"] = int(optimized)
         return self.adv_scheme.scheme
+
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self.has_built():
+            self.adv_scheme.build_with_config(target="pt", cfg=cfg)
+            self._built = True
+        return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.adv_scheme.prepare_block(block)
-
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self.adv_scheme.build_default()
-            self._built = True
-        return self
 
 
 class PotentialTemperatureVerticalAdvection(DynOperator):
@@ -587,14 +620,18 @@ class PotentialTemperatureVerticalAdvection(DynOperator):
 
     def upwind(self, order: int = 3) -> UpwindVerticalAdvection:
         self.adv_scheme.upwind(order=order)
+        self._cfg["upwind_order"] = order
         return self.adv_scheme.scheme
+
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.adv_scheme.prepare_block(block)
 
-    def build_default(self) -> Self:
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.adv_scheme.build_default()
+            self.adv_scheme.build_with_config(target="pt", cfg=cfg)
             self._built = True
         return self
 
@@ -639,7 +676,10 @@ class TendencyOfDryAirMassAtSurface(
             replace=(dmgsdt, dmgsdt_dmf)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -712,9 +752,14 @@ class TendencyOfPotentialTemperatureDueToDivergenceOfFlux(
             replace=(dptdt, dptdt_dptfn)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.adv_scheme.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.adv_scheme.build_default()
+            self.adv_scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -769,9 +814,14 @@ class TendencyOfPotentialTemperatureDueToVerticalAdvection(
             replace=(dptdt, dptdt_ptvf)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.adv_scheme.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.adv_scheme.build_default()
+            self.adv_scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -843,7 +893,10 @@ class TendencyOfNormalVelocityDueToVerticalAdvection(
             replace=(dundt, dundt_wedundeta)
         )
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -893,12 +946,17 @@ class TendencyOfNormalVelocityDueToPressureGradientForce(
             replace=dundt
         )
 
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.pgf_scheme.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
     def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.pgf_scheme.prepare_block(block)
 
-    def build_default(self) -> Self:
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.pgf_scheme.build_default()
+            self.pgf_scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -945,9 +1003,14 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             replace=(dundt, dundt_coriolis)
         )
 
-    def build_default(self) -> "TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge":
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.scheme.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.scheme.build_default()
+            self.scheme.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -1000,7 +1063,10 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
             replace=(dundt, dundt_grad_ke)
         )
 
-    def build_default(self) -> "TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge":
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self._built = True
         return self
@@ -1127,23 +1193,38 @@ class ExPrepareSpaceOperators(
             raise ValueError(f"Unsupported pass tag: {pass_tag}!")
         return block
 
-    def build_default(self, coriolis_scheme: CoriolisForceAtEdge) -> "ExPrepareSpaceOperators":
+    def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.ut.config2dict())
+        self._cfg.update(self.mfn.config2dict())
+        self._cfg.update(self.mft.config2dict())
+        self._cfg.update(self.dmf.config2dict())
+        self._cfg.update(self.ph.config2dict())
+        self._cfg.update(self.p.config2dict())
+        self._cfg.update(self.t.config2dict())
+        self._cfg.update(self.gz.config2dict())
+        self._cfg.update(self.vor.config2dict())
+        self._cfg.update(self.pv.config2dict())
+        self._cfg.update(self.ke.config2dict())
+        self._cfg.update(self.rhod.config2dict())
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.mg.build_default()
-            self.dmg.build_default()
-            self.mfn.build_default()
-            self.mft.build_default()
-            self.dmf.build_default()
-            self.ph.build_default()
-            self.p.build_default()
-            self.t.build_default()
-            self.gz.build_default()
-            self.div.build_default()
-            self.vor.build_default()
-            self.ut.build_default(coriolis_scheme=coriolis_scheme)
-            self.pv.build_default()
-            self.ke.build_default()
-            self.rhod.build_default()
+            self.mg.build_with_config(cfg=cfg)
+            self.dmg.build_with_config(cfg=cfg)
+            self.mfn.build_with_config(cfg=cfg)
+            self.mft.build_with_config(cfg=cfg)
+            self.dmf.build_with_config(cfg=cfg)
+            self.ph.build_with_config(cfg=cfg)
+            self.p.build_with_config(cfg=cfg)
+            self.t.build_with_config(cfg=cfg)
+            self.gz.build_with_config(cfg=cfg)
+            self.div.build_with_config(cfg=cfg)
+            self.vor.build_with_config(cfg=cfg)
+            self.ut.build_with_config(cfg=cfg)
+            self.pv.build_with_config(cfg=cfg)
+            self.ke.build_with_config(cfg=cfg)
+            self.rhod.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -1256,21 +1337,8 @@ class ExSpaceOperators(
             )
         return block
 
-    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
+    def advection_stepper(self, block: BLOCK, explicit: bool) -> BLOCK:
         return block
-
-    def advection_space_operators(
-        self,
-        batch: AdvBatchType,
-        block: BLOCK,
-        old_idx: Int[Array, ""] | int,
-        star_idx: Int[Array, ""] | int,
-        new_idx: Int[Array, ""] | int,
-        dt: Float[Array, ""] | float,
-        substep: int,
-        explicit: bool
-    ) -> tuple[AdvBatchType, BLOCK]:
-        return batch, block
 
     def diagnose(
         self,
@@ -1447,15 +1515,21 @@ class ExSpaceOperators(
         # ================================================
         return block
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.mfz_lev.config2dict())
+        self._cfg.update(self.dmgsdt.config2dict())
+        self._cfg.update(self.dptdt.config2dict())
+        self._cfg.update(self.dundt.config2dict())
+        self._cfg.update(self.prepare.config2dict())
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.mfz_lev.build_default()
-            self.dmgsdt.build_default()
-            self.dptdt.build_default()
-            self.dundt.build_default()
-            self.prepare.build_default(
-                coriolis_scheme=self.dundt.coriolis.scheme
-            )
+            self.mfz_lev.build_with_config(cfg=cfg)
+            self.dmgsdt.build_with_config(cfg=cfg)
+            self.dptdt.build_with_config(cfg=cfg)
+            self.dundt.build_with_config(cfg=cfg)
+            self.prepare.build_with_config(cfg=cfg)
             self._built = True
         return self
 

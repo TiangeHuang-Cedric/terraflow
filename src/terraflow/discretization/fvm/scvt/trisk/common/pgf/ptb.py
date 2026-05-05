@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeVar, Self, TYPE_CHECKING
+from typing import TypeVar, Self, Dict, Any, TYPE_CHECKING
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -29,6 +29,7 @@ EM = TypeVar("EM", bound=AbstractEquationMode)
 DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
 
 if TYPE_CHECKING:
+    from terraflow.util.model_config import ModelConfig
     from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -347,6 +348,14 @@ class PerturbationPressureGradientForce(DynOperator):
             replace=dundt_pgf
         )
 
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
     def prepare_block(self, block: Block) -> Block:
         pro = RefProfileData.from_coord(
             coord=block.coord,
@@ -359,8 +368,3 @@ class PerturbationPressureGradientForce(DynOperator):
             pro
         )
         return block
-
-    def build_default(self) -> Self:
-        if not self.has_built():
-            self._built = True
-        return self

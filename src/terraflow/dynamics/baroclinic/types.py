@@ -1,8 +1,7 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import TypeVar, Generic, Self, TYPE_CHECKING
+from typing import Any, Dict, TypeVar, Generic, Self, TYPE_CHECKING
 import inspect
-
 
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -12,6 +11,7 @@ import terraflow.discretization.abstract as disc_types
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.model_config import ModelConfig
     Int = typing.Int
     Float = typing.Float
     Array = typing.Array
@@ -231,7 +231,9 @@ class DivergenceOfMassFluxAtSurfaceProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "dmfs"
 
 
 DMFS = TypeVar("DMFS", bound=DivergenceOfMassFluxAtSurfaceProtocol)
@@ -242,7 +244,9 @@ class DivergenceOfThermodynamicMassFluxProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "dmft"
 
 
 DMFT = TypeVar("DMFT", bound=DivergenceOfThermodynamicMassFluxProtocol)
@@ -253,7 +257,9 @@ class VerticalAdvectionOfThermodynamicTermProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "vadv"
 
 
 VAT = TypeVar("VAT", bound=VerticalAdvectionOfThermodynamicTermProtocol)
@@ -264,7 +270,9 @@ class NonlinearCoriolisTermProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "nct"
 
 
 NCT = TypeVar("NCT", bound=NonlinearCoriolisTermProtocol)
@@ -275,7 +283,9 @@ class GradientOfKineticEnergyProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "grad_ke"
 
 
 GKE = TypeVar("GKE", bound=GradientOfKineticEnergyProtocol)
@@ -286,7 +296,9 @@ class VerticalAdvectionOfMomentumTermProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "vadv"
 
 
 VAM = TypeVar("VAM", bound=VerticalAdvectionOfMomentumTermProtocol)
@@ -297,7 +309,9 @@ class PressureGradientForceTermProtocol(
     disc_types.AbstractEquationTerm[DM, BEM],
     Generic[DM, BEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "pgf"
 
 
 PGF = TypeVar("PGF", bound=PressureGradientForceTermProtocol)
@@ -335,15 +349,20 @@ class ExContinuityEqu(
 
     @staticmethod
     def alias_name() -> str:
-        return "continuity_equ"
+        return "dmgsdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.div_mfs.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.div_mfs.build_default()
+            self.div_mfs.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -406,16 +425,23 @@ class ExThermodynamicEqu(
 
     @staticmethod
     def alias_name() -> str:
-        return "thermodynamic_equ"
+        return "dptdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.div_mft.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.adv_vert.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.div_mft.build_default()
-            self.adv_vert.build_default()
+            self.div_mft.build_with_config(cfg=cfg)
+            self.adv_vert.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -503,18 +529,29 @@ class ExNormalMomentumEqu4UGRID(
 
     @staticmethod
     def alias_name() -> str:
-        return "normal_momentum_equ"
+        return "dundt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.coriolis.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.grad_ke.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.adv_vert.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.pgf.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            self.coriolis.build_default()
-            self.grad_ke.build_default()
-            self.adv_vert.build_default()
-            self.pgf.build_default()
+            self.coriolis.build_with_config(cfg=cfg)
+            self.grad_ke.build_with_config(cfg=cfg)
+            self.adv_vert.build_with_config(cfg=cfg)
+            self.pgf.build_with_config(cfg=cfg)
             self._built = True
         return self
 

@@ -7,10 +7,14 @@ import terraflow.core as tf
 tf.util.datetime.perf_start("program")
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+
+para = tf.planet.PlanetParameterSet.from_si(
+    planet="earth", component="atmosphere", dev=dev
+)
 
 mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file=grist_0d_file,
@@ -19,19 +23,28 @@ mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.HybridVertCoordinate.dcmip12(
+    nlev=30,
+    para=para,
+    dev=dev,
+)
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
-para = tf.planet.PlanetParameterSet.from_si(
-    planet="earth", component="atmosphere", dev=dev
-)
-
 method = tf.operator.FiniteVolumeMethod()
 
-testcase = tf.test_case.adv.SolidRotationTestCase(para)
+testcase = tf.test_case.adv.DCMIP12TestCase(para)
 
-equation = tf.dynamics.AdvectionEquation2D.from_model(
+config = tf.util.model_config.ModelConfig(
+    bg_adv_scheme="upwind",
+    upwind_order_bg=3,
+    adv_scheme="upwind",
+    upwind_order=3,
+    limiter_type="fct",
+)
+
+equation = tf.dynamics.AdvectionEquation3D.build_with_config(
+    config=config,
     coord=coord,
     para=para,
     method=method,
@@ -39,21 +52,15 @@ equation = tf.dynamics.AdvectionEquation2D.from_model(
     ode_kind="explicit",
 )
 
-equation.space_operators.dmdt.dmf.mfn.adv_scheme.upwind(3)
-equation.space_operators.dqdt.dtf.adv_scheme.upwind(3)
-equation.space_operators.dqdt.dtf.limiter.fct()
-
-equation.build_default()
-
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
-    end_time="2000-01-13T00:00:00",
+    end_time="2000-01-03T00:00:00",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
-    save_interval="6 hours",
+    save_interval="1 hours",
     dt_dyn="300 seconds",
     dt_adv="900 seconds",
     dev=dev,

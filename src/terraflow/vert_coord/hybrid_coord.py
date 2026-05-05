@@ -1,7 +1,6 @@
 from __future__ import annotations
-from typing import Self, Optional, TYPE_CHECKING
+from typing import Self, TYPE_CHECKING
 import jax.numpy as jnp
-import jax
 import equinox as eqx
 
 from terraflow.util import typing, device
@@ -9,6 +8,7 @@ from terraflow.vert_coord.abstract import AbstractLorenzCoordinate
 from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
 
 if TYPE_CHECKING:
+    from terraflow.planet import PlanetParameterSet
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     import numpy as np
 
@@ -362,6 +362,43 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         hyai, hybi = hybrid_coord_test_l30(dev)
         p0 = HYBRID_COORD_P0
         ptop = p0 * hybi[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=jnp.array(p0, dtype=dev.float_type),
+            ptop=jnp.array(ptop, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev
+        )
+
+    @classmethod
+    def dcmip12(
+        cls,
+        nlev: int,
+        para: PlanetParameterSet,
+        dev: device.AbstractDevice,
+    ) -> Self:
+        """
+        Create a HybridVertCoordinate instance using DCMIP1-2 coefficients.
+
+        Args:
+            nlev (int): Number of vertical levels.
+            dev (AbstractDevice): Device to create arrays on.
+        Returns:
+            HybridVertCoordinate: An instance of HybridVertCoordinate with DCMIP1-2 coefficients.
+        """
+        from .hybrid_coord_test import hybrid_coord_dcmip12
+        p0 = HYBRID_COORD_P0
+        ptop, hyai, hybi = hybrid_coord_dcmip12(
+            p0=p0,
+            nlev=nlev,
+            para=para,
+            dev=dev
+        )
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(

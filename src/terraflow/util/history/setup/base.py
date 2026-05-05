@@ -1,8 +1,12 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any, TYPE_CHECKING
 import netCDF4 as nc4
 import datetime
 import numpy as np
+
+if TYPE_CHECKING:
+    from terraflow.discretization.abstract import AbstractEquationSet
 
 FLOAT_NP2NC = {
     np.float32: "f4",
@@ -50,6 +54,7 @@ class GlobalAttributesSetup(AbstractHistorySetup):
     history: str
     Conventions: str
     institution: str
+    attrs: dict[str, Any]
 
     def __init__(
         self,
@@ -61,6 +66,7 @@ class GlobalAttributesSetup(AbstractHistorySetup):
         history: Optional[str] = None,
         Conventions: str = "CF-1.8",
         institution: str = "TerraFlow Development Project",
+        attrs: Optional[dict[str, Any]] = None,
     ):
         super().__init__(
             file_path=file_path,
@@ -74,6 +80,10 @@ class GlobalAttributesSetup(AbstractHistorySetup):
         self.history = history
         self.Conventions = Conventions
         self.institution = institution
+        if attrs is not None:
+            self.attrs = attrs
+        else:
+            self.attrs = {}
 
     def setup(self):
         if self.has_built():
@@ -84,6 +94,8 @@ class GlobalAttributesSetup(AbstractHistorySetup):
         ds.history = f"Created on {datetime.datetime.now().isoformat()}"
         ds.Conventions = self.Conventions
         ds.institution = self.institution
+        for key, value in self.attrs.items():
+            ds.setncattr(key, value)
         ds.close()
         self._built = True
 

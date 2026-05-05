@@ -290,7 +290,6 @@ class AbstractSolver(Generic[ODE], ABC):
             block = dynamical_stepper(block)
             block = block.swap_time_indices()
             block = advection_stepper(block)
-            block = block.swap_batches_time_indices()
             return block
 
         return run_fn

@@ -12,6 +12,7 @@ class AbstractTestCase(ABC):
     as they don't change during computation and don't need to be traced by JAX.
     """
     _para: PlanetParameterSet
+    alias_name: str
     name: str
     description: str
     references: tuple[str, ...]

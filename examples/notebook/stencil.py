@@ -30,6 +30,9 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
+para = tf.planet.PlanetParameterSet.from_si(
+    planet="earth", component="atmosphere", dev=dev
+)
 
 mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file, grist_2d_file, n_dual=3, dev=dev
@@ -42,10 +45,6 @@ coord = tf.layout.CoordinateSystem(
     vert=vert,
     hori_layout=mesh.get_layout(),
     vert_layout=vert.get_layout()
-)
-
-para = tf.planet.PlanetParameterSet.from_si(
-    planet="earth", component="atmosphere", dev=dev
 )
 
 method = tf.operator.FiniteVolumeMethod()

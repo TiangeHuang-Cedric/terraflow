@@ -1,4 +1,5 @@
 from jax import numpy as jnp
+import jax
 import datetime
 import equinox as eqx
 
@@ -86,15 +87,18 @@ class AbstractAdvectionEquation3DTestCase(AbstractAdvectionEquationTestCase):
         time_in_seconds: Array,
         lon: Array,
         lat: Array,
+        eta: Array,
         cartesian: Array,
         edge_normal: Array,
+        *args,
+        **kwargs
     ) -> Array:
         """Initialize normal velocity at edges.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
-        u = self.init_u(time_in_seconds, lon, lat)
-        v = self.init_v(time_in_seconds, lon, lat)
+        u = self.init_u(time_in_seconds, lon, lat, eta, *args, **kwargs)
+        v = self.init_v(time_in_seconds, lon, lat, eta, *args, **kwargs)
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
@@ -105,14 +109,14 @@ class AbstractAdvectionEquation3DTestCase(AbstractAdvectionEquationTestCase):
         """
         raise NotImplementedError
 
-    def init_tracers(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
+    def init_tracers(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize tracer fields.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
         raise NotImplementedError
 
-    def init_background(self, lon: Array, lat: Array, *args, **kwargs) -> Array:
+    def init_background(self, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize background field.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -121,7 +125,7 @@ class AbstractAdvectionEquation3DTestCase(AbstractAdvectionEquationTestCase):
             "Background initialization is not implemented."
         )
 
-    def init_u(self, time_in_seconds: Array, lon: Array, lat: Array, *args, **kwargs) -> Array:
+    def init_u(self, time_in_seconds: Array, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize zonal (u) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -130,13 +134,31 @@ class AbstractAdvectionEquation3DTestCase(AbstractAdvectionEquationTestCase):
             "U velocity initialization is not implemented."
         )
 
-    def init_v(self, time_in_seconds: Array, lon: Array, lat: Array, *args, **kwargs) -> Array:
+    def init_v(self, time_in_seconds: Array, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
         """Initialize meridional (v) velocity component.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
         raise NotImplementedError(
             "V velocity initialization is not implemented."
+        )
+
+    def init_we_lev(self, time_in_seconds: Array, lon: Array, lat: Array, eta: Array, *args, **kwargs) -> Array:
+        """Initialize vertical (we) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Vertical velocity initialization is not implemented."
+        )
+
+    def init_mfz_lev(self, lon: Array, lat: Array, eta: Array, deta: Array, *args, **kwargs) -> Array:
+        """Initialize mass flux in vertical direction at levels.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        raise NotImplementedError(
+            "Vertical Mass flux initialization is not implemented."
         )
 
 
@@ -151,6 +173,7 @@ class SolidRotationTestCase(AbstractAdvectionEquation2DTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "sr"
         self.name = "Solid Rotation"
         self.description = "Solid body rotation test case for advection dynamics."
         self.references = (
@@ -282,6 +305,7 @@ class DeformationalFlowTestCase(AbstractAdvectionEquation2DTestCase):
     def __init__(self, para: PlanetParameterSet, case_n: int):
         self._para = para
         self.case_n = case_n
+        self.alias_name = f"dc{case_n}"
         self.name = f"Deformational Flow Case {case_n}"
         self.description = f"Deformational flow test case {case_n} for advection dynamics."
         self.references = (
@@ -559,3 +583,182 @@ class DeformationalFlowTestCase(AbstractAdvectionEquation2DTestCase):
                 f"Invalid case number: {self.case_n}. Supported cases are from 1 to 4."
             )
         return v
+
+
+class DeformationalFlowCase1(DeformationalFlowTestCase):
+    """Deformational flow test case 1 for advection dynamics."""
+
+    def __init__(self, para: PlanetParameterSet):
+        super().__init__(para=para, case_n=1)
+
+
+class DeformationalFlowCase2(DeformationalFlowTestCase):
+    """Deformational flow test case 2 for advection dynamics."""
+
+    def __init__(self, para: PlanetParameterSet):
+        super().__init__(para=para, case_n=2)
+
+
+class DeformationalFlowCase3(DeformationalFlowTestCase):
+    """Deformational flow test case 3 for advection dynamics."""
+
+    def __init__(self, para: PlanetParameterSet):
+        super().__init__(para=para, case_n=3)
+
+
+class DeformationalFlowCase4(DeformationalFlowTestCase):
+    """Deformational flow test case 4 for advection dynamics."""
+
+    def __init__(self, para: PlanetParameterSet):
+        super().__init__(para=para, case_n=4)
+
+
+class DCMIP12TestCase(AbstractAdvectionEquation3DTestCase):
+    """DCMIP 1-2 3D advection test case."""
+    T0: Array
+    p0: Array
+    K0: Array
+    u0: Array
+    w0: Array
+    z1: Array
+    z2: Array
+    z0: Array
+    ztop: Array
+    tau: Array
+
+    def __init__(self, para: PlanetParameterSet):
+        self._para = para
+        self.alias_name = "dcmip12"
+        self.name = "DCMIP 1-2 3D Advection"
+        self.description = "DCMIP 1-2 3D advection test case."
+        self.references = (
+            "Ullrich, P. A. et al. Dynamical Core Model Intercomparison Project (DCMIP) Test Case Document.",
+        )
+        self.keywords = ("advection", "3D", "DCMIP", "atmosphere")
+        dev = para.dev()
+        float_type = para.dev.float_type
+        self.T0 = jnp.array(300.0, device=dev, dtype=float_type)
+        self.p0 = jnp.array(1.0e5, device=dev, dtype=float_type)
+        self.K0 = jnp.array(5, device=dev, dtype=float_type)
+        self.u0 = jnp.array(40.0, device=dev, dtype=float_type)
+        self.w0 = jnp.array(0.15, device=dev, dtype=float_type)
+        self.z1 = jnp.array(2000.0, device=dev, dtype=float_type)
+        self.z2 = jnp.array(5000.0, device=dev, dtype=float_type)
+        z0 = 0.5 * (self.z1 + self.z2)
+        self.z0 = jnp.array(z0, device=dev, dtype=float_type)
+        self.ztop = jnp.array(12000.0, device=dev, dtype=float_type)
+        self.tau = jnp.array(86400.0, device=dev, dtype=float_type)
+        rd = para.rd.unwrap()
+        self.rho0 = self.p0 / (rd * self.T0)
+        log.logger.success(f"Initialized {self.name} test case. ")
+
+    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, TracerMetaData]:
+        """Initialize tracer metadata.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        return {
+            "q1": TracerMetaData(
+                batch_name="adv",
+                dt=dt_adv,
+                name="q1",
+                long_name="Test tracer",
+            ),
+        }
+
+    def init_tracers(self, lon: Array, lat: Array, eta: Array, gz: Array) -> Array:
+        """Initialize tracer fields.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        g = self.para.gravity.unwrap()
+        z = gz / g
+        z1 = self.z1
+        z2 = self.z2
+        z0 = self.z0
+        q = jnp.where(
+            jnp.logical_and(z1 < z, z < z2),
+            0.5 * (1 + jnp.cos(2 * jnp.pi * (z - z0) / (z2 - z1))),
+            0.0
+        )
+        return jnp.stack([q], axis=0)
+
+    def init_u(
+        self,
+        time_in_seconds: Array,
+        lon: Array,
+        lat: Array,
+        eta: Array,
+        *args,
+        **kwargs
+    ) -> Array:
+        """Initialize zonal (u) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        u0 = self.u0
+
+        def _wrap(eta: Array):
+            return u0 * jnp.cos(lat)
+
+        return jax.vmap(_wrap, in_axes=0, out_axes=0)(eta)
+
+    def init_v(
+        self,
+        time_in_seconds: Array,
+        lon: Array,
+        lat: Array,
+        eta: Array,
+        mg_e: Array,
+        gz_e: Array,
+        *args,
+        **kwargs
+    ) -> Array:
+        """Initialize meridional (v) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        cos_t = jnp.cos(jnp.pi * time_in_seconds / self.tau)
+        rd = self.para.rd.unwrap()
+        T0 = self.T0
+        w0 = self.w0
+        rho0 = self.rho0
+        K0 = self.K0
+        ztop = self.ztop
+        g = self.para.gravity.unwrap()
+        radius = self.para.radius.unwrap()
+        rho_e = mg_e / (rd * T0)
+
+        def _wrap(gz_e: Array, rho_e: Array):
+            return -radius * w0 * jnp.pi * rho0 / (K0 * ztop * rho_e) * (
+                jnp.cos(lat) * jnp.sin(K0 * lat) *
+                jnp.cos(jnp.pi * gz_e / (g * ztop)) * cos_t
+            )
+
+        return jax.vmap(_wrap, in_axes=(0, 0), out_axes=0)(gz_e, rho_e)
+
+    def init_we_lev(self, time_in_seconds: Array, lon: Array, lat: Array, eta: Array, gz_lev: Array) -> Array:
+        """Initialize vertical (w) velocity component.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        cos_t = jnp.cos(jnp.pi * time_in_seconds / self.tau)
+        g = self.para.gravity.unwrap()
+        rho0 = self.rho0
+        K0 = self.K0
+        ztop = self.ztop
+        p0 = self.p0
+        w0 = self.w0
+        res = -g * w0 * rho0 / K0 * (
+            -2 * jnp.sin(K0 * lat) * jnp.sin(lat)
+            + K0 * jnp.cos(lat) * jnp.cos(K0 * lat)
+        ) * jnp.sin(jnp.pi * gz_lev[1:-1, ...] / (g * ztop)) * cos_t / p0
+        return jnp.pad(res, ((1, 1), (0, 0)), mode='constant')
+
+    def init_mfz_lev(self, lon: Array, lat: Array, eta: Array, deta: Array, we_lev: Array, dmg: Array) -> Array:
+        """Initialize mass flux in vertical direction.
+
+        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        """
+        res = we_lev[1:-1, ...] * dmg[1:, ...] / deta[1:-1, None]
+        return jnp.pad(res, ((1, 1), (0, 0)), mode='constant')

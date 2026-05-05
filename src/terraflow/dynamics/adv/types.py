@@ -1,7 +1,8 @@
 from __future__ import annotations
-from terraflow.operator import FiniteVolumeMethod
 from abc import ABC, abstractmethod
 from typing import (
+    Any,
+    Dict,
     Literal,
     Self,
     overload,
@@ -12,9 +13,9 @@ from typing import (
 )
 import inspect
 
-from terraflow.util import typing, log
+from terraflow.util import typing, log, model_config
 from terraflow.planet import PlanetParameterSet
-from terraflow.operator import AbstractDiscretizationMethod
+from terraflow.operator import AbstractDiscretizationMethod, FiniteVolumeMethod
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import AbstractLayout, CoordinateSystem
@@ -262,7 +263,9 @@ class DivergenceOfMassFluxProtocol(
     AbstractDynamicalEquationTerm[DM, ADVEM],
     Generic[DM, ADVEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "dmf"
 
 
 DMF = TypeVar("DMF", bound=DivergenceOfMassFluxProtocol)
@@ -272,7 +275,9 @@ class VerticalAdvectionOfMassFluxProtocol(
     AbstractDynamicalEquationTerm[DM, ADVEM],
     Generic[DM, ADVEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "vadv"
 
 
 VMF = TypeVar("VMF", bound=VerticalAdvectionOfMassFluxProtocol)
@@ -282,7 +287,9 @@ class DivergenceOfTracerFluxProtocol(
     AbstractAdvectionEquationTerm[DM, ADVEM],
     Generic[DM, ADVEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "dtf"
 
 
 DTF = TypeVar("DTF", bound=DivergenceOfTracerFluxProtocol)
@@ -292,7 +299,9 @@ class VerticalAdvectionOfTracerProtocol(
     AbstractAdvectionEquationTerm[DM, ADVEM],
     Generic[DM, ADVEM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "vadv"
 
 
 VAT = TypeVar("VAT", bound=VerticalAdvectionOfTracerProtocol)
@@ -328,15 +337,20 @@ class Ex2DContinuityEqu(
 
     @staticmethod
     def alias_name() -> str:
-        return "continuity_equ"
+        return "dmdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.dmf.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.dmf.build_default()
+            self.dmf.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -382,25 +396,39 @@ class Ex2DTracerEqu(
 
     def __call__(
         self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        return self.dtf(block, star_idx, dt, substep)
+
+    def calc_at_batch(
+        self,
         batch: disc_types.AbstractAdvBatchType,
         block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
     ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-        return self.dtf(batch, block, star_idx, dt, substep)
+        return self.dtf.calc_at_batch(batch, block, star_idx, dt, substep)
 
     @staticmethod
     def alias_name() -> str:
-        return "tracer_equ"
+        return "dqdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.dtf.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.dtf.build_default()
+            self.dtf.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -459,25 +487,34 @@ class Ex3DContinuityEqu(
 
     @staticmethod
     def alias_name() -> str:
-        return "continuity_equ"
+        return "dmdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.dmf.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.vadv.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.dmf.build_default()
+            self.dmf.build_with_config(cfg=cfg)
+            self.vadv.build_with_config(cfg=cfg)
             self._built = True
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.dmf.prepare_block(block)
+        block = self.vadv.prepare_block(block)
         return block
 
     def init_div_mf(self) -> DMF:
         factory = self.navi2term(
-            group="div_of_mfx",
+            group="div_of_mf",
             choice="builder"
         )
         origin = getattr(factory, '__origin__', factory)
@@ -531,32 +568,56 @@ class Ex3DTracerEqu(
 
     def __call__(
         self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+    ) -> BLOCK:
+        block = self.dtf(block, star_idx, dt, substep)
+        block = self.vadv(block, star_idx, dt, substep)
+        return block
+
+    def calc_at_batch(
+        self,
         batch: disc_types.AbstractAdvBatchType,
         block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
     ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-        batch, block = self.dtf(batch, block, star_idx, dt, substep)
-        batch, block = self.vadv(batch, block, star_idx, dt, substep)
+        batch, block = self.dtf.calc_at_batch(
+            batch, block, star_idx, dt, substep
+        )
+        batch, block = self.vadv.calc_at_batch(
+            batch, block, star_idx, dt, substep
+        )
         return batch, block
 
     @staticmethod
     def alias_name() -> str:
-        return "tracer_equ"
+        return "dqdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self.dtf.config2dict()
+        self._update_config(cfg=cfg)
+        cfg = self.vadv.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.dtf.build_default()
+            self.dtf.build_with_config(cfg=cfg)
+            self.vadv.build_with_config(cfg=cfg)
             self._built = True
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.dtf.prepare_block(block)
+        block = self.vadv.prepare_block(block)
         return block
 
     def init_div_tf(self) -> DTF:
@@ -739,9 +800,21 @@ class ExVif2DAdvectionEquationSet4UGRID(
                 "Unsupported combination of method and coordinate system for building block. "
             )
 
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self._space_operators.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
     def build_default(self) -> Self:
+        cfg = model_config.ModelConfig()
+        self.build_with_config(cfg=cfg)
+        self._cfg = self.config2dict()
+        return self
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self._space_operators.build_default()
+            self._space_operators.build_with_config(cfg=cfg)
+            self._cfg = cfg.to_dict()
             self._built = True
         return self
 
@@ -754,16 +827,15 @@ class ExVif2DAdvectionEquationSet4UGRID(
         if advection:
 
             def _wrap_advection(
-                batch: disc_types.AbstractAdvBatchType,
                 block: BLOCK,
                 *args,
                 **kwargs
-            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-                return self.space_operators.advection_space_operators(
-                    batch,
+            ) -> BLOCK:
+                return self.space_operators.advection_stepper(
                     block,
                     *args,
                     **kwargs,
+                    explicit=True
                 )
 
             return _wrap_advection
@@ -851,9 +923,21 @@ class ExVif3DAdvectionEquationSet4UGRID(
                 "Unsupported combination of method and coordinate system for building block. "
             )
 
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self._space_operators.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
     def build_default(self) -> Self:
+        cfg = model_config.ModelConfig()
+        self.build_with_config(cfg=cfg)
+        self._cfg = self.config2dict()
+        return self
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self._space_operators.build_default()
+            self._space_operators.build_with_config(cfg=cfg)
+            self._cfg = cfg.to_dict()
             self._built = True
         return self
 
@@ -867,13 +951,11 @@ class ExVif3DAdvectionEquationSet4UGRID(
         if advection:
 
             def _wrap_advection(
-                batch: disc_types.AbstractAdvBatchType,
                 block: BLOCK,
                 *args,
                 **kwargs
-            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-                return self.space_operators.advection_space_operators(
-                    batch,
+            ) -> BLOCK:
+                return self.space_operators.advection_stepper(
                     block,
                     *args,
                     **kwargs,
@@ -896,6 +978,64 @@ class ExVif3DAdvectionEquationSet4UGRID(
 
 
 class AdvectionEquation2DBuilder:
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[
+            SphericalCentroidVoronoiTessellations,
+            OneLayerVertCoordinate,
+            TriSKBasedCGridStaggeringLayout,
+            OneLayerVertCoordLayout
+        ],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: Literal["vector_invariant"],
+        ode_kind: Literal["explicit"],
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> ExVif_ADV2D_SCVT_TriSKCGrid_FVM:
+        ...
+
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractAdvectionEquationSet2D:
+        ...
+
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractAdvectionEquationSet2D:
+        equation = cls.from_model(
+            coord=coord,
+            para=para,
+            method=method,
+            form=form,
+            ode_kind=ode_kind,
+            *args,
+            **kwargs,
+        )
+        equation.build_with_config(cfg=config)
+        return equation
 
     @overload
     @classmethod
@@ -957,6 +1097,64 @@ class AdvectionEquation2DBuilder:
 
 
 class AdvectionEquation3DBuilder:
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[
+            SphericalCentroidVoronoiTessellations,
+            HybridVertCoordinate,
+            TriSKBasedCGridStaggeringLayout,
+            HybridVertCoordLayout
+        ],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: Literal["vector_invariant"],
+        ode_kind: Literal["explicit"],
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> ExVif_ADV3D_SCVT_TriSKCGrid_FVM:
+        ...
+
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractAdvectionEquationSet3D:
+        ...
+
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractAdvectionEquationSet3D:
+        equation = cls.from_model(
+            coord=coord,
+            para=para,
+            method=method,
+            form=form,
+            ode_kind=ode_kind,
+            *args,
+            **kwargs,
+        )
+        equation.build_with_config(cfg=config)
+        return equation
 
     @overload
     @classmethod

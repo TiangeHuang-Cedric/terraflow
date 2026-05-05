@@ -742,7 +742,8 @@ class UGRIDHistory(AbstractHistory):
         self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
-            int_type=self.int_type
+            int_type=self.int_type,
+            attrs=solver.equation.config2ncattrs()
         )
         self.time = TimeSetup(
             file_path=self.file_path,
@@ -880,7 +881,8 @@ class UnstructuredHistory(AbstractHistory):
         self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
-            int_type=self.int_type
+            int_type=self.int_type,
+            attrs=solver.equation.config2ncattrs()
         )
         self.time = TimeSetup(
             file_path=self.file_path,
@@ -1032,7 +1034,8 @@ class Unstructured2StructuredHistory(AbstractHistory):
         self.attr = GlobalAttributesSetup(
             file_path=self.file_path,
             float_type=self.float_type,
-            int_type=self.int_type
+            int_type=self.int_type,
+            attrs=solver.equation.config2ncattrs()
         )
         self.time = TimeSetup(
             file_path=self.file_path,

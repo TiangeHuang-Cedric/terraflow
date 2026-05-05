@@ -28,10 +28,11 @@ import types
 import unxt as ux
 import jax
 import jax.numpy as jnp
+import numpy as np
 import xarray as xr
 import uxarray as uxr
 
-from terraflow.util import typing, device, uxarray as tuxr
+from terraflow.util import typing, device, model_config, uxarray as tuxr
 import terraflow.operator as op
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
@@ -316,11 +317,18 @@ class AbstractEquationMode(ABC):
             and self.advection3d
         )
 
+    def is_2d_model(self) -> bool:
+        return self.is_barotropic() or self.is_advection2d()
+
+    def is_3d_model(self) -> bool:
+        return self.is_baroclinic() or self.is_advection3d()
+
 
 class AbstractEquationBase(Generic[DM, EM], ABC):
     _disc: DiscretizationInfo
     _method: DM
     _mode: EM
+    _cfg: Dict[str, Any]
     _built: bool
 
     def __init__(
@@ -331,15 +339,20 @@ class AbstractEquationBase(Generic[DM, EM], ABC):
     ):
         self._disc = disc
         self._method = method
-        self._built = False
         self._mode = mode
+        self._cfg = {}
+        self._built = False
 
     @abstractmethod
-    def prepare_block(self, *args, **kwargs) -> Any:
+    def config2dict(self) -> Dict[str, Any]:
         raise NotImplementedError
 
     @abstractmethod
-    def build_default(self, *args, **kwargs) -> Self:
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
+        raise NotImplementedError
+
+    @abstractmethod
+    def prepare_block(self, *args, **kwargs) -> Any:
         raise NotImplementedError
 
     @property
@@ -392,6 +405,16 @@ class AbstractEquationTerm(
         )
         self._table = "equterm"
 
+    @staticmethod
+    @abstractmethod
+    def alias_name() -> str:
+        raise NotImplementedError
+
+    def _update_config(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        for k, v in cfg.items():
+            self._cfg[self.alias_name() + "." + k] = v
+        return self._cfg
+
     def disc_info(self) -> Dict[str, str]:
         return {
             "planet": self._disc.planet,
@@ -431,7 +454,11 @@ class AbstractAdvectionEquationTerm(
     ABC
 ):
     @abstractmethod
-    def __call__(
+    def __call__(self, block: BLOCK, *args: Any, **kwargs: Any) -> BLOCK:
+        raise NotImplementedError
+
+    @abstractmethod
+    def calc_at_batch(
         self,
         batch: AbstractAdvBatchType,
         block: BLOCK,
@@ -473,6 +500,11 @@ class AbstractEquationForm(
     @abstractmethod
     def ode_kind_alias_name() -> str:
         raise NotImplementedError
+
+    def _update_config(self, cfg: Dict[str, Any]) -> Dict[str, Any]:
+        for k, v in cfg.items():
+            self._cfg[self.alias_name() + "." + k] = v
+        return self._cfg
 
     def disc_info(self) -> Dict[str, str]:
         return {
@@ -535,6 +567,18 @@ class AbstractAdvectionEquationForm(
 
     @abstractmethod
     def __call__(
+        self,
+        block: BLOCK,
+        star_idx: Int[Array, ""] | int,
+        dt: Float[Array, ""] | float,
+        substep: int,
+        *args: Any,
+        **kwargs: Any
+    ) -> BLOCK:
+        raise NotImplementedError
+
+    @abstractmethod
+    def calc_at_batch(
         self,
         batch: AbstractAdvBatchType,
         block: BLOCK,
@@ -764,23 +808,7 @@ class AbstractSpaceOperators(
         raise NotImplementedError
 
     @abstractmethod
-    def d2a_coupling(self, block: BLOCK, *args, **kwargs) -> BLOCK:
-        """Prepare the block for the advection stepper."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def advection_space_operators(
-        self,
-        batch: ADVBATCH,
-        block: BLOCK,
-        old_idx: Int[Array, ""] | int,
-        star_idx: Int[Array, ""] | int,
-        new_idx: Int[Array, ""] | int,
-        dt: Float[Array, ""] | float,
-        substep: int,
-        *args,
-        **kwargs
-    ) -> tuple[ADVBATCH, BLOCK]:
+    def advection_stepper(self, block: BLOCK, *args, **kwargs) -> BLOCK:
         """Return the advection stepper function to be called in the advection step."""
         raise NotImplementedError
 
@@ -854,6 +882,10 @@ class AbstractEquationSet(
         """Build the initial block from a testcase."""
         raise NotImplementedError
 
+    @abstractmethod
+    def build_default(self, *args, **kwargs) -> Self:
+        raise NotImplementedError
+
     @property
     def space_operators(self) -> SOP:
         return self._space_operators
@@ -870,6 +902,20 @@ class AbstractEquationSet(
             "horizontal_mesh": self._disc.horizontal_mesh,
             "vertical_coordinate": self._disc.vertical_coordinate,
         }
+
+    def config2ncattrs(self) -> Dict[str, Any]:
+        """Convert the configuration dictionary to attributes for netCDF file creation."""
+        cleaned: Dict[str, Any] = {}
+        for k, v in self._cfg.items():
+            if isinstance(v, bool):
+                cleaned[k] = np.int32(v)
+                continue
+            arr = np.asarray(v)
+            if arr.shape == () and arr.dtype.kind in ("i", "u"):
+                cleaned[k] = np.int32(arr)
+            else:
+                cleaned[k] = v
+        return cleaned
 
     def navi2space_ops(self) -> Callable:
         """Navigate to the space operators configuration in the equaux table."""
@@ -1827,10 +1873,8 @@ class AbstractBlock(
             def do_nothing(block: Self) -> Self:
                 return block
 
-            # This method is called after advection stepper (in which istep is updated),
-            # so we check whether to swap time indices based on the updated istep.
             self = jax.lax.cond(
-                pred=batch.istep == 0,
+                pred=batch.is_run_tracer_istep(),
                 true_fun=swap_batch_time_indices,
                 false_fun=do_nothing,
                 operand=self
@@ -1847,6 +1891,16 @@ class AbstractBlock(
             raise ValueError(
                 f"Invalid time index '{itime_str}'. Expected 'old' or 'new'."
             )
+
+    def update_batches_istep(self) -> Self:
+        for batch_name, batch in self.adv_batches.items():
+            batch = batch.update_istep()
+            self = eqx.tree_at(
+                lambda b: b.adv_batches[batch_name],
+                self,
+                batch
+            )
+        return self
 
 
 class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):

@@ -2,6 +2,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from turtle import st
 from typing import (
+    Any,
+    Dict,
     Literal,
     Self,
     overload,
@@ -12,7 +14,7 @@ from typing import (
 )
 import inspect
 
-from terraflow.util import typing, log
+from terraflow.util import typing, log, model_config
 from terraflow.planet import PlanetParameterSet
 from terraflow.operator import AbstractDiscretizationMethod
 from terraflow.mesh.abstract import AbstractMesh, AbstractUnstructuredMesh
@@ -170,7 +172,9 @@ class DivergenceOfMassFluxProtocol(
     AbstractShallowWaterTerm[DM],
     Generic[DM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "dmf"
 
 
 DMF = TypeVar("DMF", bound=DivergenceOfMassFluxProtocol)
@@ -180,7 +184,9 @@ class NonlinearCoriolisTermProtocol(
     AbstractShallowWaterTerm[DM],
     Generic[DM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "nct"
 
 
 NCT = TypeVar("NCT", bound=NonlinearCoriolisTermProtocol)
@@ -190,7 +196,9 @@ class GradientOfKineticEnergyProtocol(
     AbstractShallowWaterTerm[DM],
     Generic[DM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "grad_ke"
 
 
 GKE = TypeVar("GKE", bound=GradientOfKineticEnergyProtocol)
@@ -200,7 +208,9 @@ class PressureGradientForceTermProtocol(
     AbstractShallowWaterTerm[DM],
     Generic[DM]
 ):
-    pass
+    @staticmethod
+    def alias_name() -> str:
+        return "pgf"
 
 
 PGF = TypeVar("PGF", bound=PressureGradientForceTermProtocol)
@@ -234,15 +244,20 @@ class ExContinuityEqu(
 
     @staticmethod
     def alias_name() -> str:
-        return "continuity_equ"
+        return "dgzdt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> dict:
+        cfg = self.dmf.config2dict()
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.dmf.build_default()
+            self.dmf.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -302,17 +317,25 @@ class ExNormalMomentumEqu4UGRID(
 
     @staticmethod
     def alias_name() -> str:
-        return "normal_momentum_equ"
+        return "dundt"
 
     @staticmethod
     def ode_kind_alias_name() -> str:
         return "explicit"
 
-    def build_default(self) -> Self:
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = {}
+        cfg.update(self.coriolis.config2dict())
+        cfg.update(self.grad_ke.config2dict())
+        cfg.update(self.pgf.config2dict())
+        self._update_config(cfg=cfg)
+        return self._cfg
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self._built:
-            self.coriolis.build_default()
-            self.grad_ke.build_default()
-            self.pgf.build_default()
+            self.coriolis.build_with_config(cfg=cfg)
+            self.grad_ke.build_with_config(cfg=cfg)
+            self.pgf.build_with_config(cfg=cfg)
             self._built = True
         return self
 
@@ -480,9 +503,21 @@ class ExVifShallowWaterEquationSet4UGRID(
                 "Unsupported combination of method and coordinate system for building block. "
             )
 
+    def config2dict(self) -> Dict[str, Any]:
+        cfg = self._space_operators.config2dict()
+        self._cfg.update(cfg)
+        return self._cfg
+
     def build_default(self) -> Self:
+        cfg = model_config.ModelConfig()
+        self.build_with_config(cfg=cfg)
+        self._cfg = self.config2dict()
+        return self
+
+    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self._space_operators.build_default()
+            self._space_operators.build_with_config(cfg=cfg)
+            self._cfg = cfg.to_dict()
             self._built = True
         return self
 
@@ -504,13 +539,11 @@ class ExVifShallowWaterEquationSet4UGRID(
             return _wrap_dynamics
         else:
             def _wrap_advection(
-                batch: disc_types.AbstractAdvBatchType,
                 block: BLOCK,
                 *args,
                 **kwargs
-            ) -> tuple[disc_types.AbstractAdvBatchType, BLOCK]:
-                return self.space_operators.advection_space_operators(
-                    batch,
+            ) -> BLOCK:
+                return self.space_operators.advection_stepper(
                     block,
                     *args,
                     **kwargs,
@@ -520,6 +553,65 @@ class ExVifShallowWaterEquationSet4UGRID(
 
 
 class ShallowWaterEquationBuilder:
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[
+            SphericalCentroidVoronoiTessellations,
+            OneLayerVertCoordinate,
+            TriSKBasedCGridStaggeringLayout,
+            OneLayerVertCoordLayout
+        ],
+        para: PlanetParameterSet,
+        method: FiniteVolumeMethod,
+        form: Literal["vector_invariant"],
+        ode_kind: Literal["explicit"],
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        output_h1_tend: bool = False,
+        state_tile_depth: int = 3,
+    ) -> ExVif_SWE_SCVT_TriSKCGrid_FVM:
+        ...
+
+    @overload
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractShallowWaterEquationSet:
+        ...
+
+    @classmethod
+    def build_with_config(
+        cls,
+        coord: CoordinateSystem[HM, VM, HLO, VLO],
+        para: PlanetParameterSet,
+        method: AbstractDiscretizationMethod,
+        form: str,
+        ode_kind: str,
+        config: model_config.ModelConfig = model_config.ModelConfig(),
+        *args,
+        **kwargs,
+    ) -> AbstractShallowWaterEquationSet:
+        equation = cls.from_model(
+            coord=coord,
+            para=para,
+            method=method,
+            form=form,
+            ode_kind=ode_kind,
+            *args,
+            **kwargs
+        )
+        equation.build_with_config(cfg=config)
+        return equation
+
     @overload
     @classmethod
     def from_model(

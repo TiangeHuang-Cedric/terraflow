@@ -185,12 +185,7 @@ class ExRungeKutta3Solver(AbstractRungeKuttaSolver[EXODE]):
         return rk3_step
 
     def advection_stepper(self) -> Callable:
-        d2a_coupling = self.equation._space_operators.d2a_coupling
-        space_operators = self.equation.explicit_terms(advection=True)
-        return ex_rk3_advection_stepper(
-            d2a_coupling=d2a_coupling,
-            space_operators=space_operators
-        )
+        return self.equation.explicit_terms(advection=True)
 
 
 class ExEulerSolver(AbstractSolver[EXODE]):
@@ -297,12 +292,7 @@ class ExEulerSolver(AbstractSolver[EXODE]):
         return euler_step
 
     def advection_stepper(self) -> Callable:
-        d2a_coupling = self.equation._space_operators.d2a_coupling
-        space_operators = self.equation.explicit_terms(advection=True)
-        return ex_euler_advection_stepper(
-            d2a_coupling=d2a_coupling,
-            space_operators=space_operators
-        )
+        return self.equation.explicit_terms(advection=True)
 
 
 def step_all(
@@ -402,13 +392,11 @@ def step_adv(
     )
 
 
-def ex_rk3_advection_stepper(d2a_coupling: Callable, space_operators: Callable) -> Callable:
+def ex_rk3_advection_stepper(space_operators: Callable) -> Callable:
 
     substep = step_adv
 
     def rk3_step(block: BLOCK) -> BLOCK:
-
-        block = d2a_coupling(block)
 
         for batch_name, batch in block.adv_batches.items():
 
@@ -460,8 +448,6 @@ def ex_rk3_advection_stepper(d2a_coupling: Callable, space_operators: Callable) 
                 (batch, block)
             )
 
-            batch = batch.update_istep()
-
             block = eqx.tree_at(
                 lambda b: b.adv_batches[batch_name],
                 block,
@@ -473,13 +459,11 @@ def ex_rk3_advection_stepper(d2a_coupling: Callable, space_operators: Callable) 
     return rk3_step
 
 
-def ex_euler_advection_stepper(d2a_coupling: Callable, space_operators: Callable) -> Callable:
+def ex_euler_advection_stepper(space_operators: Callable) -> Callable:
 
     substep = step_adv
 
     def euler_step(block: BLOCK) -> BLOCK:
-
-        block = d2a_coupling(block)
 
         for batch_name, batch in block.adv_batches.items():
 
@@ -510,8 +494,6 @@ def ex_euler_advection_stepper(d2a_coupling: Callable, space_operators: Callable
                 do_nothing,
                 (batch, block)
             )
-
-            batch = batch.update_istep()
 
             block = eqx.tree_at(
                 lambda b: b.adv_batches[batch_name],

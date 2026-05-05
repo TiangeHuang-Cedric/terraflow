@@ -94,6 +94,7 @@ class MountainZonalFlowTestCase(AbstractShallowWaterEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "swm_mz"
         self.name = "Mountain Zonal Flow"
         self.description = (
             "A test case simulating zonal flow over a mountain in a shallow water "
@@ -185,6 +186,7 @@ class RossbyHaurwitzWaveTestCase(AbstractShallowWaterEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "swm_rh"
         self.name = "Rossby-Haurwitz Wave"
         self.description = (
             "A test case simulating a Rossby-Haurwitz wave in a shallow water "
@@ -305,6 +307,7 @@ class JetZonalFlowTestCase(AbstractShallowWaterEquationTestCase):
 
     def __init__(self, para: PlanetParameterSet):
         self._para = para
+        self.alias_name = "swm_jz"
         self.name = "Jet Zonal Flow"
         self.description = (
             "A test case simulating a zonal jet flow in a shallow water "

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Self, TypeVar, TYPE_CHECKING
+from typing import Any, Dict, Self, TypeVar, TYPE_CHECKING
 import functools
 from jax import numpy as jnp
 from jax import lax, debug
@@ -21,6 +21,7 @@ from terraflow.discretization.abstract import (
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 
 if TYPE_CHECKING:
+    from terraflow.util.model_config import ModelConfig
     from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
 
     Int = typing.Int
@@ -139,6 +140,14 @@ class TriSKCoriolisForceAtEdge(DynOperator):
             replace=dundt_coriolis
         )
 
+    def config2dict(self) -> Dict[str, Any]:
+        return self._cfg
+
+    def build_with_config(self, cfg: ModelConfig) -> Self:
+        if not self.has_built():
+            self._built = True
+        return self
+
     def prepare_block(self, block: Block) -> Block:
         coord = block.coord
         return eqx.tree_at(
@@ -146,10 +155,6 @@ class TriSKCoriolisForceAtEdge(DynOperator):
             block,
             replace=TriSKCoriolisForceAtEdgeData.from_coord(coord)
         )
-
-    def build_default(self) -> Self:
-        self._built = True
-        return self
 
 
 @functools.partial(jax.jit, backend="cpu")

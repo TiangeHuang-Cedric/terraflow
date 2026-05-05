@@ -6,19 +6,22 @@ if TYPE_CHECKING:
     from terraflow.dynamics.shallow_water.types import ShallowWaterEquationBuilder as ShallowWaterEquation
     from terraflow.dynamics.baroclinic.hydrostatic import DryHydrostaticEquationBuilder as DryHydrostaticEquation
     from terraflow.dynamics.adv.types import AdvectionEquation2DBuilder as AdvectionEquation2D
+    from terraflow.dynamics.adv.types import AdvectionEquation3DBuilder as AdvectionEquation3D
 
 
 _LAZY_CLASS = {
     "ShallowWaterEquation": "terraflow.dynamics.shallow_water.types.ShallowWaterEquationBuilder",
     "DryHydrostaticEquation": "terraflow.dynamics.baroclinic.hydrostatic.DryHydrostaticEquationBuilder",
-    "AdvectionEquation2D": "terraflow.dynamics.adv.types.AdvectionEquation2DBuilder"
+    "AdvectionEquation2D": "terraflow.dynamics.adv.types.AdvectionEquation2DBuilder",
+    "AdvectionEquation3D": "terraflow.dynamics.adv.types.AdvectionEquation3DBuilder"
 }
 
 
 __all__ = [
     "ShallowWaterEquation",
     "DryHydrostaticEquation",
-    "AdvectionEquation2D"
+    "AdvectionEquation2D",
+    "AdvectionEquation3D",
 ]
 
 

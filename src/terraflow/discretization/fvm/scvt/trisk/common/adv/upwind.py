@@ -37,6 +37,10 @@ if TYPE_CHECKING:
 
     CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
 
+    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
+    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
+    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+
 
 class UpwindHorizontalAdvectionAtCell:
 
@@ -117,7 +121,7 @@ class UpwindHorizontalAdvectionAtCell:
             qmfn
         )
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.scheme.prepare_block(block)
         return block
 
@@ -201,7 +205,7 @@ class UpwindHorizontalAdvectionAtVtx:
             qmfn
         )
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.scheme.prepare_block(block)
         return block
 
@@ -254,7 +258,7 @@ class UpwindVerticalAdvection:
                 f"Vertical location {batch.vert_loc} is not implemented."
             )
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
     def calc_at_cell(

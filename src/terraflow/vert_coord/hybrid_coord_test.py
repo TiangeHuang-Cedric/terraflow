@@ -1,7 +1,11 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from terraflow.util import typing, device
+
+if TYPE_CHECKING:
+    from terraflow.planet import PlanetParameterSet
 
 
 IntType = typing.IntType
@@ -237,6 +241,27 @@ def hybrid_coord_test_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         1.000000000000000000000,  # 31
     ]
     return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+
+
+def hybrid_coord_dcmip12(
+    p0: float,
+    nlev: int,
+    para: PlanetParameterSet,
+    dev: device.AbstractDevice
+) -> tuple[Array, Array, Array]:
+    ztop = 12000.0
+    t0 = 300
+    g = para.gravity.unwrap()
+    rd = para.rd.unwrap()
+    # ========================================
+    ptop = p0 * jnp.exp(-g * ztop / rd / t0)
+    eta_top = ptop / p0
+    deta = (1 - eta_top) / nlev
+    eta = jnp.arange(eta_top, 1 + deta, deta, dtype=dev.float_type)
+    hyai = eta
+    hybi = jnp.zeros_like(hyai)
+    # ========================================
+    return ptop, jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_ecmwf_l50(dev: device.AbstractDevice) -> tuple[Array, Array]:

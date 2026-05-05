@@ -34,6 +34,10 @@ grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
 # %%
+para = tf.planet.PlanetParameterSet.from_si(
+    planet="earth", component="atmosphere", dev=dev
+)
+
 mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     grist_0d_file=grist_0d_file,
     grist_2d_file=grist_2d_file,
@@ -48,10 +52,6 @@ coord = tf.layout.CoordinateSystem(
     vert=vert,
     hori_layout=mesh.get_layout(),
     vert_layout=vert.get_layout()
-)
-
-para = tf.planet.PlanetParameterSet.from_si(
-    planet="earth", component="atmosphere", dev=dev
 )
 
 method = tf.operator.FiniteVolumeMethod()
@@ -69,7 +69,6 @@ equation = tf.dynamics.ShallowWaterEquation.from_model(
 )
 
 # %%
-equation.space_operators.prepare.dmg.recon_at_edge.central_difference()
 equation.space_operators.prepare.pv.interp.pure_upwind(3)
 
 # %%

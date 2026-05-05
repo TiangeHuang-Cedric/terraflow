@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Optional, Self, TYPE_CHECKING
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 
 from terraflow.util import typing
 from terraflow.layout.abstract import MeshEntity, VertLoc, Basis
@@ -112,26 +113,21 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
             )
         return self
 
-    def set_new_mass(
-        self,
-        block: Block,
-        substep: int,
-    ) -> Self:
-        def on_last_substep() -> Self:
-            m_new = block.adv_batch_bg.m.unwrap()
+    def set_new_mass(self, m_new: Float[Array, "nlev ncell"]) -> Self:
+        def on_run_tracer_istep() -> Self:
             return eqx.tree_at(
                 lambda b: b.m.data,
                 self,
                 m_new
             )
 
-        def not_on_last_substep() -> Self:
+        def not_on_run_tracer_istep() -> Self:
             return self
 
         return jax.lax.cond(
-            pred=substep == self.nsubsteps - 1,
-            true_fun=on_last_substep,
-            false_fun=not_on_last_substep
+            pred=self.is_run_tracer_istep(),
+            true_fun=on_run_tracer_istep,
+            false_fun=not_on_run_tracer_istep
         )
 
     def set_wind(
@@ -158,19 +154,25 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
         mfz: Optional[Float[Array, "nlevp ncell"]] = None,
     ) -> Self:
 
+        def do_nothing(batch: Self) -> Self:
+            return batch
+
         def istep_at_reset(batch: Self) -> Self:
             # istep == 0
+            m_zeros = jnp.zeros_like(m)
+            mfn_zeros = jnp.zeros_like(mfn)
             if mfz is not None:
+                mfz_zeros = jnp.zeros_like(mfz)
                 return eqx.tree_at(
                     lambda b: (b.mstp.data, b.mfn.data, b.mfz.data),
                     batch,
-                    (m, mfn, mfz)
+                    (m_zeros, mfn_zeros, mfz_zeros)
                 )
             else:
                 return eqx.tree_at(
                     lambda b: (b.mstp.data, b.mfn.data),
                     batch,
-                    (m, mfn)
+                    (m_zeros, mfn_zeros)
                 )
 
         def istep_at_end(batch: Self) -> Self:
@@ -180,13 +182,13 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
             cell_1 = edd_v[:, 1]
             nsteps = batch.nsteps
 
-            m_ = (batch.mstp.data + m) / nsteps
-            mfn_ = (batch.mfn.data + mfn) / nsteps
+            m_ = batch.mstp.data / nsteps
+            mfn_ = batch.mfn.data / nsteps
             m_e_ = (m_[:, cell_1] + m_[:, cell_0]) / 2
             un_ = mfn_ / m_e_
 
             if mfz is not None:
-                mfz_ = (batch.mfz.data + mfz) / nsteps
+                mfz_ = batch.mfz.data / nsteps
                 return eqx.tree_at(
                     lambda b: (b.un.data, b.mstp.data, b.mfn.data, b.mfz.data),
                     batch,
@@ -200,7 +202,7 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
                 )
 
         def istep_at_accumulating(batch: Self) -> Self:
-            # 0 < istep < nsteps -1
+            # 0 < istep <= nsteps -1
             m_ = batch.mstp.data + m
             mfn_ = batch.mfn.data + mfn
             if mfz is not None:
@@ -217,17 +219,38 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
                     (m_, mfn_)
                 )
 
-        return jax.lax.cond(
+        self = jax.lax.cond(
             pred=self.istep == 0,
             true_fun=istep_at_reset,
-            false_fun=lambda batch: jax.lax.cond(
-                pred=batch.istep == batch.nsteps - 1,
-                true_fun=istep_at_end,
-                false_fun=istep_at_accumulating,
-                operand=batch
-            ),
+            false_fun=do_nothing,
             operand=self
         )
+
+        self = jax.lax.cond(
+            pred=jnp.logical_and(
+                self.istep >= 0, self.istep <= self.nsteps - 1
+            ),
+            true_fun=istep_at_accumulating,
+            false_fun=do_nothing,
+            operand=self
+        )
+
+        self = jax.lax.cond(
+            pred=self.istep == self.nsteps - 1,
+            true_fun=istep_at_end,
+            false_fun=do_nothing,
+            operand=self
+        )
+
+        return self
+
+    def get_mass_tracers(
+        self,
+        block: Block,
+        itime_str: str
+    ) -> Float[Array, "nlev ncell"]:
+        itime = self.get_time_idx(itime_str=itime_str)
+        return block.tracers.mq.unwrap()[itime, self.idx, :, :]
 
 
 def default_adv_batch_meta(
@@ -342,6 +365,7 @@ def default_adv_batch_meta(
             mesh_name="primal",
             output="",
         )
+    if mode.is_baroclinic() or mode.is_advection():
         meta["mfn"] = StaggeredFieldMetaData(
             name=name + "_mfn",
             dims=dimn,
