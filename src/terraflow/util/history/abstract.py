@@ -276,7 +276,6 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             )
 
     def log_diag(self, itimestep: int) -> None:
-        perf_runtime()
         log.logger.log(
             "RUNTIME",
             f"==> {self.time_manager.curr_time4itimestep(self.dt_dyn, itimestep)}  "
@@ -286,7 +285,6 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         return None
 
     def _prepare_for_output(self, save_interval_idx: int) -> None:
-        perf_runtime()
         log.logger.log(
             "RUNTIME",
             f"==> {self.time_manager.curr_time4save(self.save_interval, save_interval_idx)}  "
