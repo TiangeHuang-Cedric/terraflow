@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-from turtle import up
-
 import jax
 import jax.numpy as jnp
 import terraflow.core as tf

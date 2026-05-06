@@ -9,7 +9,6 @@ from typing import (
     Union,
     overload,
     Literal,
-    Self
 )
 from functools import partial
 import jax.numpy as jnp

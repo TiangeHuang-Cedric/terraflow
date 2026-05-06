@@ -1,5 +1,4 @@
 from __future__ import annotations
-import time
 from typing import TypeVar, TYPE_CHECKING
 
 from terraflow.layout.field import StaggeredFieldMetaData

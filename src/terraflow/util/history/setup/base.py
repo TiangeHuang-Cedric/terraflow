@@ -1,12 +1,8 @@
-from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Optional, Any, TYPE_CHECKING
+from typing import Optional, Any
 import netCDF4 as nc4
 import datetime
 import numpy as np
-
-if TYPE_CHECKING:
-    from terraflow.discretization.abstract import AbstractEquationSet
 
 FLOAT_NP2NC = {
     np.float32: "f4",
