@@ -378,7 +378,7 @@ def default_adv_batch_meta(
             coordinates=coordinatesn,
             staggered_kind="C",
             mesh_name="primal",
-            output="h0" if mode.is_advection() else "",
+            output="h1" if mode.is_advection() else "",
         )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["mfz"] = StaggeredFieldMetaData(
@@ -393,7 +393,7 @@ def default_adv_batch_meta(
             coordinates=coordinatesz,
             staggered_kind="C",
             mesh_name="primal",
-            output="h0" if mode.is_advection() else "",
+            output="h1" if mode.is_advection() else "",
         )
     if mode.is_baroclinic() or mode.is_advection():
         meta["un"] = StaggeredFieldMetaData(

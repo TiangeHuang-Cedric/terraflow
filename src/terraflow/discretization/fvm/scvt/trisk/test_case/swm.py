@@ -46,12 +46,6 @@ if TYPE_CHECKING:
         HybridVertCoordLayout
     ]
 
-NLEVP = "ilev"
-NLEV = "lev"
-NCELL = "cell"
-NEDGE = "edge"
-NVTX = "vtx"
-
 
 def barotropic_case_init_fn(
     coord: CoordSysOneLayer,

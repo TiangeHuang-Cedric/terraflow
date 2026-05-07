@@ -220,7 +220,7 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
         ds.close()
         self._built = True
 
-    def unstructured(self, with_vtx: bool = True):
+    def unstructured(self, with_vtx: bool = True, with_edge: bool = True):
         if self.has_built():
             return
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
@@ -228,7 +228,8 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
         ds.createDimension("cell", int(self.mesh.primal.cell.shape[0]))
         if with_vtx:
             ds.createDimension("vtx", int(self.mesh.dual.cell.shape[0]))
-        ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
+        if with_edge:
+            ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
         # Create variables
         float_type = "f8"
         ds.createVariable("lon_cell", float_type, ("cell",))
@@ -236,8 +237,9 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
         if with_vtx:
             ds.createVariable("lon_vtx", float_type, ("vtx",))
             ds.createVariable("lat_vtx", float_type, ("vtx",))
-        ds.createVariable("lon_edge", float_type, ("edge",))
-        ds.createVariable("lat_edge", float_type, ("edge",))
+        if with_edge:
+            ds.createVariable("lon_edge", float_type, ("edge",))
+            ds.createVariable("lat_edge", float_type, ("edge",))
         # Fill in coordinate variables
         lon_cell = ds.variables["lon_cell"]
         lon_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
@@ -256,14 +258,15 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
             lat_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lat)
             lat_vtx.long_name = "Latitude at vertices"
             lat_vtx.units = "degrees_north"
-        lon_edge = ds.variables["lon_edge"]
-        lon_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
-        lon_edge.long_name = "Longitude at edges"
-        lon_edge.units = "degrees_east"
-        lat_edge = ds.variables["lat_edge"]
-        lat_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lat)
-        lat_edge.long_name = "Latitude at edges"
-        lat_edge.units = "degrees_north"
+        if with_edge:
+            lon_edge = ds.variables["lon_edge"]
+            lon_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
+            lon_edge.long_name = "Longitude at edges"
+            lon_edge.units = "degrees_east"
+            lat_edge = ds.variables["lat_edge"]
+            lat_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lat)
+            lat_edge.long_name = "Latitude at edges"
+            lat_edge.units = "degrees_north"
         ds.close()
         self._built = True
 

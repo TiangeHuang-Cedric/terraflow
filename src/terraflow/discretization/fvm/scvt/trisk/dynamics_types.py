@@ -79,12 +79,6 @@ VLO = TypeVar("VLO", OneLayerVertCoordLayout, HybridVertCoordLayout)
 FDT = ArrayField[StaggeredFieldMetaData]
 NDT = ArrayField[NumericMetaData]
 
-NLEVP = "ilev"
-NLEV = "lev"
-NCELL = "cell"
-NEDGE = "edge"
-NVTX = "vtx"
-
 CoordSys = CoordinateSystem[
     SphericalCentroidVoronoiTessellations,
     VM,

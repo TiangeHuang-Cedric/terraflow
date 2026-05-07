@@ -178,7 +178,7 @@ def default_tracer_meta(
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1",
+            output="",
         )
         meta["qm"] = StaggeredFieldMetaData(
             name="qm",
@@ -255,7 +255,7 @@ def default_tracer_meta(
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1",
+            output="",
         )
         meta["qm"] = StaggeredFieldMetaData(
             name="qm",

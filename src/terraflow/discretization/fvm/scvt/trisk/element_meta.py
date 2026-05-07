@@ -38,7 +38,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0"
+            output="h1"
         )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["un"] = StaggeredFieldMetaData(
@@ -57,7 +57,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0"
+            output="h1"
         )
     if mode.is_barotropic() or mode.is_advection2d():
         meta["gz"] = StaggeredFieldMetaData(
@@ -76,7 +76,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_barotropic() else ""
+            output="h0"
         )
     elif mode.is_baroclinic() or mode.is_advection3d():
         meta["gz"] = StaggeredFieldMetaData(
@@ -95,7 +95,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_baroclinic() else ""
+            output="h0"
         )
         meta["gz_lev"] = StaggeredFieldMetaData(
             name="gz_lev",
@@ -113,7 +113,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_baroclinic() else ""
+            output="h0"
         )
         meta["mg"] = StaggeredFieldMetaData(
             name="mg",
@@ -131,7 +131,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output=""
         )
         meta["mg_lev"] = StaggeredFieldMetaData(
             name="mg_lev",
@@ -149,7 +149,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output=""
         )
         meta["mgs"] = StaggeredFieldMetaData(
             name="mgs",
@@ -167,7 +167,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output="h1"
         )
         meta["dmg"] = StaggeredFieldMetaData(
             name="dmg",
@@ -203,7 +203,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output="h1"
         )
         meta["dmg_vtx"] = StaggeredFieldMetaData(
             name="dmg_vtx",
@@ -221,7 +221,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output=""
         )
         meta["dmg_lev"] = StaggeredFieldMetaData(
             name="dmg_lev",
@@ -239,7 +239,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output=""
         )
     if mode.is_barotropic() or mode.is_advection2d():
         meta["dmg"] = StaggeredFieldMetaData(
@@ -276,7 +276,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_barotropic() else ""
+            output="h1"
         )
         meta["dmg_vtx"] = StaggeredFieldMetaData(
             name="dmg_vtx",
@@ -294,7 +294,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_barotropic() else ""
+            output=""
         )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["pt"] = StaggeredFieldMetaData(
@@ -313,7 +313,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_baroclinic() else ""
+            output=""
         )
         meta["ph"] = StaggeredFieldMetaData(
             name="ph",
@@ -331,7 +331,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_baroclinic() else ""
+            output="h0"
         )
         meta["ph_lev"] = StaggeredFieldMetaData(
             name="ph_lev",
@@ -349,7 +349,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h1" if mode.is_baroclinic() else ""
+            output="h1"
         )
         meta["phs"] = StaggeredFieldMetaData(
             name="phs",
@@ -367,7 +367,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.is_baroclinic() else ""
+            output="h0"
         )
         meta["p"] = StaggeredFieldMetaData(
             name="p",
@@ -403,7 +403,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
-            output="h0" if mode.nonhydrostatic else ""
+            output="h1" if mode.nonhydrostatic else ""
         )
     if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
         meta["tm"] = NumericMetaData(
@@ -728,68 +728,36 @@ def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredField
 
 def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
-    if mode.is_barotropic() or mode.is_advection2d():
-        meta["u"] = StaggeredFieldMetaData(
-            name="u",
-            dims=(NCELL,),
-            long_name="Zonal velocity at primal cell center",
-            description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["v"] = StaggeredFieldMetaData(
-            name="v",
-            dims=(NCELL,),
-            long_name="Meridional velocity at primal cell center",
-            description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location="",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-    if mode.is_baroclinic() or mode.is_advection3d():
-        meta["u"] = StaggeredFieldMetaData(
-            name="u",
-            dims=(NLEV, NCELL,),
-            long_name="Zonal velocity at primal cell center",
-            description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
-        meta["v"] = StaggeredFieldMetaData(
-            name="v",
-            dims=(NLEV, NCELL,),
-            long_name="Meridional velocity at primal cell center",
-            description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell,
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h0"
-        )
+    meta["u"] = StaggeredFieldMetaData(
+        name="u",
+        dims=(NLEV, NCELL,) if mode.is_3d_model() else (NCELL,),
+        long_name="Zonal velocity at primal cell center",
+        description="Zonal velocity at primal cell center reconstructed from normal velocity at dual edge",
+        units="m/s",
+        hori_location=MeshEntity.Cell,
+        vert_location=VertLoc.Cell if mode.is_3d_model() else "",
+        basis=Basis.Scalar,
+        coordinates="lon_cell lat_cell",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h0"
+    )
+    meta["v"] = StaggeredFieldMetaData(
+        name="v",
+        dims=(NLEV, NCELL,) if mode.is_3d_model() else (NCELL,),
+        long_name="Meridional velocity at primal cell center",
+        description="Meridional velocity at primal cell center reconstructed from normal velocity at dual edge",
+        units="m/s",
+        hori_location=MeshEntity.Cell,
+        vert_location=VertLoc.Cell if mode.is_3d_model() else "",
+        basis=Basis.Scalar,
+        coordinates="lon_cell lat_cell",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h0"
+    )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["un_lev"] = StaggeredFieldMetaData(
             name="un_lev",
@@ -806,38 +774,21 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             is_prognostic=True,
             output=""
         )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["ut"] = StaggeredFieldMetaData(
-            name="ut",
-            dims=(NLEV, NEDGE,) if mode.is_baroclinic() else (NEDGE,),
-            long_name="Tangential velocity at edge",
-            description="Tangential velocity at edge reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-    if mode.is_advection():
-        meta["ut"] = StaggeredFieldMetaData(
-            name="ut",
-            dims=(NLEV, NEDGE,) if mode.is_advection3d() else (NEDGE,),
-            long_name="Tangential velocity at edge",
-            description="Tangential velocity at edge reconstructed from normal velocity at dual edge",
-            units="m/s",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_advection3d() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output=""
-        )
+    meta["ut"] = StaggeredFieldMetaData(
+        name="ut",
+        dims=(NLEV, NEDGE,) if mode.is_3d_model() else (NEDGE,),
+        long_name="Tangential velocity at edge",
+        description="Tangential velocity at edge reconstructed from normal velocity at dual edge",
+        units="m/s",
+        hori_location=MeshEntity.Edge,
+        vert_location=VertLoc.Cell if mode.is_3d_model() else "",
+        basis=Basis.Scalar,
+        coordinates="lon_edge lat_edge",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h1"
+    )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["we_lev"] = StaggeredFieldMetaData(
             name="we_lev",
@@ -854,7 +805,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             is_prognostic=False,
             output=""
         )
-    if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
+    if not mode.is_advection():
         meta["div"] = StaggeredFieldMetaData(
             name="div",
             dims=(NLEV, NCELL,) if mode.is_3d_model() else (NCELL,),
@@ -868,7 +819,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h0" if not mode.is_advection() else ""
+            output="h0"
         )
         meta["vor"] = StaggeredFieldMetaData(
             name="vor",
@@ -883,7 +834,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h0" if not mode.is_advection() else ""
+            output="h0"
         )
         meta["pv_vtx"] = StaggeredFieldMetaData(
             name="pv_vtx",
@@ -930,21 +881,21 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             is_prognostic=False,
             output="h1" if not mode.is_advection() else ""
         )
-        meta["mfn"] = StaggeredFieldMetaData(
-            name="mfn",
-            dims=(NLEV, NEDGE,) if mode.is_3d_model() else (NEDGE,),
-            long_name="Mass flux at edge midpoint",
-            description="Mass flux at edge midpoint",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Edge,
-            vert_location=VertLoc.Cell if mode.is_3d_model() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_edge lat_edge",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1" if not mode.is_advection() else ""
-        )
+    meta["mfn"] = StaggeredFieldMetaData(
+        name="mfn",
+        dims=(NLEV, NEDGE,) if mode.is_3d_model() else (NEDGE,),
+        long_name="Mass flux at edge midpoint",
+        description="Mass flux at edge midpoint",
+        units="kg / (m s)",
+        hori_location=MeshEntity.Edge,
+        vert_location=VertLoc.Cell if mode.is_3d_model() else "",
+        basis=Basis.Scalar,
+        coordinates="lon_edge lat_edge",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h1"
+    )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["mft"] = StaggeredFieldMetaData(
             name="mft",
@@ -959,7 +910,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h1" if not mode.is_advection3d() else ""
+            output="h1"
         )
         meta["mfz_lev"] = StaggeredFieldMetaData(
             name="mfz_lev",
@@ -974,8 +925,9 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h1" if not mode.is_advection3d() else ""
+            output="h1"
         )
+    if mode.is_baroclinic():
         meta["mfz_e_lev"] = StaggeredFieldMetaData(
             name="mfz_e_lev",
             dims=(NLEVP, NEDGE,),
@@ -991,38 +943,21 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             is_prognostic=False,
             output=""
         )
-    if mode.is_barotropic() or mode.is_baroclinic():
-        meta["dmf"] = StaggeredFieldMetaData(
-            name="dmf",
-            dims=(NLEV, NCELL,) if mode.is_baroclinic() else (NCELL,),
-            long_name="Divergence of mass flux at primal cell center",
-            description="Divergence of mass flux at primal cell center",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.is_baroclinic() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output="h1"
-        )
-    if mode.is_advection():
-        meta["dmf"] = StaggeredFieldMetaData(
-            name="dmf",
-            dims=(NLEV, NCELL,) if mode.is_advection3d() else (NCELL,),
-            long_name="Divergence of mass flux at primal cell center",
-            description="Divergence of mass flux at primal cell center",
-            units="kg / (m s)",
-            hori_location=MeshEntity.Cell,
-            vert_location=VertLoc.Cell if mode.is_advection3d() else "",
-            basis=Basis.Scalar,
-            coordinates="lon_cell lat_cell",
-            staggered_kind="C",
-            mesh_name="primal",
-            is_prognostic=False,
-            output=""
-        )
+    meta["dmf"] = StaggeredFieldMetaData(
+        name="dmf",
+        dims=(NLEV, NCELL,) if mode.is_3d_model() else (NCELL,),
+        long_name="Divergence of mass flux at primal cell center",
+        description="Divergence of mass flux at primal cell center",
+        units="kg / (m s)",
+        hori_location=MeshEntity.Cell,
+        vert_location=VertLoc.Cell if mode.is_3d_model() else "",
+        basis=Basis.Scalar,
+        coordinates="lon_cell lat_cell",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output="h1"
+    )
     if mode.is_baroclinic() or mode.is_advection3d():
         meta["t"] = StaggeredFieldMetaData(
             name="t",
@@ -1037,7 +972,7 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h0" if mode.is_baroclinic() else ""
+            output="h0"
         )
         meta["tv"] = StaggeredFieldMetaData(
             name="tv",
@@ -1052,8 +987,9 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h1" if mode.is_baroclinic() else ""
+            output="h1"
         )
+    if mode.is_baroclinic():
         meta["rhod"] = StaggeredFieldMetaData(
             name="rhod",
             dims=(NLEV, NCELL,),
@@ -1067,6 +1003,6 @@ def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFie
             staggered_kind="C",
             mesh_name="primal",
             is_prognostic=False,
-            output="h1" if mode.is_baroclinic() else ""
+            output="h1"
         )
     return meta

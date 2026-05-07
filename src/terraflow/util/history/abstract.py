@@ -587,6 +587,7 @@ class UnstructuredHistoryset(
         **kwargs
     ) -> None:
         mode: AbstractEquationMode = equation.mode
+        with_edge = False if not mode.is_advection() else True
         with_vtx = True if not mode.is_advection() else False
         super().__init__(
             solver=solver,
@@ -596,8 +597,8 @@ class UnstructuredHistoryset(
             output_h0=output_h0,
             output_h1=output_h1,
             output_h2=output_h2,
-            h0_opt={"with_vtx": with_vtx},
-            h1_opt={"with_vtx": with_vtx},
+            h0_opt={"with_vtx": with_vtx, "with_edge": with_edge},
+            h1_opt={"with_vtx": with_vtx, "with_edge": True},
             h2_opt={},
             dev=dev,
             float_type=float_type,
@@ -864,6 +865,7 @@ class UnstructuredHistory(AbstractHistory):
         case_name: str,
         file_path: str,
         with_vtx: bool,
+        with_edge: bool,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64],
     ) -> None:
@@ -901,6 +903,7 @@ class UnstructuredHistory(AbstractHistory):
             int_type=self.int_type
         )
         self.with_vtx = with_vtx
+        self.with_edge = with_edge
 
     def setup(self, fields: AbstractFields) -> Self:
         if self.has_built():
@@ -910,7 +913,10 @@ class UnstructuredHistory(AbstractHistory):
         if not self.time.has_built():
             self.time.setup()
         if not self.mesh.has_built():
-            self.mesh.setup(with_vtx=self.with_vtx)
+            self.mesh.setup(
+                with_vtx=self.with_vtx,
+                with_edge=self.with_edge
+            )
         if not self.vert.has_built():
             self.vert.setup()
         if (
@@ -1238,6 +1244,14 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     var_dims = ("lat", "lon")
                 elif len(da.dims) == 3:
                     var_dims = (str(da.dims[0]), "lat", "lon")
+                elif len(da.dims) == 4:
+                    # 4D data is used for tracers (ntracers, nlev, nlat, nlon)
+                    var_dims = (
+                        str(da.dims[0]),
+                        str(da.dims[1]),
+                        "lat",
+                        "lon"
+                    )
                 else:
                     raise ValueError(
                         f"Variable {meta.name} has unsupported number of dimensions: {len(da.dims)}."
@@ -1270,6 +1284,8 @@ class Unstructured2StructuredHistory(AbstractHistory):
                             "tracers_meta is required for tracer fields."
                         )
                     # Remove ntracers dimension
+                    if var_dims[0] == "ntracers":
+                        var_dims = var_dims[1:]
                     var_dims = (var_dims[0],) + var_dims[2:]
                     for tracer_name, tracer_meta in tracers_meta.items():
                         q_name = tracer_name

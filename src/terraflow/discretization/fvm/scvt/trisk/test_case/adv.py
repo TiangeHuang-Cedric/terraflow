@@ -57,12 +57,6 @@ if TYPE_CHECKING:
         HybridVertCoordLayout
     ]
 
-NLEVP = "ilev"
-NLEV = "lev"
-NCELL = "cell"
-NEDGE = "edge"
-NVTX = "vtx"
-
 
 def advection2d_case_init_fn(
     time_in_seconds: Float[Array, ""],
