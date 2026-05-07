@@ -61,8 +61,8 @@ solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
     save_interval="1 hours",
-    dt_dyn="300 seconds",
-    dt_adv="900 seconds",
+    dt_dyn="600 seconds",
+    dt_adv="600 seconds",
     dev=dev,
 )
 

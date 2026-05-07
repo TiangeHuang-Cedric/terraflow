@@ -257,7 +257,7 @@ def hybrid_coord_dcmip12(
     ptop = p0 * jnp.exp(-g * ztop / rd / t0)
     eta_top = ptop / p0
     deta = (1 - eta_top) / nlev
-    eta = jnp.arange(eta_top, 1 + deta, deta, dtype=dev.float_type)
+    eta = eta_top + jnp.arange(0, nlev + 1, dtype=dev.float_type) * deta
     hyai = eta
     hybi = jnp.zeros_like(hyai)
     # ========================================
