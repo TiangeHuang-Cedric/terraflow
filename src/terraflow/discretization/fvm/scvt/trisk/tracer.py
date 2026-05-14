@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.abstract import AbstractEquationMode
+    from terraflow.discretization.abstract import EquationMode
 
     VM = TypeVar("VM", OneLayerVertCoordinate, HybridVertCoordinate)
     VLO = TypeVar("VLO", OneLayerVertCoordLayout, HybridVertCoordLayout)
@@ -44,6 +44,23 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
     batch_dts_seconds: dict[str, float] = eqx.field(static=True)
     ntracers: int = eqx.field(static=True)
     tracers_meta: dict[str, TracerMetaData] = eqx.field(static=True)
+    idx_qv: int = eqx.field(static=True, init=False, default=-1)
+    idx_qc: int = eqx.field(static=True, init=False, default=-1)
+    idx_nc: int = eqx.field(static=True, init=False, default=-1)
+    idx_qi: int = eqx.field(static=True, init=False, default=-1)
+    idx_ni: int = eqx.field(static=True, init=False, default=-1)
+    idx_qr: int = eqx.field(static=True, init=False, default=-1)
+    idx_nr: int = eqx.field(static=True, init=False, default=-1)
+    idx_qs: int = eqx.field(static=True, init=False, default=-1)
+    idx_ns: int = eqx.field(static=True, init=False, default=-1)
+    idx_qg: int = eqx.field(static=True, init=False, default=-1)
+    idx_qh: int = eqx.field(static=True, init=False, default=-1)
+    idx_qo3: int = eqx.field(static=True, init=False, default=-1)
+    idx_qso2: int = eqx.field(static=True, init=False, default=-1)
+    is_water_tracer: list[bool] = eqx.field(
+        static=True, init=False, default_factory=list
+    )
+    ntracers_water: int = eqx.field(static=True, init=False, default=0)
     q: FDT
     mq: FDT
     qm: FDT
@@ -51,7 +68,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
 
     def __init__(
         self,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         tracers_meta: dict[str, TracerMetaData],
         **fields: ArrayField[StaggeredFieldMetaData] | ArrayField[NumericMetaData]
     ):
@@ -73,11 +90,12 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
         object.__setattr__(self, "ntracers", len(tracers_meta))
         object.__setattr__(self, "tracers_meta", tracers_meta)
         super().__init__(mode, **fields)
+        tracer_catalog(self)
 
     @classmethod
     def empty(
         cls,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ) -> Self:
         exist_fields: dict[str, FDT] = {}
         for field_name in cls.get_all_fields():
@@ -91,7 +109,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
     @classmethod
     def add_tracers(
         cls,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         coord: CoordSys,
         tracers_meta: dict[str, TracerMetaData]
     ) -> Self:
@@ -122,7 +140,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
 
     def default_meta(
         self,
-        mode: Optional[AbstractEquationMode] = None,
+        mode: Optional[EquationMode] = None,
         ntracers: Optional[int] = None
     ) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
         if ntracers is None:
@@ -137,7 +155,7 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
 
 
 def default_tracer_meta(
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     ntracers: int
 ) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
     meta: dict[str, StaggeredFieldMetaData | NumericMetaData] = {}
@@ -192,8 +210,6 @@ def default_tracer_meta(
             coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal",
-            is_tracer=True,
-            ntracers=ntracers,
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
@@ -211,8 +227,6 @@ def default_tracer_meta(
             coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal",
-            is_tracer=True,
-            ntracers=ntracers,
             is_expand_dims=True,
             expand_axis=0,
             expand_axis_length=mode.state_tile_depth,
@@ -277,3 +291,47 @@ def default_tracer_meta(
             output="",
         )
     return meta
+
+
+def tracer_catalog(tracer: Tracer) -> Tracer:
+    tracer_names = list(tracer.tracers_meta.keys())
+    is_water_tracer = [False] * len(tracer_names)
+    ntracers_water = 0
+    for idx, tracer_name in enumerate(tracer_names):
+        if tracer_name == "qv" or tracer_name == "Q":
+            object.__setattr__(tracer, "idx_qv", idx)
+            is_water_tracer[idx] = True
+            ntracers_water += 1
+        elif tracer_name == "qc" or tracer_name == "CLDLIQ":
+            object.__setattr__(tracer, "idx_qc", idx)
+            is_water_tracer[idx] = True
+            ntracers_water += 1
+        elif tracer_name == "nc" or tracer_name == "NUMLIQ":
+            object.__setattr__(tracer, "idx_nc", idx)
+        elif tracer_name == "qi" or tracer_name == "CLDICE":
+            object.__setattr__(tracer, "idx_qi", idx)
+            is_water_tracer[idx] = True
+            ntracers_water += 1
+        elif tracer_name == "ni" or tracer_name == "NUMICE":
+            object.__setattr__(tracer, "idx_ni", idx)
+        elif tracer_name == "qr" or tracer_name == "RAINQM":
+            object.__setattr__(tracer, "idx_qr", idx)
+            is_water_tracer[idx] = True
+            ntracers_water += 1
+        elif tracer_name == "qs" or tracer_name == "SNOWQM":
+            object.__setattr__(tracer, "idx_qs", idx)
+            is_water_tracer[idx] = True
+            ntracers_water += 1
+        elif tracer_name == "qg":
+            object.__setattr__(tracer, "idx_qg", idx)
+            ntracers_water += 1
+        elif tracer_name == "qh":
+            object.__setattr__(tracer, "idx_qh", idx)
+            ntracers_water += 1
+        elif tracer_name == "qo3":
+            object.__setattr__(tracer, "idx_qo3", idx)
+        elif tracer_name == "qso2" or tracer_name == "SO2":
+            object.__setattr__(tracer, "idx_qso2", idx)
+    object.__setattr__(tracer, "is_water_tracer", is_water_tracer)
+    object.__setattr__(tracer, "ntracers_water", ntracers_water)
+    return tracer

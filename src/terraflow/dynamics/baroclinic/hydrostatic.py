@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.term as fvm_scvt_trisk_terms
-    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types as fvm_scvt_trisk_vars
 
 
 HM = TypeVar("HM", bound=AbstractUnstructuredMesh)
@@ -42,8 +42,8 @@ PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
 SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
 
 
-class ExVifDryHydrostaticEquationSet4UGRID(
-    types.AbstractDryHydrostaticEquationSet[DM, SOP],
+class ExVifHydrostaticEquationSet4UGRID(
+    types.AbstractHydrostaticEquationSet[DM, SOP],
     AbstractExplicitODE,
     Generic[DM, SOP],
 ):
@@ -52,14 +52,20 @@ class ExVifDryHydrostaticEquationSet4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
+        ideal_dry_core: bool = False,
         **kwargs
     ):
-        super().__init__(disc=disc, method=method, **kwargs)
+        super().__init__(
+            disc=disc, 
+            method=method, 
+            ideal_dry_core=ideal_dry_core, 
+            **kwargs
+        )
 
     @staticmethod
     def alias_name() -> str:
         """Return the alias name of the dynamics set."""
-        return types.AbstractDryHydrostaticEquationSet.alias_name()
+        return types.AbstractHydrostaticEquationSet.alias_name()
 
     @staticmethod
     def form_name() -> str:
@@ -106,7 +112,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, HybridVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block
             return Block
         else:
             raise NotImplementedError(
@@ -162,7 +168,7 @@ class ExVifDryHydrostaticEquationSet4UGRID(
             return _wrap_advection
 
 
-class DryHydrostaticEquationBuilder:
+class HydrostaticEquationBuilder:
     @overload
     @classmethod
     def build_with_config(
@@ -177,10 +183,11 @@ class DryHydrostaticEquationBuilder:
         method: FiniteVolumeMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         config: model_config.ModelConfig = model_config.ModelConfig(),
         output_h1_tend: bool = False,
         state_tile_depth: int = 3,
-    ) -> ExVif_DHDC_SCVT_TriSKCGrid_FVM:
+    ) -> ExVif_HDC_SCVT_TriSKCGrid_FVM:
         ...
 
     @overload
@@ -192,10 +199,11 @@ class DryHydrostaticEquationBuilder:
         method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         config: model_config.ModelConfig = model_config.ModelConfig(),
         *args,
         **kwargs
-    ) -> types.AbstractDryHydrostaticEquationSet:
+    ) -> types.AbstractHydrostaticEquationSet:
         ...
 
     @classmethod
@@ -206,16 +214,18 @@ class DryHydrostaticEquationBuilder:
         method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         config: model_config.ModelConfig = model_config.ModelConfig(),
         *args,
         **kwargs
-    ) -> types.AbstractDryHydrostaticEquationSet:
+    ) -> types.AbstractHydrostaticEquationSet:
         equation = cls.from_model(
             coord=coord,
             para=para,
             method=method,
             form=form,
             ode_kind=ode_kind,
+            ideal_dry_core=ideal_dry_core,
             *args,
             **kwargs
         )
@@ -236,9 +246,10 @@ class DryHydrostaticEquationBuilder:
         method: FiniteVolumeMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         output_h1_tend: bool = False,
         state_tile_depth: int = 3,
-    ) -> ExVif_DHDC_SCVT_TriSKCGrid_FVM:
+    ) -> ExVif_HDC_SCVT_TriSKCGrid_FVM:
         ...
 
     @overload
@@ -250,9 +261,10 @@ class DryHydrostaticEquationBuilder:
         method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         *args,
         **kwargs
-    ) -> types.AbstractDryHydrostaticEquationSet:
+    ) -> types.AbstractHydrostaticEquationSet:
         ...
 
     @classmethod
@@ -263,14 +275,16 @@ class DryHydrostaticEquationBuilder:
         method: AbstractDiscretizationMethod,
         form: str,
         ode_kind: str,
+        ideal_dry_core: bool = False,
         *args,
         **kwargs
-    ) -> types.AbstractDryHydrostaticEquationSet:
+    ) -> types.AbstractHydrostaticEquationSet:
         if (ode_kind == "explicit" and form == "vector_invariant"):
-            return ExVifDryHydrostaticEquationSet4UGRID.from_model(
+            return ExVifHydrostaticEquationSet4UGRID.from_model(
                 coord=coord,
                 para=para,
                 method=method,
+                ideal_dry_core=ideal_dry_core,
                 *args,
                 **kwargs
             )
@@ -282,7 +296,7 @@ class DryHydrostaticEquationBuilder:
 
 
 if TYPE_CHECKING:
-    ExVif_DHDC_SCVT_TriSKCGrid_FVM = ExVifDryHydrostaticEquationSet4UGRID[
+    ExVif_HDC_SCVT_TriSKCGrid_FVM = ExVifHydrostaticEquationSet4UGRID[
         FiniteVolumeMethod,
         fvm_scvt_trisk_terms.ExSpaceOperators,
     ]

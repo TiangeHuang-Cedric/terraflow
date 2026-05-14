@@ -50,6 +50,7 @@ from terraflow.solver.abstract import AbstractODE
 from terraflow.manager.registry import navigate
 
 if TYPE_CHECKING:
+    from terraflow.prepare.readers.abstract import AbstractReader
     from terraflow.test_case.abstract import AbstractTestCase
     from terraflow.solver.abstract import AbstractSolver
 
@@ -64,7 +65,6 @@ VM = TypeVar("VM", bound=AbstractVertCoordinate)
 HLO = TypeVar("HLO", bound=AbstractLayout)
 VLO = TypeVar("VLO", bound=AbstractLayout)
 DM = TypeVar("DM", bound=op.AbstractDiscretizationMethod)
-EM = TypeVar("EM", bound="AbstractEquationMode")
 PSO = TypeVar("PSO", bound="AbstractPrepareSpaceOperators")
 SOP = TypeVar("SOP", bound="AbstractSpaceOperators")
 ES = TypeVar("ES", bound="AbstractEquationSet")
@@ -193,7 +193,7 @@ class DiscretizationInfo:
 
 
 @dataclass(frozen=True)
-class AbstractEquationMode(ABC):
+class EquationMode(ABC):
     baroclinic: bool
     hydrostatic: bool
     nonhydrostatic: bool
@@ -241,6 +241,54 @@ class AbstractEquationMode(ABC):
             kwargs.get("state_tile_depth", 3)
         )
 
+    @classmethod
+    def from_swm(cls, **kwargs):
+        return cls(
+            baroclinic=False,
+            hydrostatic=False,
+            nonhydrostatic=False,
+            ideal_dry_core=False,
+            advection2d=False,
+            advection3d=False,
+            **kwargs
+        )
+
+    @classmethod
+    def from_hdc(cls, ideal_dry_core: bool, **kwargs):
+        return cls(
+            baroclinic=True,
+            hydrostatic=True,
+            nonhydrostatic=False,
+            ideal_dry_core=ideal_dry_core,
+            advection2d=False,
+            advection3d=False,
+            **kwargs
+        )
+
+    @classmethod
+    def from_adv2d(cls, **kwargs):
+        return cls(
+            baroclinic=False,
+            hydrostatic=False,
+            nonhydrostatic=False,
+            ideal_dry_core=False,
+            advection2d=True,
+            advection3d=False,
+            **kwargs
+        )
+
+    @classmethod
+    def from_adv3d(cls, **kwargs):
+        return cls(
+            baroclinic=False,
+            hydrostatic=False,
+            nonhydrostatic=False,
+            ideal_dry_core=False,
+            advection2d=False,
+            advection3d=True,
+            **kwargs
+        )
+
     def is_barotropic(self) -> bool:
         return (
             not self.baroclinic
@@ -253,6 +301,12 @@ class AbstractEquationMode(ABC):
 
     def is_baroclinic(self) -> bool:
         return self.baroclinic
+
+    def is_hydrostatic(self) -> bool:
+        return self.is_dry_hydrostatic() or self.is_moist_hydrostatic()
+
+    def is_nonhydrostatic(self) -> bool:
+        return self.is_dry_nonhydrostatic() or self.is_moist_nonhydrostatic()
 
     def is_dry_hydrostatic(self) -> bool:
         return (
@@ -324,10 +378,10 @@ class AbstractEquationMode(ABC):
         return self.is_baroclinic() or self.is_advection3d()
 
 
-class AbstractEquationBase(Generic[DM, EM], ABC):
+class AbstractEquationBase(Generic[DM], ABC):
     _disc: DiscretizationInfo
     _method: DM
-    _mode: EM
+    _mode: EquationMode
     _cfg: Dict[str, Any]
     _built: bool
 
@@ -335,7 +389,7 @@ class AbstractEquationBase(Generic[DM, EM], ABC):
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         self._disc = disc
         self._method = method
@@ -364,7 +418,7 @@ class AbstractEquationBase(Generic[DM, EM], ABC):
         return self._method
 
     @property
-    def mode(self) -> EM:
+    def mode(self) -> EquationMode:
         return self._mode
 
     def has_built(self) -> bool:
@@ -388,15 +442,15 @@ class AbstractEquationBase(Generic[DM, EM], ABC):
 
 
 class AbstractEquationTerm(
-    AbstractEquationBase[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationBase[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -431,8 +485,8 @@ class AbstractEquationTerm(
 
 
 class AbstractDynamicalEquationTerm(
-    AbstractEquationTerm[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationTerm[DM],
+    Generic[DM],
     ABC
 ):
     @abstractmethod
@@ -449,8 +503,8 @@ class AbstractDynamicalEquationTerm(
 
 
 class AbstractAdvectionEquationTerm(
-    AbstractEquationTerm[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationTerm[DM],
+    Generic[DM],
     ABC
 ):
     @abstractmethod
@@ -472,15 +526,15 @@ class AbstractAdvectionEquationTerm(
 
 
 class AbstractEquationForm(
-    AbstractEquationBase[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationBase[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         disc_copy = disc.copy()
         disc_copy.equ = self.alias_name()
@@ -542,8 +596,8 @@ class AbstractEquationForm(
 
 
 class AbstractDynamicalEquationForm(
-    AbstractEquationForm[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     @abstractmethod
@@ -560,8 +614,8 @@ class AbstractDynamicalEquationForm(
 
 
 class AbstractAdvectionEquationForm(
-    AbstractEquationForm[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationForm[DM],
+    Generic[DM],
     ABC
 ):
 
@@ -577,46 +631,33 @@ class AbstractAdvectionEquationForm(
     ) -> BLOCK:
         raise NotImplementedError
 
-    @abstractmethod
-    def calc_at_batch(
-        self,
-        batch: AbstractAdvBatchType,
-        block: BLOCK,
-        star_idx: Int[Array, ""] | int,
-        dt: Float[Array, ""] | float,
-        substep: int,
-        *args: Any,
-        **kwargs: Any
-    ) -> tuple[AbstractAdvBatchType, BLOCK]:
-        raise NotImplementedError
-
 
 class AbstractContinuityEquForm(
-    AbstractDynamicalEquationForm[DM, EM],
-    Generic[DM, EM],
+    AbstractDynamicalEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     pass
 
 
 class AbstractMomentumEquForm(
-        AbstractDynamicalEquationForm[DM, EM],
-        Generic[DM, EM],
+        AbstractDynamicalEquationForm[DM],
+        Generic[DM],
         ABC):
     pass
 
 
 class AbstractThermodynamicEquForm(
-    AbstractDynamicalEquationForm[DM, EM],
-    Generic[DM, EM],
+    AbstractDynamicalEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     pass
 
 
 class AbstractTracerEquForm(
-    AbstractAdvectionEquationForm[DM, EM],
-    Generic[DM, EM],
+    AbstractAdvectionEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     pass
@@ -642,15 +683,15 @@ class AbstractEquationTermAuxiliaryDataset(eqx.Module, ABC):
 
 
 class AbstractEquationOperator(
-    AbstractEquationBase[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationBase[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -674,8 +715,8 @@ class AbstractEquationOperator(
 
 
 class AbstractDynamicalEquationOperator(
-    AbstractEquationOperator[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationOperator[DM],
+    Generic[DM],
     ABC
 ):
     def __call__(
@@ -689,8 +730,8 @@ class AbstractDynamicalEquationOperator(
 
 
 class AbstractAdvectionEquationOperator(
-    AbstractEquationOperator[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationOperator[DM],
+    Generic[DM],
     ABC
 ):
     def __call__(
@@ -705,15 +746,15 @@ class AbstractAdvectionEquationOperator(
 
 
 class AbstractPrepareSpaceOperators(
-    AbstractEquationBase[DM, EM],
-    Generic[DM, EM],
+    AbstractEquationBase[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -750,15 +791,15 @@ class AbstractPrepareSpaceOperators(
 
 
 class AbstractSpaceOperators(
-    AbstractEquationBase[DM, EM],
-    Generic[DM, EM, PSO],
+    AbstractEquationBase[DM],
+    Generic[DM, PSO],
     ABC
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM,
+        mode: EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -839,9 +880,9 @@ class AbstractSpaceOperators(
 
 
 class AbstractEquationSet(
-    AbstractEquationBase[DM, EM],
+    AbstractEquationBase[DM],
     AbstractODE,
-    Generic[DM, EM, SOP],
+    Generic[DM, SOP],
     ABC
 ):
     _space_operators: SOP
@@ -850,7 +891,7 @@ class AbstractEquationSet(
         self,
         disc: DiscretizationInfo,
         method: DM,
-        mode: EM
+        mode: EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -1061,12 +1102,12 @@ class AbstractVariableSet(eqx.Module, ABC):
 
 
 class AbstractFields(AbstractVariableSet, Generic[FMT]):
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, FMT] = eqx.field(static=True)
 
     def __init__(
         self,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         **fields: ArrayField[FMT] | ArrayField[NumericMetaData] | Any,
     ):
         object.__setattr__(self, "mode", mode)
@@ -1185,7 +1226,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
     @staticmethod
     @abstractmethod
     def default_meta(
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         *args,
         **kwargs
     ) -> Dict[str, FMT | NumericMetaData] | Dict[str, FMT]:
@@ -1195,7 +1236,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
     @classmethod
     def default_fields(
         cls,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         *args,
         **kwargs
     ) -> Union[
@@ -1266,7 +1307,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
     @classmethod
     def from_arrays(
         cls,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         array_dict: Dict[str, Array],
         meta: Dict[str, FMT],
         *args,
@@ -1312,7 +1353,7 @@ class AbstractFields(AbstractVariableSet, Generic[FMT]):
         return self._wrap(**new_variables)
 
     @classmethod
-    def empty(cls, mode: AbstractEquationMode) -> Self:
+    def empty(cls, mode: EquationMode) -> Self:
         exist_fields: Dict[str, ArrayField[FMT]] = {}
         for field_name in cls.get_all_fields():
             exist_fields[field_name] = ArrayField.empty()
@@ -1420,7 +1461,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         name: str,
         batch_hori_loc: str,
         batch_vert_loc: str,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         dt: float,
         dts_substep: Float[Array, "nsubsteps"],
         dt_dyn: float,
@@ -1451,7 +1492,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         name: str,
         batch_hori_loc: str,
         batch_vert_loc: str,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ) -> Dict[str, FMT]:
         """Return default variable metadata dictionary."""
         raise NotImplementedError
@@ -1462,7 +1503,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         name: str,
         batch_hori_loc: str,
         batch_vert_loc: str,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ) -> Dict[str, ArrayField[FMT]]:
         """Return default variable field dictionary."""
         return {
@@ -1484,7 +1525,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         name: str,
         batch_hori_loc: str,
         batch_vert_loc: str,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         array_dict: Dict[str, Array],
         meta: Dict[str, FMT],
         dt: float,
@@ -1551,7 +1592,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         )
 
     @classmethod
-    def empty(cls, mode: AbstractEquationMode) -> Self:
+    def empty(cls, mode: EquationMode) -> Self:
         exist_fields: Dict[str, ArrayField[FMT]] = {}
         for _cls_name in cls.get_all_fields():
             exist_fields[_cls_name] = Field.empty()
@@ -1670,6 +1711,65 @@ class TracerMetaData:
         if unit is None:
             unit = ""
         object.__setattr__(self, "unit", unit)
+
+    @classmethod
+    def from_reader(
+        cls,
+        mode: EquationMode,
+        para: PlanetParameterSet,
+        reader: AbstractReader,
+        dt_adv: datetime.timedelta
+    ) -> Dict[str, Self]:
+        if mode.ideal_dry_core:
+            return {}
+
+        if para.planet == "earth":
+            if reader.reader_type == "era5":
+                meta: Dict[str, Self] = {}
+                meta["qv"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qv",
+                    long_name="Water vapor",
+                    unit="kg kg-1"
+                )
+                meta["qc"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qc",
+                    long_name="Cloud water",
+                    unit="kg kg-1"
+                )
+                meta["qi"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qi",
+                    long_name="Cloud ice",
+                    unit="kg kg-1"
+                )
+                meta["qr"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qr",
+                    long_name="Rain water",
+                    unit="kg kg-1"
+                )
+                meta["qs"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qs",
+                    long_name="Snow",
+                    unit="kg kg-1"
+                )
+                return meta
+            else:
+                raise NotImplementedError(
+                    f"Reader type '{reader.reader_type}' not supported for TracerMetaData extraction."
+                )
+        else:
+            raise NotImplementedError(
+                f"Planet '{para.planet}' not supported for TracerMetaData extraction."
+            )
 
 
 class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):
@@ -1810,7 +1910,7 @@ class AbstractBlock(
     ]
 ):
     elapsed_seconds: Float[Array, ""]
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     old: Array
     new: Array
     _coord: CoordinateSystem[HM, VM, HLO, VLO]

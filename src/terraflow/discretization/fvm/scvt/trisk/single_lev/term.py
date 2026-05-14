@@ -5,6 +5,7 @@ from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as op
 from terraflow.discretization.abstract import (
+    EquationMode,
     AbstractPrepareSpaceOperators,
     AbstractDynamicalEquationOperator
 )
@@ -14,33 +15,16 @@ from ..parallel import tree_at
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
-    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.layout.abstract import CoordinateSystem
-    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
-    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
-    from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
-    from ..dynamics_types import Block
+    from .dynamics_types import Block as BLOCK
 
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
-    CoordSys = CoordinateSystem[
-        SphericalCentroidVoronoiTessellations,
-        OneLayerVertCoordinate,
-        TriSKBasedCGridStaggeringLayout,
-        OneLayerVertCoordLayout
-    ]
-
-    BLOCK = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
 
 
 class FluidThickness(
-    AbstractDynamicalEquationOperator[
-        FiniteVolumeMethod,
-        types.ShallowWaterEquationMode
-    ]
+    AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 ):
 
     def __init__(
@@ -51,7 +35,7 @@ class FluidThickness(
         super().__init__(
             disc=disc,
             method=method,
-            mode=types.ShallowWaterEquationMode()
+            mode=EquationMode.from_swm()
         )
         from ..common.adv.flux_reconstruct import CentralDifference2AtEdgeOnPrimalMesh
         self.recon_at_edge = CentralDifference2AtEdgeOnPrimalMesh()
@@ -122,17 +106,17 @@ class TendencyOfDivergenceOfMassFlux(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
     def __call__(
         self,
-        block: Block,
+        block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
-    ) -> Block:
+    ) -> BLOCK:
         ids, ide = block.coord.mesh.polg_ids, block.coord.mesh.polg_ide
         g = block.para.gravity.unwrap()
         dmf = block.aux.dmf.unwrap()
@@ -161,7 +145,7 @@ class TendencyOfDivergenceOfMassFlux(
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -173,7 +157,7 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.coriolis.schemes import CoriolisForceAtEdge
@@ -183,11 +167,11 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
 
     def __call__(
         self,
-        block: Block,
+        block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
-    ) -> Block:
+    ) -> BLOCK:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
@@ -214,7 +198,7 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
 
@@ -226,7 +210,7 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.pgf.swm import PressureGradientForce
@@ -234,11 +218,11 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
 
     def __call__(
         self,
-        block: Block,
+        block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
-    ) -> Block:
+    ) -> BLOCK:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         dundt = block.tend.dundt.unwrap()
         # ==========================================================
@@ -265,7 +249,7 @@ class TendencyOfNormalVelocityDueToPressureGradientForceAtDualEdge(
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -277,17 +261,17 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
     def __call__(
         self,
-        block: Block,
+        block: BLOCK,
         star_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
-    ) -> Block:
+    ) -> BLOCK:
         ids, ide = block.coord.mesh.edge_ids, block.coord.mesh.edge_ide
         ke = block.aux.ke.unwrap()
         dundt = block.tend.dundt.unwrap()
@@ -319,22 +303,19 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
 class ExPrepareSpaceOperators(
-    AbstractPrepareSpaceOperators[
-        FiniteVolumeMethod,
-        types.ShallowWaterEquationMode
-    ]
+    AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -451,7 +432,7 @@ class ExSpaceOperators(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.ShallowWaterEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 

@@ -26,7 +26,8 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.fvm.scvt.trisk.common.adv import batch
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Int = typing.Int
     Float = typing.Float
@@ -48,10 +49,7 @@ if TYPE_CHECKING:
 
     CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
 
-    Block_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-    Block_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
-
-    BLOCK = TypeVar("BLOCK", Block_OneLayer, Block_Hybrid)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
 
 class FluxCorrectedTransportData((AbstractEquationTermAuxiliaryData)):
@@ -97,8 +95,8 @@ class LowOrderHorizontalAdvectionSchemeAtCell:
         self,
         q: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
-    ) -> Block:
+        block: BLOCK,
+    ) -> BLOCK:
         coord = block.coord
         mesh = coord.mesh
         vert = coord.vert
@@ -160,9 +158,9 @@ class LowOrderVerticalAdvectionSchemeAtCell:
         self,
         q: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         wgt: float = 1.0
-    ) -> Block:
+    ) -> BLOCK:
         coord = block.coord
         mesh = coord.mesh
         vert = coord.vert
@@ -227,7 +225,7 @@ class FluxCorrectedTransportHorizontalLimiterAtCell:
         q: Float[Array, "nlev ncell"],
         mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         dt: Float[Array, ""] | float
     ) -> batch.AdvBatchType:
         coord = block.coord
@@ -302,7 +300,7 @@ class FluxCorrectedTransportVerticalLimiterAtCell:
         q: Float[Array, "nlev ncell"],
         mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         dt: Float[Array, ""] | float
     ) -> batch.AdvBatchType:
         coord = block.coord

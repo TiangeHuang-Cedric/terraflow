@@ -6,9 +6,9 @@ import terraflow.core as tf
 
 tf.util.datetime.perf_start("program")
 
-grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
+grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
+grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
@@ -23,22 +23,20 @@ mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
+vert = tf.vert_coord.OneLayerVertCoordinate()
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
 method = tf.operator.FiniteVolumeMethod()
 
-testcase = tf.test_case.baroclinic.MountainWaveTestCase(para)
+testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
 
 config = tf.util.model_config.ModelConfig(
     pv_adv_scheme="upwind",
     upwind_order_pv=3,
-    pt_adv_scheme="upwind",
-    upwind_order=3,
 )
 
-equation = tf.dynamics.DryHydrostaticEquation.build_with_config(
+equation = tf.dynamics.ShallowWaterEquation.build_with_config(
     config=config,
     coord=coord,
     para=para,
@@ -49,7 +47,7 @@ equation = tf.dynamics.DryHydrostaticEquation.build_with_config(
 
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
-    end_time="2000-01-31T00:00:00",
+    end_time="2000-01-21T00:00:00",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
@@ -70,14 +68,14 @@ history = tf.util.history.UnstructuredHistoryset(
     solver=solver,
     coord=coord,
     equation=equation,
-    case_name="terraflow" + "." + mesh.glevel,
+    case_name="terraflow.swm" + "." + mesh.glevel,
     output_h1=False,
     output_h2=False,
 ).setup(block)
 
 integrate_fn = tf.solver.compiled_with_block(
     block=block,
-    fun=solver.io_callback(history=history),
+    fun=solver.io_callback(history=history)
 )
 
 tf.util.datetime.perf_start("integration")

@@ -12,7 +12,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 
-from terraflow.util import log
 from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -24,25 +23,14 @@ from terraflow.layout.abstract import (
 from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
 from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-from terraflow.test_case.swe import (
-    AbstractShallowWaterEquationTestCase,
-    MountainZonalFlowTestCase
-)
-from terraflow.test_case.baroclinic import (
-    AbstractBaroclinicEquationTestCase,
-    SteadyStateTestCase,
-    MountainWaveTestCase,
-    RossbyHaurwitzWaveTestCase
-)
 from terraflow.test_case.adv import (
     AbstractAdvectionEquation2DTestCase,
     AbstractAdvectionEquation3DTestCase,
-    SolidRotationTestCase,
     DCMIP12TestCase
 )
 from terraflow.solver.abstract import AbstractSolver
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     AbstractEquationSet,
     AbstractBlock,
     AbstractFields,
@@ -61,16 +49,8 @@ from .element_meta import (
     default_static_meta,
     default_auxiliary_meta
 )
-from .test_case.swm import barotropic_case_init_fn
-from .test_case.baroclinic import (
-    baroclinic_steady_state_case_init_fn,
-    baroclinic_mountain_wave_case_init_fn,
-    baroclinic_rossby_wave_case_init_fn
-)
 from .test_case.adv import (
-    advection2d_case_init_fn,
     advection2d_case_set_uv_fn,
-    dcmip12_case_init_fn,
     dcmip12_case_set_uv_fn
 )
 
@@ -113,7 +93,7 @@ if TYPE_CHECKING:
     ES = TypeVar("ES", bound=AbstractEquationSet)
 
 
-class Block(
+class AbstractBaseBlock(
     AbstractBlock[
         SphericalCentroidVoronoiTessellations,
         VM,
@@ -134,7 +114,7 @@ class Block(
         test_case: Optional[AbstractTestCase] = None,
     ) -> Self:
         equation = solver.equation
-        mode: AbstractEquationMode = equation.mode
+        mode: EquationMode = equation.mode
         # ================================================
         state = State.from_coord(coord=coord, equation=equation)
         static = Static.from_coord(coord=coord, equation=equation)
@@ -236,121 +216,6 @@ class Block(
             equaux=EquationTermAuxDataset.empty(),
             test_case=test_case,
         )
-
-    @classmethod
-    def from_testcase(
-        cls,
-        coord: CoordSys,
-        para: PlanetParameterSet,
-        solver: AbstractSolver[ES],
-        *,
-        case: Optional[AbstractTestCase] = None,
-    ) -> Self:
-        # =======================================================
-        equation = solver.equation
-        mode: AbstractEquationMode = equation.mode
-        if mode.is_baroclinic():
-            # ==============================================
-            # Baroclinic case
-            if case is None:
-                case = SteadyStateTestCase(para)
-            elif not isinstance(case, AbstractBaroclinicEquationTestCase):
-                raise ValueError(
-                    "Invalid test case for baroclinic equation"
-                )
-            if isinstance(case, SteadyStateTestCase):
-                block = baroclinic_steady_state_case_init_fn(
-                    coord=coord,
-                    para=para,
-                    solver=solver,
-                    test_case=case
-                )
-            elif isinstance(case, MountainWaveTestCase):
-                block = baroclinic_mountain_wave_case_init_fn(
-                    coord=coord,
-                    para=para,
-                    solver=solver,
-                    test_case=case
-                )
-            elif isinstance(case, RossbyHaurwitzWaveTestCase):
-                block = baroclinic_rossby_wave_case_init_fn(
-                    coord=coord,
-                    para=para,
-                    solver=solver,
-                    test_case=case
-                )
-            else:
-                raise NotImplementedError(
-                    f"Initialization for case {type(case)} is not implemented yet."
-                )
-            # ==============================================
-        elif mode.is_advection():
-            # ==============================================
-            # Advection case
-            if mode.is_advection2d():
-                if case is None:
-                    case = SolidRotationTestCase(para)
-                elif not isinstance(case, AbstractAdvectionEquation2DTestCase):
-                    raise ValueError(
-                        "Invalid test case for advection equation"
-                    )
-                block = advection2d_case_init_fn(
-                    time_in_seconds=jnp.array(0.0, dtype=coord.dev.float_type),
-                    coord=coord,
-                    para=para,
-                    solver=solver,
-                    test_case=case
-                )
-            elif mode.is_advection3d():
-                if case is None:
-                    case = DCMIP12TestCase(para)
-                elif not isinstance(case, AbstractAdvectionEquation3DTestCase):
-                    raise ValueError(
-                        "Invalid test case for 3D advection equation"
-                    )
-                if isinstance(case, DCMIP12TestCase):
-                    block = dcmip12_case_init_fn(
-                        time_in_seconds=jnp.array(
-                            0.0,
-                            dtype=coord.dev.float_type
-                        ),
-                        coord=coord,
-                        para=para,
-                        solver=solver,
-                        test_case=case
-                    )
-                else:
-                    raise NotImplementedError(
-                        f"Initialization for case {type(case)} is not implemented yet."
-                    )
-            else:
-                raise NotImplementedError(
-                    "Unvalid equation type for advection testcase initialization"
-                )
-            # ==============================================
-        elif mode.is_barotropic():
-            # ==============================================
-            # Barotropic case
-            if case is None:
-                case = MountainZonalFlowTestCase(para)
-            elif not isinstance(case, AbstractShallowWaterEquationTestCase):
-                raise ValueError(
-                    "Invalid test case for shallow water equation"
-                )
-            block = barotropic_case_init_fn(
-                coord=coord,
-                para=para,
-                solver=solver,
-                test_case=case
-            )
-            # ==============================================
-        else:
-            raise ValueError(
-                f"Invalid equation mode for testcase initialization. Invalid mode={equation.mode}"
-            )
-        log.logger.success("Initialized block from testcase.")
-        # =======================================================
-        return solver.equation.prepare_block(block)
 
     def testcase_set_uv(self, itime: Int[Array, ""] | int) -> Self:
         dt_dyn = self.adv_batch_bg.dt
@@ -699,9 +564,22 @@ class Block(
         # ==========================================
         return self
 
+    def calc_qm(self, itime: Int[Array, ""] | int) -> Self:
+        q = self.tracers.q.unwrap()[itime, :, :, :]
+        is_water_tracer = self.tracers.is_water_tracer
+        qm = jnp.sum(q[is_water_tracer, :, :], axis=0)
+        return tree_at(
+            coord=cast(CoordSys, self.coord),
+            where=lambda b: b.tracers.qm,
+            pytree=self,
+            replace=qm,
+            at_dims=0,
+            at_idxes=itime
+        )
+
 
 class State(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
     un: FDT
     gz: FDT
@@ -730,12 +608,12 @@ class State(AbstractFields[StaggeredFieldMetaData]):
     tq: NDT
 
     @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
+    def default_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
         return default_state_meta(mode=mode)
 
 
 class Tendency(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
     dgzdt: FDT
     dgzdt_dmf: FDT
@@ -751,7 +629,7 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
     dundt_wedundeta: FDT
 
     @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+    def default_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData]:
         return default_tendency_meta(mode=mode)
 
     def reset(self, pass_tag: str) -> Self:
@@ -779,7 +657,7 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
                 )
             else:
                 raise ValueError(f"Invalid pass_tag: {pass_tag}")
-        if (self.mode.is_dry_hydrostatic()):
+        if (self.mode.is_hydrostatic()):
             if pass_tag == "all_pass":
                 return eqx.tree_at(
                     lambda b: (b.dmgsdt.data, b.dptdt.data, b.dundt.data),
@@ -812,19 +690,25 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
 
 
 class Static(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
     gzs: FDT
     ref_ps: FDT
+    ref_ps_smth: FDT
+    ref_ps_perb: FDT
 
     @staticmethod
-    def default_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
+    def default_meta(mode: EquationMode,) -> dict[str, StaggeredFieldMetaData]:
         return default_static_meta(mode=mode)
 
 
 class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
-    mode: AbstractEquationMode = eqx.field(static=True)
+    mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    # Laplacian damping variables
+    f_1d: FDT
+    df_1d: FDT
+    # Other Variables
     u: FDT
     v: FDT
     un_lev: FDT
@@ -845,7 +729,7 @@ class Auxiliary(AbstractFields[StaggeredFieldMetaData]):
     rhod: FDT
 
     @staticmethod
-    def default_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+    def default_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData]:
         return default_auxiliary_meta(mode=mode)
 
 

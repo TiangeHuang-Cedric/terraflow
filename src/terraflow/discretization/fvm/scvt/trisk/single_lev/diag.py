@@ -29,7 +29,15 @@ from .term import ExSpaceOperators
 from ..tracer import Tracer
 
 if TYPE_CHECKING:
-    from .. import dynamics_types as vars
+    from . import dynamics_types as vars
+    from ..base_types import (
+        State,
+        Tendency,
+        Static,
+        Auxiliary,
+        EquationTermAuxDataset
+    )
+    from terraflow.planet import PlanetParameterSet
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.solver.abstract import AbstractSolver
@@ -74,7 +82,7 @@ class DiagnosticsTools(
         )
 
     @staticmethod
-    def cast_state(state) -> vars.State:
+    def cast_state(state) -> State:
         return state
 
     @staticmethod
@@ -84,7 +92,7 @@ class DiagnosticsTools(
     def uv_at_primal_cell(
         self,
         coord: Coordsys,
-        state: vars.State,
+        state: State,
     ) -> tuple[Field, Field]:
         uv = coord.mesh.reconstruct_vector(state.un.unwrap()[0, :, :])
         u = Field.create(
@@ -126,11 +134,11 @@ class DiagnosticsTools(
     @overload
     def compute(
         self,
-        coord: vars.CoordinateSystem,
-        para: vars.PlanetParameterSet,
-        state: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        state: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: Literal[True],
         use_dual: bool = False,
     ) -> Dict[str, tuxr.UGRIDDataArray]:
@@ -139,11 +147,11 @@ class DiagnosticsTools(
     @overload
     def compute(
         self,
-        coord: vars.CoordinateSystem,
-        para: vars.PlanetParameterSet,
-        state: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        state: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: Literal[False] = False,
         use_dual: bool = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
@@ -152,17 +160,21 @@ class DiagnosticsTools(
     def compute(
         self,
         coord: Coordsys,
-        para: vars.PlanetParameterSet,
-        state: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        para: PlanetParameterSet,
+        state: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: bool = False,
         use_dual: bool = False,
     ) -> Mapping[
         str,
         Field[Array, StaggeredFieldMetaData] | tuxr.UGRIDDataArray
     ]:
-        from .. import dynamics_types as vars
+        from . import dynamics_types as vars
+        from ..base_types import (
+            Tendency,
+            Auxiliary,
+        )
         from ..common.adv.batch import AdvBatchType
         state = self.expand_dims_on_state(state)
         dt_dyn = self.solver.dt_dyn.total_seconds()
@@ -175,8 +187,14 @@ class DiagnosticsTools(
             new=jnp.array(1),
             state=state,
             static=static,
-            tend=vars.Tendency.from_coord(coord=coord, equation=self.equation),
-            aux=vars.Auxiliary.from_coord(coord=coord, equation=self.equation),
+            tend=Tendency.from_coord(
+                coord=coord,
+                equation=self.equation
+            ),
+            aux=Auxiliary.from_coord(
+                coord=coord,
+                equation=self.equation
+            ),
             adv_batch_bg=AdvBatchType.from_coord(
                 name="bg",
                 batch_hori_loc=MeshEntity.Cell,
@@ -362,11 +380,11 @@ class DiagnosticsTools(
     @overload
     def compute_along_trajectory(
         self,
-        coord: vars.CoordinateSystem,
-        para: vars.PlanetParameterSet,
-        trajectory: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        trajectory: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: Literal[False] = False,
         use_dual: bool = False,
     ) -> Dict[str, Field[Array, StaggeredFieldMetaData]]:
@@ -375,11 +393,11 @@ class DiagnosticsTools(
     @overload
     def compute_along_trajectory(
         self,
-        coord: vars.CoordinateSystem,
-        para: vars.PlanetParameterSet,
-        trajectory: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        trajectory: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: Literal[True],
         use_dual: bool = False,
     ) -> Dict[str, tuxr.UGRIDDataArray]:
@@ -387,11 +405,11 @@ class DiagnosticsTools(
 
     def compute_along_trajectory(
         self,
-        coord: vars.CoordinateSystem,
-        para: vars.PlanetParameterSet,
-        trajectory: vars.State,
-        static: vars.Static,
-        equaux: vars.EquationTermAuxDataset,
+        coord: CoordinateSystem,
+        para: PlanetParameterSet,
+        trajectory: State,
+        static: Static,
+        equaux: EquationTermAuxDataset,
         to_ugrid: bool = False,
         use_dual: bool = False,
     ) -> Mapping[

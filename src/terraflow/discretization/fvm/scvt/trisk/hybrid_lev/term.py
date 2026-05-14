@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, Self, TypeVar
+from typing import TYPE_CHECKING, Any, Dict, Self
 import equinox as eqx
 import jax.numpy as jnp
 
@@ -14,31 +14,31 @@ from terraflow.discretization.abstract import (
     AbstractDynamicalEquationOperator,
     AbstractPrepareSpaceOperators,
 )
+from terraflow.discretization.fvm.scvt.trisk.common.adv.term import (
+    SetWindForBackground,
+    AccumWind,
+    TendencyOfTracerDueToDivergenceOfTracerFlux,
+    TendencyOfTracerDueToVerticalAdvection,
+)
+from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.adv import TracerRun3D
+from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybrid_op
 from terraflow.dynamics.baroclinic import types
-from . import operators as hybrid_op
 from ..parallel import tree_at
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.fvm.scvt.trisk.common.adv.upwind import (
         UpwindHorizontalAdvectionAtCell,
         UpwindVerticalAdvection
     )
-    from terraflow.discretization.abstract import DiscretizationInfo
-    from ..dynamics_types import Block
-    from terraflow.dynamics.adv.types import AdvectionEquation3DMode
+    from terraflow.discretization.abstract import DiscretizationInfo, EquationMode
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
-    BLOCK = Block[HybridVertCoordinate, HybridVertCoordLayout]
 
-
-BEM = TypeVar("BEM", bound=types.AbstractBaroclinicEquationMode)
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, BEM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class Temperature(DynOperator):
@@ -46,7 +46,7 @@ class Temperature(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -97,7 +97,7 @@ class TangentMassFluxAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -138,7 +138,7 @@ class VerticalMassFluxAtHalfLev(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -187,7 +187,7 @@ class DryAirWeight(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -235,7 +235,7 @@ class DryAirWeight(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -244,7 +244,7 @@ class DeltaDryAirWeight(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.interp = hybrid_op.InterpMethod()
@@ -300,7 +300,7 @@ class DeltaDryAirWeight(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -309,7 +309,7 @@ class DensityOfDryAir(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -347,7 +347,7 @@ class DensityOfDryAir(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -356,7 +356,7 @@ class Geopotential(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode | AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -428,7 +428,7 @@ class HydrostaticPressure(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -495,7 +495,7 @@ class Pressure(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -546,7 +546,7 @@ class PotentialTemperatureHorizontalAdvection(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.adv.schemes import HorizontalAdvectionSchemeAtCell
@@ -596,7 +596,7 @@ class PotentialTemperatureVerticalAdvection(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AbstractBaroclinicEquationMode,
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.adv.schemes import VerticalAdvectionScheme
@@ -637,13 +637,13 @@ class PotentialTemperatureVerticalAdvection(DynOperator):
 
 
 class TendencyOfDryAirMassAtSurface(
-    types.DivergenceOfMassFluxAtSurfaceProtocol[FiniteVolumeMethod, BEM]
+    types.DivergenceOfMassFluxAtSurfaceProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -689,13 +689,13 @@ class TendencyOfDryAirMassAtSurface(
 
 
 class TendencyOfPotentialTemperatureDueToDivergenceOfFlux(
-    types.DivergenceOfThermodynamicMassFluxProtocol[FiniteVolumeMethod, BEM]
+    types.DivergenceOfThermodynamicMassFluxProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.adv_scheme = PotentialTemperatureHorizontalAdvection(
@@ -769,13 +769,13 @@ class TendencyOfPotentialTemperatureDueToDivergenceOfFlux(
 
 
 class TendencyOfPotentialTemperatureDueToVerticalAdvection(
-    types.VerticalAdvectionOfThermodynamicTermProtocol[FiniteVolumeMethod, BEM]
+    types.VerticalAdvectionOfThermodynamicTermProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.adv_scheme = PotentialTemperatureVerticalAdvection(
@@ -831,13 +831,13 @@ class TendencyOfPotentialTemperatureDueToVerticalAdvection(
 
 
 class TendencyOfNormalVelocityDueToVerticalAdvection(
-    types.VerticalAdvectionOfMomentumTermProtocol[FiniteVolumeMethod, BEM]
+    types.VerticalAdvectionOfMomentumTermProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.interp = hybrid_op.InterpMethod()
@@ -906,13 +906,13 @@ class TendencyOfNormalVelocityDueToVerticalAdvection(
 
 
 class TendencyOfNormalVelocityDueToPressureGradientForce(
-    types.PressureGradientForceTermProtocol[FiniteVolumeMethod, BEM]
+    types.PressureGradientForceTermProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.pgf.schemes import PressureGradientForce
@@ -962,14 +962,14 @@ class TendencyOfNormalVelocityDueToPressureGradientForce(
 
 
 class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
-    types.NonlinearCoriolisTermProtocol[FiniteVolumeMethod, BEM]
+    types.NonlinearCoriolisTermProtocol[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common.coriolis.schemes import CoriolisForceAtEdge
@@ -1019,14 +1019,14 @@ class TendencyOfNormalVelocityDueToNonlinearCoriolisTermAtDualEdge(
 
 
 class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
-    types.GradientOfKineticEnergyProtocol[FiniteVolumeMethod, BEM]
+    types.GradientOfKineticEnergyProtocol[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -1076,17 +1076,14 @@ class TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge(
 
 
 class ExPrepareSpaceOperators(
-    AbstractPrepareSpaceOperators[
-        FiniteVolumeMethod,
-        BEM
-    ]
+    AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 ):
 
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         from ..common import operators as common_op
@@ -1228,7 +1225,7 @@ class ExPrepareSpaceOperators(
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.mg.prepare_block(block)
         block = self.dmg.prepare_block(block)
         block = self.mfn.prepare_block(block)
@@ -1256,8 +1253,9 @@ class ExSpaceOperators(
         TendencyOfNormalVelocityDueToGradientOfKineticEnergyAtDualEdge,
         TendencyOfNormalVelocityDueToVerticalAdvection,
         TendencyOfNormalVelocityDueToPressureGradientForce,
+        TendencyOfTracerDueToDivergenceOfTracerFlux,
+        TendencyOfTracerDueToVerticalAdvection,
         FiniteVolumeMethod,
-        BEM,
         ExPrepareSpaceOperators,
     ]
 ):
@@ -1265,12 +1263,19 @@ class ExSpaceOperators(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: BEM,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.mfz_lev = VerticalMassFluxAtHalfLev(
             disc=disc, method=method, mode=mode
         )
+        if hasattr(self, "dqdt"):
+            self.set_bg_wind = SetWindForBackground(
+                disc=disc, method=method, mode=mode
+            )
+            self.accum_wind = AccumWind(
+                disc=disc, method=method, mode=mode
+            )
 
     def __call__(
         self,
@@ -1329,7 +1334,7 @@ class ExSpaceOperators(
             block = self.dundt.grad_ke(block, star_idx, dt, substep)
             block = self.dundt.pgf(block, new_idx, dt, substep)
             block = self.dundt.coriolis(block, star_idx, dt, substep)
-            block = self.dundt.adv_vert(block, star_idx, dt, substep)
+            block = self.dundt.vadv(block, star_idx, dt, substep)
             # ==================================================
         else:
             raise ValueError(
@@ -1338,6 +1343,8 @@ class ExSpaceOperators(
         return block
 
     def advection_stepper(self, block: BLOCK, explicit: bool) -> BLOCK:
+        if not self.mode.ideal_dry_core:
+            block = self.tracer_run(block, explicit=explicit)
         return block
 
     def diagnose(
@@ -1349,6 +1356,12 @@ class ExSpaceOperators(
         block = self.prepare.div(block, itime)
         block = block.diagnose(itime_str=itime_str)
         return block
+
+    def hvsplit_method(self, method: str = "V-H") -> Self:
+        if method not in ["H-V", "V-H"]:
+            raise ValueError(f"Unsupported hvsplit method: {method}")
+        self._hvsplit_method = method
+        return self
 
     def _update_mgs(
         self,
@@ -1520,16 +1533,26 @@ class ExSpaceOperators(
         self._cfg.update(self.dmgsdt.config2dict())
         self._cfg.update(self.dptdt.config2dict())
         self._cfg.update(self.dundt.config2dict())
+        if hasattr(self, "dqdt"):
+            self._cfg.update(self.dqdt.config2dict())
+            self._cfg.update(self.set_bg_wind.config2dict())
+            self._cfg.update(self.accum_wind.config2dict())
         self._cfg.update(self.prepare.config2dict())
         return self._cfg
 
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
+            self.hvsplit_method()
             self.mfz_lev.build_with_config(cfg=cfg)
             self.dmgsdt.build_with_config(cfg=cfg)
             self.dptdt.build_with_config(cfg=cfg)
             self.dundt.build_with_config(cfg=cfg)
+            if hasattr(self, "dqdt"):
+                self.dqdt.build_with_config(cfg=cfg)
+                self.set_bg_wind.build_with_config(cfg=cfg)
+                self.accum_wind.build_with_config(cfg=cfg)
             self.prepare.build_with_config(cfg=cfg)
+            self.tracer_run = TracerRun3D(space_operators=self)
             self._built = True
         return self
 
@@ -1537,6 +1560,10 @@ class ExSpaceOperators(
         block = self.dmgsdt.prepare_block(block)
         block = self.dptdt.prepare_block(block)
         block = self.dundt.prepare_block(block)
+        if hasattr(self, "dqdt"):
+            block = self.dqdt.prepare_block(block)
+            block = self.set_bg_wind.prepare_block(block)
+            block = self.accum_wind.prepare_block(block)
         block = self.mfz_lev.prepare_block(block)
         block = self.prepare.prepare_block(block)
         return block

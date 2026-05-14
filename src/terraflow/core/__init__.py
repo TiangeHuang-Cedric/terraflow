@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from . import planet as planet
     from . import solver as solver
     from . import test_case as test_case
+    from . import readers as readers
     from . import util as util
     from . import vert_coord as vert_coord
 
@@ -26,6 +27,7 @@ _LAZY_SUBMODULES = {
     "layout": "terraflow.core.layout",
     "operator": "terraflow.core.operator",
     "test_case": "terraflow.core.test_case",
+    "readers": "terraflow.core.readers",
     "dynamics": "terraflow.core.dynamics",
     "discretization": "terraflow.core.discretization",
     "solver": "terraflow.core.solver",
@@ -40,6 +42,7 @@ __all__ = [
     "layout",
     "operator",
     "test_case",
+    "readers",
     "dynamics",
     "discretization",
     "solver",

@@ -16,7 +16,8 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     CoordSysOneLayer = CoordinateSystem[
         SphericalCentroidVoronoiTessellations,
@@ -34,9 +35,7 @@ if TYPE_CHECKING:
 
     CoordSys = TypeVar("CoordSys", CoordSysOneLayer, CoordSysHybrid)
 
-    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
-    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
 
 class HorizontalAdvectionSchemeAtCell:

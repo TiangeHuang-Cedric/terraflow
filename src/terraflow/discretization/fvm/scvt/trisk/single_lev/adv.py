@@ -17,33 +17,26 @@ from terraflow.dynamics.adv import types
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    from terraflow.discretization.abstract import DiscretizationInfo
-    from ..dynamics_types import Block
+    from terraflow.discretization.abstract import DiscretizationInfo, EquationMode
+    from .dynamics_types import Block
 
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
 
-    BLOCK = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-
 
 class ExPrepareSpaceOperators(
-    AbstractPrepareSpaceOperators[
-        FiniteVolumeMethod,
-        types.AdvectionEquation2DMode
-    ]
+    AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation2DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def first_call(self, block: BLOCK) -> BLOCK:
+    def first_call(self, block: Block) -> Block:
         # ===============================================
         # Prepare background wind and mass for the first time step
         m_old = block.state.dmg.unwrap()[block.old, ...]
@@ -84,10 +77,10 @@ class ExPrepareSpaceOperators(
 
     def __call__(
         self,
-        block: BLOCK,
+        block: Block,
         star_idx: Int[Array, ""] | int,
         explicit: bool
-    ) -> BLOCK:
+    ) -> Block:
         return block
 
     def config2dict(self) -> Dict[str, Any]:
@@ -98,7 +91,7 @@ class ExPrepareSpaceOperators(
             self._built = True
         return self
 
-    def prepare_block(self, block: BLOCK) -> BLOCK:
+    def prepare_block(self, block: Block) -> Block:
         return block
 
 
@@ -106,7 +99,7 @@ class TracerRun2D:
     def __init__(self, space_operators: ExSpaceOperators):
         self.space_operators = space_operators
 
-    def __call__(self, block: BLOCK, explicit: bool) -> BLOCK:
+    def __call__(self, block: Block, explicit: bool) -> Block:
         # ==========================================
         block = self.d2a_coupling(block=block)
         # ==========================================
@@ -121,7 +114,7 @@ class TracerRun2D:
         # ==========================================
         return block
 
-    def d2a_coupling(self, block: BLOCK) -> BLOCK:
+    def d2a_coupling(self, block: Block) -> Block:
         block = self.space_operators.set_bg_wind(block, block.old)
         block = self.space_operators.accum_wind(block)
         return block
@@ -139,7 +132,7 @@ class ExSpaceOperators(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation2DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.set_bg_wind = SetWindForBackground(
@@ -151,7 +144,7 @@ class ExSpaceOperators(
 
     def __call__(
         self,
-        block: BLOCK,
+        block: Block,
         old_idx: Int[Array, ""] | int,
         star_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
@@ -159,7 +152,7 @@ class ExSpaceOperators(
         substep: int,
         pass_tag: str,
         explicit: bool,
-    ) -> BLOCK:
+    ) -> Block:
         block = self.prepare(
             block=block,
             star_idx=star_idx,
@@ -176,27 +169,27 @@ class ExSpaceOperators(
         )
         return block
 
-    def advection_stepper(self, block: BLOCK, explicit: bool) -> BLOCK:
+    def advection_stepper(self, block: Block, explicit: bool) -> Block:
         block = block.testcase_set_uv(block.old)
         return self.tracer_run(block=block, explicit=explicit)
 
     def diagnose(
         self,
-        block: BLOCK,
+        block: Block,
         itime_str: str,
-    ) -> BLOCK:
+    ) -> Block:
         block = block.diagnose(itime_str=itime_str)
         return block
 
     def update_state(
         self,
-        block: BLOCK,
+        block: Block,
         old_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
         dt: float,
         substep: int,
         pass_tag: str,
-    ) -> BLOCK:
+    ) -> Block:
         return block
 
     def config2dict(self) -> Dict[str, Any]:
@@ -219,7 +212,7 @@ class ExSpaceOperators(
             self._built = True
         return self
 
-    def prepare_block(self, block: BLOCK) -> BLOCK:
+    def prepare_block(self, block: Block) -> Block:
         block = self.dmdt.prepare_block(block)
         block = self.dqdt.prepare_block(block)
         block = self.set_bg_wind.prepare_block(block)

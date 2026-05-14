@@ -30,7 +30,7 @@ def register(model: Catalog) -> None:
     )
 
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import term
-    belong_key = "earth::atm::dry_hdc::vif::explicit::fvm::triskC::scvt::hybrid"
+    belong_key = "earth::atm::hdc::vif::explicit::fvm::triskC::scvt::hybrid"
 
     model.equaux.register(
         belong_key,

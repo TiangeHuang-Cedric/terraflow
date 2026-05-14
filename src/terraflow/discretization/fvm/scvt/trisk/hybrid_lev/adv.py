@@ -22,36 +22,27 @@ from terraflow.dynamics.adv import types
 from terraflow.test_case import adv as test_case_adv
 
 
-DynOperator = AbstractDynamicalEquationOperator[
-    FiniteVolumeMethod,
-    types.AdvectionEquation3DMode
-]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.abstract import DiscretizationInfo
-    from ..dynamics_types import Block
+    from terraflow.discretization.abstract import DiscretizationInfo, EquationMode
+    from .term import ExSpaceOperators as BaroclinicExSpaceOperators
+    from .dynamics_types import Block as BLOCK
 
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
 
-    BLOCK = Block[HybridVertCoordinate, HybridVertCoordLayout]
-
 
 class ExPrepareSpaceOperators(
-    AbstractPrepareSpaceOperators[
-        FiniteVolumeMethod,
-        types.AdvectionEquation3DMode
-    ]
+    AbstractPrepareSpaceOperators[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -120,7 +111,7 @@ class UpdatePressureLevels(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation3DMode
+        mode: EquationMode
     ):
         from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.term import (
             DryAirWeight,
@@ -209,7 +200,7 @@ class UpdatePressureLevels(DynOperator):
 
 
 class TracerRun3D:
-    def __init__(self, space_operators: ExSpaceOperators):
+    def __init__(self, space_operators: ExSpaceOperators | BaroclinicExSpaceOperators):
         self.space_operators = space_operators
 
     def __call__(self, block: BLOCK, explicit: bool) -> BLOCK:
@@ -268,7 +259,7 @@ class ExSpaceOperators(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.set_bg_wind = SetWindForBackground(

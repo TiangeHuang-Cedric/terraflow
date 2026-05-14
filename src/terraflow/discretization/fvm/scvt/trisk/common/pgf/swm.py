@@ -1,33 +1,26 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, TypeVar, Self
+from typing import TYPE_CHECKING, Any, Dict, Self
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as mesh_op
-from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     DiscretizationInfo,
     AbstractDynamicalEquationOperator,
 )
-from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-from terraflow.dynamics.shallow_water.types import ShallowWaterEquationMode
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as BLOCK
 
     Int = typing.Int
     Float = typing.Float
     Array = typing.Array
 
-    BLOCK = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
 
-
-EM = TypeVar("EM", bound=AbstractEquationMode)
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class PressureGradientForce(DynOperator):
@@ -40,7 +33,7 @@ class PressureGradientForce(DynOperator):
         super().__init__(
             disc=disc,
             method=method,
-            mode=ShallowWaterEquationMode()
+            mode=EquationMode.from_swm()
         )
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
@@ -74,5 +67,5 @@ class PressureGradientForce(DynOperator):
         self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block

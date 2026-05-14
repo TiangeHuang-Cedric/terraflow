@@ -8,7 +8,7 @@ from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as op
 from terraflow.discretization.abstract import (
     AbstractDynamicalEquationOperator,
-    AbstractEquationMode
+    EquationMode
 )
 from terraflow.util.model_config import ModelConfig
 from ..parallel import tree_at
@@ -24,7 +24,8 @@ if TYPE_CHECKING:
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.discretization.abstract import DiscretizationInfo
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     IntType = typing.IntType
     FloatType = typing.FloatType
@@ -42,13 +43,9 @@ if TYPE_CHECKING:
         VLO
     ]
 
-    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
-    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
-EM = TypeVar("EM", bound=AbstractEquationMode)
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class RelativeVorticityAtDualCell(DynOperator):
@@ -57,7 +54,7 @@ class RelativeVorticityAtDualCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -90,7 +87,7 @@ class RelativeVorticityAtDualCell(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -99,7 +96,7 @@ class DivergenceOfVelocityAtCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -132,7 +129,7 @@ class DivergenceOfVelocityAtCell(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -142,7 +139,7 @@ class TriSKTangentVelocityAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -193,7 +190,7 @@ class TriSKTangentVelocityAtEdge(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         if not block.equaux.coriolis.trisk.has_initialized():
             from .coriolis.trisk import TriSKCoriolisForceAtEdgeData
             coord = block.coord
@@ -211,7 +208,7 @@ class TangentVelocityAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -239,7 +236,7 @@ class TangentVelocityAtEdge(DynOperator):
                 )
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)
 
 
@@ -249,7 +246,7 @@ class NormalMassFluxAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -281,7 +278,7 @@ class NormalMassFluxAtEdge(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -291,7 +288,7 @@ class DivergenceOfMassFluxAtCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -321,7 +318,7 @@ class DivergenceOfMassFluxAtCell(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -355,7 +352,7 @@ class InterpPotentialVorticityMidpoint:
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.recon_scheme.prepare_block(block)
 
 
@@ -426,7 +423,7 @@ class InterpPotentialVorticityUpwind:
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         block = self.central_difference_scheme.prepare_block(block)
         return self.recon_scheme.prepare_block(block)
 
@@ -477,7 +474,7 @@ class InterpPotentialVorticityPureUpwind:
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.recon_scheme.prepare_block(block)
 
 
@@ -560,7 +557,7 @@ class InterpPotentialVorticityAtDualEdge:
                 )
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.adv_scheme.prepare_block(block)
 
 
@@ -571,7 +568,7 @@ class PotentialVorticity(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         self.interp = InterpPotentialVorticityAtDualEdge()
         super().__init__(disc=disc, method=method, mode=mode)
@@ -621,7 +618,7 @@ class PotentialVorticity(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.interp.prepare_block(block)
 
 
@@ -631,7 +628,7 @@ class Ringler2010KineticEnergyAtPrimalCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -673,7 +670,7 @@ class Ringler2010KineticEnergyAtPrimalCell(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -683,7 +680,7 @@ class Gassmann2013KineticEnergyAtPrimalCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
         gamma: FloatType = 0.9
     ):
         super().__init__(disc=disc, method=method, mode=mode)
@@ -733,7 +730,7 @@ class Gassmann2013KineticEnergyAtPrimalCell(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return block
 
 
@@ -743,7 +740,7 @@ class KineticEnergyAtPrimalCell(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -790,5 +787,5 @@ class KineticEnergyAtPrimalCell(DynOperator):
                 )
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)

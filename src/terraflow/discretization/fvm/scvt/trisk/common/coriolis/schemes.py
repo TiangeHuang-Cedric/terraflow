@@ -3,7 +3,7 @@ from typing import Any, Dict, Self, TypeVar, TYPE_CHECKING
 
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     AbstractDynamicalEquationOperator,
     DiscretizationInfo,
 )
@@ -12,15 +12,15 @@ from terraflow.discretization.fvm.scvt.trisk.common.coriolis import trisk
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.util.model_config import ModelConfig
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Int = typing.Int
     Array = typing.Array
 
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
-EM = TypeVar("EM", bound=AbstractEquationMode)
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class CoriolisForceAtEdge(DynOperator):
@@ -29,11 +29,11 @@ class CoriolisForceAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         return self.scheme(block, star_idx)
 
     def trisk(self) -> trisk.TriSKCoriolisForceAtEdge:
@@ -58,5 +58,5 @@ class CoriolisForceAtEdge(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         return self.scheme.prepare_block(block)

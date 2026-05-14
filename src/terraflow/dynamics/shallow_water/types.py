@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types as fvm_scvt_trisk_vars
     import terraflow.discretization.fvm.scvt.trisk.single_lev.term as fvm_scvt_trisk_terms
 
     Int = typing.Int
@@ -47,21 +47,8 @@ PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
 SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
 
 
-class ShallowWaterEquationMode(disc_types.AbstractEquationMode):
-    def __init__(self, **kwargs):
-        super().__init__(
-            baroclinic=False,
-            hydrostatic=False,
-            nonhydrostatic=False,
-            ideal_dry_core=False,
-            advection2d=False,
-            advection3d=False,
-            **kwargs
-        )
-
-
 class AbstractShallowWaterEquationSet(
-    disc_types.AbstractEquationSet[DM, ShallowWaterEquationMode, SOP],
+    disc_types.AbstractEquationSet[DM, SOP],
     Generic[DM, SOP],
     ABC
 ):
@@ -74,7 +61,7 @@ class AbstractShallowWaterEquationSet(
         super().__init__(
             disc=disc,
             method=method,
-            mode=ShallowWaterEquationMode(**kwargs)
+            mode=disc_types.EquationMode.from_swm(**kwargs)
         )
         factory = self.navi2space_ops()
         space_operators: SOP = factory(
@@ -97,7 +84,7 @@ ShallowWaterEquationSet = TypeVar(
 
 
 class AbstractShallowWaterEquationForm(
-    disc_types.AbstractDynamicalEquationForm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractDynamicalEquationForm[DM],
     Generic[DM],
     ABC
 ):
@@ -105,7 +92,7 @@ class AbstractShallowWaterEquationForm(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -115,7 +102,7 @@ class AbstractShallowWaterEquationForm(
 
 
 class AbstractShallowWaterTerm(
-    disc_types.AbstractDynamicalEquationTerm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractDynamicalEquationTerm[DM],
     Generic[DM],
     ABC
 ):
@@ -123,7 +110,7 @@ class AbstractShallowWaterTerm(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -133,7 +120,7 @@ class AbstractShallowWaterTerm(
 
 
 class AbstractShallowWaterSpaceOperators(
-    disc_types.AbstractSpaceOperators[DM, ShallowWaterEquationMode, PSO],
+    disc_types.AbstractSpaceOperators[DM, PSO],
     Generic[DM, PSO],
     ABC
 ):
@@ -142,7 +129,7 @@ class AbstractShallowWaterSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ):
         super().__init__(
             disc=disc,
@@ -217,7 +204,7 @@ PGF = TypeVar("PGF", bound=PressureGradientForceTermProtocol)
 
 class ExContinuityEqu(
     AbstractShallowWaterEquationForm[DM],
-    disc_types.AbstractContinuityEquForm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractContinuityEquForm[DM],
     Generic[DMF, DM],
     ABC
 ):
@@ -227,7 +214,7 @@ class ExContinuityEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.dmf = self.init_div_mf()
@@ -283,7 +270,7 @@ class ExContinuityEqu(
 
 class ExNormalMomentumEqu4UGRID(
     AbstractShallowWaterEquationForm[DM],
-    disc_types.AbstractMomentumEquForm[DM, ShallowWaterEquationMode],
+    disc_types.AbstractMomentumEquForm[DM],
     Generic[NCT, GKE, PGF, DM],
     ABC
 ):
@@ -295,7 +282,7 @@ class ExNormalMomentumEqu4UGRID(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ) -> None:
         super().__init__(disc=disc, method=method, mode=mode)
         self.coriolis = self.init_nonlinear_coriolis_term()
@@ -408,7 +395,7 @@ class ExVifShallowWaterEquationSet4UGRIDSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ShallowWaterEquationMode
+        mode: disc_types.EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.dgzdt = self.init_continuity_equation(disc=disc, method=method)
@@ -495,7 +482,7 @@ class ExVifShallowWaterEquationSet4UGRID(
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, OneLayerVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block
             return Block
         else:
             raise NotImplementedError(

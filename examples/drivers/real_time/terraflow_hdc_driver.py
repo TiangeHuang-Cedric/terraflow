@@ -6,7 +6,7 @@ import terraflow.core as tf
 
 tf.util.datetime.perf_start("program")
 
-grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
+grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
@@ -23,33 +23,42 @@ mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.OneLayerVertCoordinate()
+vert = tf.vert_coord.HybridVertCoordinate.cam_l32(dev=dev)
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
 method = tf.operator.FiniteVolumeMethod()
 
-testcase = tf.test_case.adv.SolidRotationTestCase(para)
-
 config = tf.util.model_config.ModelConfig(
-    bg_adv_scheme="upwind",
-    upwind_order_bg=3,
-    adv_scheme="upwind",
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+    pt_adv_scheme="upwind",
     upwind_order=3,
 )
 
-equation = tf.dynamics.AdvectionEquation2D.build_with_config(
+equation = tf.dynamics.HydrostaticEquation.build_with_config(
     config=config,
     coord=coord,
     para=para,
     method=method,
     form="vector_invariant",
     ode_kind="explicit",
+    ideal_dry_core=False,
 )
 
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-25T00:00:00",
+topo_reader = tf.readers.topo.ETOPO1Reader(
+    topo_file="../../../data/topo/ETOPO1_Ice_g_gmt4.grd",
+    para=para,
+)
+
+bkg_reader = tf.readers.bkg.ERA5Reader(
+    bkg_file="../../../data/bkg/era5_2022060100.nc",
+    para=para,
+)
+
+time_manager = tf.util.datetime.DateTimeManager.from_reader(
+    reader=bkg_reader,
+    run_time="12 days",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
@@ -57,21 +66,25 @@ solver = tf.solver.ExRungeKutta3Solver(
     time_manager=time_manager,
     save_interval="6 hours",
     dt_dyn="300 seconds",
-    dt_adv="900 seconds",
+    dt_adv="600 seconds",
     dev=dev,
 )
 
 block_cls = equation.build_block_cls(coord=coord)
 
-block = block_cls.from_testcase(
-    coord=coord, para=para, solver=solver, case=testcase
+block = block_cls.from_reader(
+    topo_reader=topo_reader,
+    bkg_reader=bkg_reader,
+    coord=coord,
+    para=para,
+    solver=solver,
 )
 
 history = tf.util.history.UnstructuredHistoryset(
     solver=solver,
     coord=coord,
     equation=equation,
-    case_name="terraflow.adv" + "." + mesh.glevel,
+    case_name="terraflow" + "." + mesh.glevel,
     output_h1=False,
     output_h2=False,
 ).setup(block)

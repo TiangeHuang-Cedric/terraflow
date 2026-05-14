@@ -23,10 +23,11 @@ if TYPE_CHECKING:
     )
     from terraflow.solver.abstract import AbstractSolver
     from terraflow.discretization.abstract import (
-        AbstractEquationMode,
+        EquationMode,
         AbstractEquationSet,
     )
-    from ..dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Int = typing.Int
     Float = typing.Float
@@ -65,8 +66,8 @@ def advection2d_case_init_fn(
     solver: AbstractSolver,
     *,
     test_case: AbstractAdvectionEquation2DTestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> SingleLevBlock:
+    from ..single_lev.dynamics_types import Block
     mode = solver.equation.mode
     block = Block.from_model(
         coord=coord,
@@ -104,10 +105,10 @@ def advection2d_case_init_fn(
 
 
 def advection2d_case_set_uv_fn(
-    block: Block,
+    block: SingleLevBlock,
     test_case: AbstractAdvectionEquation2DTestCase,
     itime: int | Int[Array, ""]
-) -> Block:
+) -> SingleLevBlock:
     time_in_seconds = block.elapsed_seconds
     coord = block.coord
     mode = block.mode
@@ -134,8 +135,8 @@ def dcmip12_case_init_fn(
     solver: AbstractSolver[ES],
     *,
     test_case: DCMIP12TestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> HybridLevBlock:
+    from ..hybrid_lev.dynamics_types import Block
     mode = solver.equation.mode
     space_operators = solver.equation.space_operators
     block = Block.from_model(
@@ -202,10 +203,10 @@ def dcmip12_case_init_fn(
 
 
 def dcmip12_case_set_uv_fn(
-    block: Block,
+    block: HybridLevBlock,
     test_case: DCMIP12TestCase,
     itime: int | Int[Array, ""]
-) -> Block:
+) -> HybridLevBlock:
     time_in_seconds = block.elapsed_seconds
     coord = block.coord
     mode = block.mode
@@ -250,7 +251,7 @@ def dcmip12_case_set_uv_fn(
 
 def init_background_in_advection2d_case(
     coord: CoordSysOneLayer,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation2DTestCase,
     *args,
     **kwargs
@@ -272,7 +273,7 @@ def init_background_in_advection2d_case(
 
 def init_tracers_in_advection2d_case(
     coord: CoordSysOneLayer,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation2DTestCase,
     *args,
     **kwargs
@@ -298,7 +299,7 @@ def init_tracers_in_advection2d_case(
 def init_un_in_advection2d_case(
     time_in_seconds: Float[Array, ""],
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation2DTestCase,
     *args,
     **kwargs
@@ -328,7 +329,7 @@ def init_un_in_advection2d_case(
 
 def init_background_in_advection3d_case(
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation3DTestCase,
     *args,
     **kwargs
@@ -356,7 +357,7 @@ def init_background_in_advection3d_case(
 
 def init_tracers_in_advection3d_case(
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation3DTestCase,
     *args,
     **kwargs
@@ -388,7 +389,7 @@ def init_tracers_in_advection3d_case(
 def init_un_in_advection3d_case(
     time_in_seconds: Float[Array, ""],
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation3DTestCase,
     *args,
     **kwargs
@@ -428,7 +429,7 @@ def init_un_in_advection3d_case(
 def init_un_in_dcmip12_case(
     time_in_seconds: Float[Array, ""],
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: DCMIP12TestCase,
     mg: Float[Array, "nlev ncell"],
     gz: Float[Array, "nlev ncell"],
@@ -474,7 +475,7 @@ def init_un_in_dcmip12_case(
 def init_we_lev_in_advection3d_case(
     time_in_seconds: Float[Array, ""],
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation3DTestCase,
     *args,
     **kwargs
@@ -509,7 +510,7 @@ def init_we_lev_in_advection3d_case(
 
 def init_mfz_lev_in_advection3d_case(
     coord: CoordSysHybrid,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractAdvectionEquation3DTestCase,
     *args,
     **kwargs

@@ -6,9 +6,9 @@ import terraflow.core as tf
 
 tf.util.datetime.perf_start("program")
 
-grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
+grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
+grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
@@ -23,46 +23,41 @@ mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.dcmip12(
-    nlev=30,
-    para=para,
-    dev=dev,
-)
+vert = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
 method = tf.operator.FiniteVolumeMethod()
 
-testcase = tf.test_case.adv.DCMIP12TestCase(para)
+testcase = tf.test_case.baroclinic.MountainWaveTestCase(para)
 
 config = tf.util.model_config.ModelConfig(
-    bg_adv_scheme="upwind",
-    upwind_order_bg=3,
-    adv_scheme="upwind",
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+    pt_adv_scheme="upwind",
     upwind_order=3,
-    limiter_type="fct",
 )
 
-equation = tf.dynamics.AdvectionEquation3D.build_with_config(
+equation = tf.dynamics.HydrostaticEquation.build_with_config(
     config=config,
     coord=coord,
     para=para,
     method=method,
     form="vector_invariant",
     ode_kind="explicit",
+    ideal_dry_core=True,
 )
 
 time_manager = tf.util.datetime.DateTimeManager(
     start_time="2000-01-01T00:00:00",
-    end_time="2000-01-03T00:00:00",
+    end_time="2000-01-31T00:00:00",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
     equation=equation,
     time_manager=time_manager,
-    save_interval="1 hours",
-    dt_dyn="600 seconds",
-    dt_adv="600 seconds",
+    save_interval="6 hours",
+    dt_dyn="300 seconds",
     dev=dev,
 )
 
@@ -76,7 +71,7 @@ history = tf.util.history.UnstructuredHistoryset(
     solver=solver,
     coord=coord,
     equation=equation,
-    case_name="terraflow.adv" + "." + mesh.glevel,
+    case_name="terraflow" + "." + mesh.glevel,
     output_h1=False,
     output_h2=False,
 ).setup(block)

@@ -1,8 +1,13 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Self
 from terraflow.util import log
 from typing import Optional
 import time
 import datetime
 import equinox as eqx
+
+if TYPE_CHECKING:
+    from terraflow.prepare.readers.abstract import AbstractBackgroundReader
 
 
 time0 = 0.0  # program start time in seconds
@@ -195,6 +200,20 @@ class DateTimeManager(eqx.Module):
             return float(total_seconds)
         else:
             raise ValueError(f"Invalid run_time unit: {unit}")
+
+    @classmethod
+    def from_reader(
+        cls,
+        reader: AbstractBackgroundReader,
+        end_time: Optional[str] = None,
+        run_time: Optional[str] = None,
+    ) -> Self:
+        start_time = reader.time_str
+        return cls(
+            start_time=start_time,
+            end_time=end_time,
+            run_time=run_time,
+        )
 
 
 def format_seconds(seconds: float, precision: int = 8) -> str:

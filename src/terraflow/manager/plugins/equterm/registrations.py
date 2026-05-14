@@ -49,7 +49,7 @@ def register(model: Catalog) -> None:
 
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import term
 
-    belong_key = "earth::atm::dry_hdc::vif::dmgsdt::explicit::fvm::triskC::scvt::hybrid"
+    belong_key = "earth::atm::hdc::vif::dmgsdt::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,
@@ -58,7 +58,7 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfDryAirMassAtSurface
     )
 
-    belong_key = "earth::atm::dry_hdc::vif::dptdt::explicit::fvm::triskC::scvt::hybrid"
+    belong_key = "earth::atm::hdc::vif::dptdt::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,
@@ -74,7 +74,7 @@ def register(model: Catalog) -> None:
         factory=term.TendencyOfPotentialTemperatureDueToVerticalAdvection
     )
 
-    belong_key = "earth::atm::dry_hdc::vif::dundt::explicit::fvm::triskC::scvt::hybrid"
+    belong_key = "earth::atm::hdc::vif::dundt::explicit::fvm::triskC::scvt::hybrid"
 
     model.equterm.register(
         belong_key,
@@ -105,6 +105,22 @@ def register(model: Catalog) -> None:
     )
 
     from terraflow.discretization.fvm.scvt.trisk.common.adv import term
+
+    belong_key = "earth::atm::hdc::vif::dqdt::explicit::fvm::triskC::scvt::hybrid"
+
+    model.equterm.register(
+        belong_key,
+        group="div_of_tf",
+        alias="builder",
+        factory=term.TendencyOfTracerDueToDivergenceOfTracerFlux
+    )
+
+    model.equterm.register(
+        belong_key,
+        group="vert_adv",
+        alias="builder",
+        factory=term.TendencyOfTracerDueToVerticalAdvection
+    )
 
     belong_key = "earth::atm::adv::vif::dmdt::explicit::fvm::triskC::scvt::1level"
 

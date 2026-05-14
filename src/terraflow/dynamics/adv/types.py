@@ -30,8 +30,9 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    import terraflow.discretization.fvm.scvt.trisk.dynamics_types as fvm_scvt_trisk_vars
+    import terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types as fvm_scvt_trisk_1lev_vars
     import terraflow.discretization.fvm.scvt.trisk.single_lev.adv as fvm_scvt_trisk_1lev_adv_terms
+    import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types as fvm_scvt_trisk_hybrid_vars
     import terraflow.discretization.fvm.scvt.trisk.hybrid_lev.adv as fvm_scvt_trisk_hybrid_adv_terms
 
     Int = typing.Int
@@ -48,35 +49,10 @@ BLOCK = TypeVar("BLOCK", bound=disc_types.AbstractBlock)
 STATE = TypeVar("STATE", bound=disc_types.AbstractFields)
 PSO = TypeVar("PSO", bound=disc_types.AbstractPrepareSpaceOperators)
 SOP = TypeVar("SOP", bound=disc_types.AbstractSpaceOperators)
-ADVEM = TypeVar("ADVEM", "AdvectionEquation2DMode", "AdvectionEquation3DMode")
-
-
-class AdvectionEquation2DMode(disc_types.AbstractEquationMode):
-    def __init__(self, **kwargs):
-        super().__init__(
-            baroclinic=False,
-            hydrostatic=False,
-            nonhydrostatic=False,
-            advection2d=True,
-            advection3d=False,
-            **kwargs
-        )
-
-
-class AdvectionEquation3DMode(disc_types.AbstractEquationMode):
-    def __init__(self, **kwargs):
-        super().__init__(
-            baroclinic=False,
-            hydrostatic=False,
-            nonhydrostatic=False,
-            advection2d=False,
-            advection3d=True,
-            **kwargs
-        )
 
 
 class AbstractAdvectionEquationSet2D(
-    disc_types.AbstractEquationSet[DM, AdvectionEquation2DMode, SOP],
+    disc_types.AbstractEquationSet[DM, SOP],
     Generic[DM, SOP],
     ABC
 ):
@@ -86,10 +62,11 @@ class AbstractAdvectionEquationSet2D(
         method: DM,
         **kwargs
     ):
+        mode = disc_types.EquationMode.from_adv2d(**kwargs)
         super().__init__(
             disc=disc,
             method=method,
-            mode=AdvectionEquation2DMode(**kwargs),
+            mode=mode,
         )
         factory = self.navi2space_ops()
         space_operators: SOP = factory(
@@ -106,7 +83,7 @@ class AbstractAdvectionEquationSet2D(
 
 
 class AbstractAdvectionEquationSet3D(
-    disc_types.AbstractEquationSet[DM, AdvectionEquation3DMode, SOP],
+    disc_types.AbstractEquationSet[DM, SOP],
     Generic[DM, SOP],
     ABC
 ):
@@ -116,10 +93,11 @@ class AbstractAdvectionEquationSet3D(
         method: DM,
         **kwargs
     ):
+        mode = disc_types.EquationMode.from_adv3d(**kwargs)
         super().__init__(
             disc=disc,
             method=method,
-            mode=AdvectionEquation3DMode(**kwargs),
+            mode=mode,
         )
         factory = self.navi2space_ops()
         space_operators: SOP = factory(
@@ -136,15 +114,15 @@ class AbstractAdvectionEquationSet3D(
 
 
 class AbstractDynamicalEquationForm(
-    disc_types.AbstractDynamicalEquationForm[DM, ADVEM],
-    Generic[DM, ADVEM],
+    disc_types.AbstractDynamicalEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ADVEM,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -154,15 +132,15 @@ class AbstractDynamicalEquationForm(
 
 
 class AbstractAdvectionEquationForm(
-    disc_types.AbstractAdvectionEquationForm[DM, ADVEM],
-    Generic[DM, ADVEM],
+    disc_types.AbstractAdvectionEquationForm[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ADVEM,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -172,15 +150,15 @@ class AbstractAdvectionEquationForm(
 
 
 class AbstractDynamicalEquationTerm(
-    disc_types.AbstractDynamicalEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM],
+    disc_types.AbstractDynamicalEquationTerm[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ADVEM,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -190,15 +168,15 @@ class AbstractDynamicalEquationTerm(
 
 
 class AbstractAdvectionEquationTerm(
-    disc_types.AbstractAdvectionEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM],
+    disc_types.AbstractAdvectionEquationTerm[DM],
+    Generic[DM],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ADVEM,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -208,15 +186,15 @@ class AbstractAdvectionEquationTerm(
 
 
 class AbstractAdvectionSpaceOperators(
-    disc_types.AbstractSpaceOperators[DM, ADVEM, PSO],
-    Generic[DM, ADVEM, PSO],
+    disc_types.AbstractSpaceOperators[DM, PSO],
+    Generic[DM, PSO],
     ABC
 ):
     def __init__(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: ADVEM,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc,
@@ -229,7 +207,7 @@ class AbstractAdvectionSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-    ) -> disc_types.AbstractContinuityEquForm[DM, ADVEM]:
+    ) -> disc_types.AbstractContinuityEquForm[DM]:
         """Initialize the continuity equation form."""
         pass
 
@@ -238,13 +216,13 @@ class AbstractAdvectionSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-    ) -> disc_types.AbstractTracerEquForm[DM, ADVEM]:
+    ) -> disc_types.AbstractTracerEquForm[DM]:
         """Initialize the tracer equation form."""
         pass
 
 
 class AbstractAdvectionSpaceOperators2D(
-    AbstractAdvectionSpaceOperators[DM, AdvectionEquation2DMode, PSO],
+    AbstractAdvectionSpaceOperators[DM, PSO],
     Generic[DM, PSO],
     ABC
 ):
@@ -252,7 +230,7 @@ class AbstractAdvectionSpaceOperators2D(
 
 
 class AbstractAdvectionSpaceOperators3D(
-    AbstractAdvectionSpaceOperators[DM, AdvectionEquation3DMode, PSO],
+    AbstractAdvectionSpaceOperators[DM, PSO],
     Generic[DM, PSO],
     ABC
 ):
@@ -260,8 +238,8 @@ class AbstractAdvectionSpaceOperators3D(
 
 
 class DivergenceOfMassFluxProtocol(
-    AbstractDynamicalEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM]
+    AbstractDynamicalEquationTerm[DM],
+    Generic[DM]
 ):
     @staticmethod
     def alias_name() -> str:
@@ -272,8 +250,8 @@ DMF = TypeVar("DMF", bound=DivergenceOfMassFluxProtocol)
 
 
 class VerticalAdvectionOfMassFluxProtocol(
-    AbstractDynamicalEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM]
+    AbstractDynamicalEquationTerm[DM],
+    Generic[DM]
 ):
     @staticmethod
     def alias_name() -> str:
@@ -284,8 +262,8 @@ VMF = TypeVar("VMF", bound=VerticalAdvectionOfMassFluxProtocol)
 
 
 class DivergenceOfTracerFluxProtocol(
-    AbstractAdvectionEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM]
+    AbstractAdvectionEquationTerm[DM],
+    Generic[DM]
 ):
     @staticmethod
     def alias_name() -> str:
@@ -296,8 +274,8 @@ DTF = TypeVar("DTF", bound=DivergenceOfTracerFluxProtocol)
 
 
 class VerticalAdvectionOfTracerProtocol(
-    AbstractAdvectionEquationTerm[DM, ADVEM],
-    Generic[DM, ADVEM]
+    AbstractAdvectionEquationTerm[DM],
+    Generic[DM]
 ):
     @staticmethod
     def alias_name() -> str:
@@ -308,8 +286,8 @@ VAT = TypeVar("VAT", bound=VerticalAdvectionOfTracerProtocol)
 
 
 class Ex2DContinuityEqu(
-    AbstractDynamicalEquationForm[DM, AdvectionEquation2DMode],
-    disc_types.AbstractContinuityEquForm[DM, AdvectionEquation2DMode],
+    AbstractDynamicalEquationForm[DM],
+    disc_types.AbstractContinuityEquForm[DM],
     Generic[DMF, DM],
     ABC
 ):
@@ -319,7 +297,7 @@ class Ex2DContinuityEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation2DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode,
@@ -376,8 +354,8 @@ class Ex2DContinuityEqu(
 
 
 class Ex2DTracerEqu(
-    AbstractAdvectionEquationForm[DM, AdvectionEquation2DMode],
-    disc_types.AbstractTracerEquForm[DM, AdvectionEquation2DMode],
+    AbstractAdvectionEquationForm[DM],
+    disc_types.AbstractTracerEquForm[DM],
     Generic[DTF, DM],
     ABC
 ):
@@ -387,7 +365,7 @@ class Ex2DTracerEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation2DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode,
@@ -454,8 +432,8 @@ class Ex2DTracerEqu(
 
 
 class Ex3DContinuityEqu(
-    AbstractDynamicalEquationForm[DM, AdvectionEquation3DMode],
-    disc_types.AbstractContinuityEquForm[DM, AdvectionEquation3DMode],
+    AbstractDynamicalEquationForm[DM],
+    disc_types.AbstractContinuityEquForm[DM],
     Generic[DMF, VMF, DM],
     ABC
 ):
@@ -466,7 +444,7 @@ class Ex3DContinuityEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation3DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode,
@@ -546,8 +524,8 @@ class Ex3DContinuityEqu(
 
 
 class Ex3DTracerEqu(
-    AbstractAdvectionEquationForm[DM, AdvectionEquation3DMode],
-    disc_types.AbstractTracerEquForm[DM, AdvectionEquation3DMode],
+    AbstractAdvectionEquationForm[DM],
+    disc_types.AbstractTracerEquForm[DM],
     Generic[DTF, VAT, DM],
     ABC
 ):
@@ -558,7 +536,7 @@ class Ex3DTracerEqu(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation3DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode,
@@ -669,7 +647,7 @@ class ExVif2DAdvectionEquationSet4UGRIDSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation2DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode
@@ -708,7 +686,7 @@ class ExVif3DAdvectionEquationSet4UGRIDSpaceOperators(
         self,
         disc: disc_types.DiscretizationInfo,
         method: DM,
-        mode: AdvectionEquation3DMode,
+        mode: disc_types.EquationMode,
     ):
         super().__init__(
             disc=disc, method=method, mode=mode
@@ -769,7 +747,7 @@ class ExVif2DAdvectionEquationSet4UGRID(
             TriSKBasedCGridStaggeringLayout,
             OneLayerVertCoordLayout
         ],
-    ) -> type[fvm_scvt_trisk_vars.Block]:
+    ) -> type[fvm_scvt_trisk_1lev_vars.Block]:
         ...
 
     @overload
@@ -793,7 +771,7 @@ class ExVif2DAdvectionEquationSet4UGRID(
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, OneLayerVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block
             return Block
         else:
             raise NotImplementedError(
@@ -891,7 +869,7 @@ class ExVif3DAdvectionEquationSet4UGRID(
             TriSKBasedCGridStaggeringLayout,
             HybridVertCoordLayout
         ],
-    ) -> type[fvm_scvt_trisk_vars.Block]:
+    ) -> type[fvm_scvt_trisk_hybrid_vars.Block]:
         ...
 
     @overload
@@ -916,7 +894,7 @@ class ExVif3DAdvectionEquationSet4UGRID(
             isinstance(coord.hori_layout, TriSKBasedCGridStaggeringLayout) and
             isinstance(coord.vert_layout, HybridVertCoordLayout)
         ):
-            from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+            from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block
             return Block
         else:
             raise NotImplementedError(

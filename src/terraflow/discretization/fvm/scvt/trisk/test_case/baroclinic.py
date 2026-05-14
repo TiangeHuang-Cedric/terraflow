@@ -22,8 +22,8 @@ if TYPE_CHECKING:
         RossbyHaurwitzWaveTestCase
     )
     from terraflow.solver.abstract import AbstractSolver
-    from terraflow.discretization.abstract import AbstractEquationMode
-    from ..dynamics_types import Block
+    from terraflow.discretization.abstract import EquationMode
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
     Array = typing.Array
 
@@ -58,8 +58,8 @@ def baroclinic_steady_state_case_init_fn(
     solver: AbstractSolver,
     *,
     test_case: SteadyStateTestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> BLOCK:
+    from ..hybrid_lev.dynamics_types import Block
     full_kds = coord.vert.full_kds
     full_kde = coord.vert.full_kde
     block = Block.from_model(
@@ -136,8 +136,8 @@ def baroclinic_mountain_wave_case_init_fn(
     solver: AbstractSolver,
     *,
     test_case: MountainWaveTestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> BLOCK:
+    from ..hybrid_lev.dynamics_types import Block
     full_kds = coord.vert.full_kds
     full_kde = coord.vert.full_kde
     block = Block.from_model(
@@ -200,8 +200,8 @@ def baroclinic_rossby_wave_case_init_fn(
     solver: AbstractSolver,
     *,
     test_case: RossbyHaurwitzWaveTestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> BLOCK:
+    from ..hybrid_lev.dynamics_types import Block
     full_kds = coord.vert.full_kds
     full_kde = coord.vert.full_kde
     half_kds = coord.vert.half_kds
@@ -272,7 +272,7 @@ def baroclinic_rossby_wave_case_init_fn(
 
 def init_mgs_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     gzs: Array,
     *args,
@@ -295,7 +295,7 @@ def init_mgs_in_baroclinic_case(
 
 def init_t_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     *args,
     **kwargs
@@ -319,7 +319,7 @@ def init_t_in_baroclinic_case(
 
 def init_pt_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     mg: Array,
     *args,
@@ -348,7 +348,7 @@ def init_pt_in_baroclinic_case(
 
 def init_un_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     *args,
     **kwargs
@@ -384,7 +384,7 @@ def init_un_in_baroclinic_case(
 
 def init_gzs_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     *args,
     **kwargs
@@ -402,7 +402,7 @@ def init_gzs_in_baroclinic_case(
 
 def init_gz_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     *args,
     **kwargs
@@ -430,7 +430,7 @@ def init_gz_in_baroclinic_case(
 
 def init_gz_lev_in_baroclinic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractBaroclinicEquationTestCase,
     *args,
     **kwargs

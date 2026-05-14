@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TypeVar, Self, Dict, Any, TYPE_CHECKING
+from typing import Self, Dict, Any, TYPE_CHECKING
 import jax.numpy as jnp
 import equinox as eqx
 
@@ -7,7 +7,7 @@ from terraflow.util import typing, formula
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.mesh.scvt import operators as mesh_op
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     AbstractDynamicalEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
@@ -24,9 +24,7 @@ NVTX = "vtx"
 
 FDT = ArrayField[StaggeredFieldMetaData]
 
-EM = TypeVar("EM", bound=AbstractEquationMode)
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
@@ -35,7 +33,7 @@ if TYPE_CHECKING:
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
     CoordSys = CoordinateSystem[
         SphericalCentroidVoronoiTessellations,
@@ -47,7 +45,6 @@ if TYPE_CHECKING:
     Int = typing.Int
     Float = typing.Float
     Array = typing.Array
-    BLOCK = Block[HybridVertCoordinate, HybridVertCoordLayout]
 
 
 class RefProfileData(AbstractEquationTermAuxiliaryData):
@@ -261,7 +258,7 @@ class PerturbationPressureGradientForce(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -356,7 +353,7 @@ class PerturbationPressureGradientForce(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         pro = RefProfileData.from_coord(
             coord=block.coord,
             para=block.para,

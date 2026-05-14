@@ -15,10 +15,10 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.abstract import AbstractEquationMode
+    from terraflow.discretization.abstract import EquationMode
     from terraflow.solver.abstract import AbstractSolver
     from terraflow.test_case.swe import AbstractShallowWaterEquationTestCase
-    from ..dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as BLOCK
 
     Array = typing.Array
 
@@ -53,8 +53,8 @@ def barotropic_case_init_fn(
     solver: AbstractSolver,
     *,
     test_case: AbstractShallowWaterEquationTestCase,
-) -> Block:
-    from ..dynamics_types import Block
+) -> BLOCK:
+    from ..single_lev.dynamics_types import Block
     g = para.gravity.unwrap()
     block = Block.from_model(
         coord=coord,
@@ -97,7 +97,7 @@ def barotropic_case_init_fn(
 
 def init_z_in_barotropic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractShallowWaterEquationTestCase,
     *args,
     **kwargs
@@ -121,7 +121,7 @@ def init_z_in_barotropic_case(
 
 def init_un_in_barotropic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractShallowWaterEquationTestCase,
     *args,
     **kwargs
@@ -150,7 +150,7 @@ def init_un_in_barotropic_case(
 
 def init_zs_in_barotropic_case(
     coord: CoordSys,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
     test_case: AbstractShallowWaterEquationTestCase,
     *args,
     **kwargs

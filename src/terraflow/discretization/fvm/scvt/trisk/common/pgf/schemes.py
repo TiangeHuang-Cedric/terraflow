@@ -1,9 +1,9 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Dict, TypeVar, Self
+from typing import TYPE_CHECKING, Any, Dict, Self
 
 from terraflow.operator import FiniteVolumeMethod
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     DiscretizationInfo,
     AbstractDynamicalEquationOperator
 )
@@ -18,10 +18,7 @@ if TYPE_CHECKING:
     Array = typing.Array
 
 
-EM = TypeVar("EM", bound=AbstractEquationMode)
-
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class PressureGradientForce(DynOperator):
@@ -29,7 +26,7 @@ class PressureGradientForce(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 

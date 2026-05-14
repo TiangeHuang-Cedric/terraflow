@@ -6,25 +6,19 @@ import jax
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.util.model_config import ModelConfig
-    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-    from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
     from terraflow.discretization.fvm.scvt.trisk.common.adv import batch
     from terraflow.discretization.fvm.scvt.trisk.common.adv.fct import (
         FluxCorrectedTransportHorizontalLimiterAtCell,
         FluxCorrectedTransportVerticalLimiterAtCell
     )
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Int = typing.Int
     Float = typing.Float
     Array = typing.Array
 
-    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
-
-    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
 
 class HorizontalLimiterAtCell:
@@ -38,7 +32,7 @@ class HorizontalLimiterAtCell:
         q: Float[Array, "nlev ncell"],
         mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         dt: Float[Array, ""] | float,
         substep: int
     ) -> batch.AdvBatchType:
@@ -117,7 +111,7 @@ class VerticalLimiterAtCell:
         q: Float[Array, "nlev ncell"],
         mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         dt: Float[Array, ""] | float,
         substep: int
     ) -> batch.AdvBatchType:
@@ -195,7 +189,7 @@ class NoLimiter:
         q: Float[Array, "nlev ncell"],
         mq_old: Float[Array, "nlev ncell"],
         batch: batch.AdvBatchType,
-        block: Block,
+        block: BLOCK,
         dt: Float[Array, ""] | float,
         *args,
         **kwargs

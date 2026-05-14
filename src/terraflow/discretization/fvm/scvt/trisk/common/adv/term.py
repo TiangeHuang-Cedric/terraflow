@@ -26,15 +26,14 @@ from terraflow.solver.base import ex_rk3_advection_stepper
 if TYPE_CHECKING:
     from terraflow.util import typing, model_config
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.layout.abstract import CoordinateSystem
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
-    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
-    from terraflow.discretization.abstract import DiscretizationInfo
+    from terraflow.discretization.abstract import DiscretizationInfo, EquationMode
     from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Float = typing.Float
     Int = typing.Int
@@ -46,29 +45,12 @@ if TYPE_CHECKING:
         OneLayerVertCoordLayout
     ]
 
-    BLOCK_OneLayer = Block[OneLayerVertCoordinate, OneLayerVertCoordLayout]
-
-    BLOCK_Hybrid = Block[HybridVertCoordinate, HybridVertCoordLayout]
-
-    BLOCK = TypeVar("BLOCK", BLOCK_OneLayer, BLOCK_Hybrid)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
 
-MODE = TypeVar(
-    "MODE",
-    types.AdvectionEquation2DMode,
-    types.AdvectionEquation3DMode
-)
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
-
-DynOperator = AbstractDynamicalEquationOperator[
-    FiniteVolumeMethod,
-    types.AdvectionEquation2DMode | types.AdvectionEquation3DMode
-]
-
-AdvOperator = AbstractAdvectionEquationOperator[
-    FiniteVolumeMethod,
-    types.AdvectionEquation2DMode | types.AdvectionEquation3DMode
-]
+AdvOperator = AbstractAdvectionEquationOperator[FiniteVolumeMethod]
 
 
 class MassFluxAtEdge(DynOperator):
@@ -76,7 +58,7 @@ class MassFluxAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: MODE
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.adv_scheme = HorizontalAdvectionSchemeAtCell()
@@ -137,7 +119,7 @@ class SetWindForBackground(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: MODE,
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -189,7 +171,7 @@ class AccumWind(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: MODE
+        mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
@@ -243,16 +225,13 @@ class AccumWind(DynOperator):
 
 
 class TendencyOfMassDueToDivergenceOfMassFlux(
-    types.DivergenceOfMassFluxProtocol[
-        FiniteVolumeMethod,
-        MODE
-    ],
+    types.DivergenceOfMassFluxProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: MODE
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.mfn = MassFluxAtEdge(disc=disc, method=method, mode=mode)
@@ -304,29 +283,26 @@ class TendencyOfMassDueToDivergenceOfMassFlux(
 
 
 class TendencyOfMassFluxDueToVerticalAdvection(
-    types.VerticalAdvectionOfMassFluxProtocol[
-        FiniteVolumeMethod,
-        types.AdvectionEquation3DMode
-    ]
+    types.VerticalAdvectionOfMassFluxProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
     def __call__(
         self,
-        block: BLOCK_Hybrid,
+        block: HybridLevBlock,
         old_idx: Int[Array, ""] | int,
         star_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
         pass_tag: str
-    ) -> BLOCK:
+    ) -> HybridLevBlock:
         coord = block.coord
         mesh = coord.mesh
         vert = coord.vert
@@ -358,21 +334,18 @@ class TendencyOfMassFluxDueToVerticalAdvection(
             self._built = True
         return self
 
-    def prepare_block(self, block: BLOCK) -> BLOCK:
+    def prepare_block(self, block: HybridLevBlock) -> HybridLevBlock:
         return block
 
 
 class TendencyOfTracerDueToDivergenceOfTracerFlux(
-    types.DivergenceOfTracerFluxProtocol[
-        FiniteVolumeMethod,
-        MODE
-    ]
+    types.DivergenceOfTracerFluxProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: MODE
+        mode: EquationMode
     ):
         super().__init__(disc, method, mode)
         self.adv_scheme = HorizontalAdvectionSchemeAtCell()
@@ -615,34 +588,31 @@ class TendencyOfTracerDueToDivergenceOfTracerFlux(
 
 
 class TendencyOfTracerDueToVerticalAdvection(
-    types.VerticalAdvectionOfTracerProtocol[
-        FiniteVolumeMethod,
-        types.AdvectionEquation3DMode
-    ]
+    types.VerticalAdvectionOfTracerProtocol[FiniteVolumeMethod]
 ):
     def __init__(
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: types.AdvectionEquation3DMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
         self.adv_scheme = VerticalAdvectionScheme()
         self.limiter = VerticalLimiterAtCell()
 
-    def __call__(self, block: BLOCK_Hybrid) -> BLOCK:
+    def __call__(self, block: HybridLevBlock) -> HybridLevBlock:
         return self.call_fun(block=block)
 
     def calc_at_batch(
         self,
         batch: AdvBatchType,
-        block: BLOCK_Hybrid,
+        block: HybridLevBlock,
         old_idx: Int[Array, ""] | int,
         star_idx: Int[Array, ""] | int,
         new_idx: Int[Array, ""] | int,
         dt: Float[Array, ""] | float,
         substep: int,
-    ) -> tuple[AdvBatchType, BLOCK_Hybrid]:
+    ) -> tuple[AdvBatchType, HybridLevBlock]:
         coord = block.coord
         idx = batch.idx
         q_old = block.tracers.q.unwrap()[old_idx, idx, ...]
@@ -678,7 +648,7 @@ class TendencyOfTracerDueToVerticalAdvection(
         q_old: Float[Array, "ntracers nlev ncell"],
         mq_old: Float[Array, "ntracers nlev ncell"],
         batch: AdvBatchType,
-        block: BLOCK_Hybrid,
+        block: HybridLevBlock,
         dt: Float[Array, ""] | float,
         substep: int
     ) -> tuple[Float[Array, "ntracers nlev nedges"], AdvBatchType]:
@@ -715,7 +685,7 @@ class TendencyOfTracerDueToVerticalAdvection(
         q_old: Float[Array, "nlev npoints"],
         mq_old: Float[Array, "nlev npoints"],
         batch: AdvBatchType,
-        block: BLOCK_Hybrid,
+        block: HybridLevBlock,
         dt: Float[Array, ""] | float,
         substep: int
     ) -> tuple[Float[Array, "nlev nedges"], AdvBatchType]:
@@ -851,7 +821,7 @@ class TendencyOfTracerDueToVerticalAdvection(
             self._built = True
         return self
 
-    def prepare_block(self, block: BLOCK) -> BLOCK:
+    def prepare_block(self, block: HybridLevBlock) -> HybridLevBlock:
         block = self.adv_scheme.prepare_block(block)
         block = self.limiter.prepare_block(block)
         return block

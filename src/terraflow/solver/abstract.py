@@ -121,7 +121,7 @@ class AbstractSolver(Generic[ODE], ABC):
         dt_dyn_unit = dt_dyn.split()[1]
 
         if dt_adv is None:
-            dt_adv = "0 seconds"
+            dt_adv = dt_dyn
 
         # Preprocess dt_adv
         dt_adv_value = float(dt_adv.split()[0])

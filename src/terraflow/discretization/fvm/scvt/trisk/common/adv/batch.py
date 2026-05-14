@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from terraflow.util import typing
 from terraflow.layout.abstract import MeshEntity, VertLoc, Basis
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData
-from terraflow.discretization.abstract import AbstractAdvBatchType, AbstractEquationMode
+from terraflow.discretization.abstract import AbstractAdvBatchType, EquationMode
 
 if TYPE_CHECKING:
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
     from terraflow.layout.onelayer_vert_coord import OneLayerVertCoordLayout
     from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
 
     CoordSysOneLayer = CoordinateSystem[
         SphericalCentroidVoronoiTessellations,
@@ -64,7 +63,7 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
         name: str,
         batch_hori_loc: str,
         batch_vert_loc: str,
-        mode: AbstractEquationMode,
+        mode: EquationMode,
     ) -> dict[str, StaggeredFieldMetaData]:
         return default_adv_batch_meta(
             name=name,
@@ -244,20 +243,12 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
 
         return self
 
-    def get_mass_tracers(
-        self,
-        block: Block,
-        itime_str: str
-    ) -> Float[Array, "nlev ncell"]:
-        itime = self.get_time_idx(itime_str=itime_str)
-        return block.tracers.mq.unwrap()[itime, self.idx, :, :]
-
 
 def default_adv_batch_meta(
     name: str,
     batch_hori_loc: str,
     batch_vert_loc: str,
-    mode: AbstractEquationMode,
+    mode: EquationMode,
 ) -> dict[str, StaggeredFieldMetaData]:
     if batch_hori_loc == MeshEntity.Edge:
         raise NotImplementedError(

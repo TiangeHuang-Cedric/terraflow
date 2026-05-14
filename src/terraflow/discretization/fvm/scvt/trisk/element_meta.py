@@ -9,7 +9,7 @@ from terraflow.layout.abstract import (
 from terraflow.layout.field import StaggeredFieldMetaData, NumericMetaData
 
 if TYPE_CHECKING:
-    from terraflow.discretization.abstract import AbstractEquationMode
+    from terraflow.discretization.abstract import EquationMode
 
 
 NLEVP = "ilev"
@@ -19,7 +19,7 @@ NEDGE = "edge"
 NVTX = "vtx"
 
 
-def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
+def default_state_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData | NumericMetaData]:
     meta: dict[str, StaggeredFieldMetaData | NumericMetaData] = {}
     if mode.is_barotropic() or mode.is_advection2d():
         meta["un"] = StaggeredFieldMetaData(
@@ -498,7 +498,7 @@ def default_state_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMe
     return meta
 
 
-def default_tendency_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+def default_tendency_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
     if mode.is_barotropic():
         meta["dgzdt"] = StaggeredFieldMetaData(
@@ -687,7 +687,7 @@ def default_tendency_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFiel
     return meta
 
 
-def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredFieldMetaData]:
+def default_static_meta(mode: EquationMode,) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
     if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
         meta["gzs"] = StaggeredFieldMetaData(
@@ -726,8 +726,38 @@ def default_static_meta(mode: AbstractEquationMode,) -> dict[str, StaggeredField
     return meta
 
 
-def default_auxiliary_meta(mode: AbstractEquationMode) -> dict[str, StaggeredFieldMetaData]:
+def default_auxiliary_meta(mode: EquationMode) -> dict[str, StaggeredFieldMetaData]:
     meta: dict[str, StaggeredFieldMetaData] = {}
+    meta["f_1d"] = StaggeredFieldMetaData(
+        name="f_1d",
+        dims=(NEDGE,),
+        long_name="Temporal array for 1D Laplacian damping",
+        description="Temporal array for 1D Laplacian damping",
+        units="",
+        hori_location=MeshEntity.Edge,
+        vert_location=VertLoc.Sfc,
+        basis=Basis.Scalar,
+        coordinates="lon_edge lat_edge",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output=""
+    )
+    meta["df_1d"] = StaggeredFieldMetaData(
+        name="df_1d",
+        dims=(NCELL,),
+        long_name="Temporal array for 1D Laplacian damping",
+        description="Temporal array for 1D Laplacian damping",
+        units="",
+        hori_location=MeshEntity.Cell,
+        vert_location=VertLoc.Sfc,
+        basis=Basis.Scalar,
+        coordinates="lon_cell lat_cell",
+        staggered_kind="C",
+        mesh_name="primal",
+        is_prognostic=False,
+        output=""
+    )
     meta["u"] = StaggeredFieldMetaData(
         name="u",
         dims=(NLEV, NCELL,) if mode.is_3d_model() else (NCELL,),

@@ -13,7 +13,7 @@ from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
 from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
 from terraflow.discretization.abstract import (
-    AbstractEquationMode,
+    EquationMode,
     AbstractDynamicalEquationOperator,
     DiscretizationInfo,
     AbstractEquationTermAuxiliaryData
@@ -22,7 +22,8 @@ from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
-    from terraflow.discretization.fvm.scvt.trisk.dynamics_types import Block
+    from terraflow.discretization.fvm.scvt.trisk.single_lev.dynamics_types import Block as SingleLevBlock
+    from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as HybridLevBlock
 
     Int = typing.Int
     Float = typing.Float
@@ -38,9 +39,9 @@ if TYPE_CHECKING:
         VLO
     ]
 
-EM = TypeVar("EM", bound=AbstractEquationMode)
+    BLOCK = TypeVar("BLOCK", SingleLevBlock, HybridLevBlock)
 
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod, EM]
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class TriSKCoriolisForceAtEdgeData(AbstractEquationTermAuxiliaryData):
@@ -86,11 +87,11 @@ class TriSKCoriolisForceAtEdge(DynOperator):
         self,
         disc: DiscretizationInfo,
         method: FiniteVolumeMethod,
-        mode: AbstractEquationMode
+        mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         """Compute nonlinear Coriolis term at dual edges."""
         coord = block.coord
         ids, ide = coord.mesh.edge_ids, coord.mesh.edge_ide
@@ -148,7 +149,7 @@ class TriSKCoriolisForceAtEdge(DynOperator):
             self._built = True
         return self
 
-    def prepare_block(self, block: Block) -> Block:
+    def prepare_block(self, block: BLOCK) -> BLOCK:
         coord = block.coord
         return eqx.tree_at(
             lambda b: b.equaux.coriolis.trisk,
