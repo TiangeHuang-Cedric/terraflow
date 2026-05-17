@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import xarray as xr
 
 from terraflow.util import typing, log, formula
-from terraflow.prepare.readers.abstract import AbstractBackgroundReader
+from terraflow.prepare.readers.abstract import AbstractBackgroundReader, BackgroundReaderConfig
 
 if TYPE_CHECKING:
     from terraflow.planet import PlanetParameterSet
@@ -39,15 +39,13 @@ class ERA5Reader(AbstractBackgroundReader):
         self,
         bkg_file: str,
         para: PlanetParameterSet,
-        hori_interp_method: str = "bilinear",
-        hori_extrap: bool = True
+        cfg: BackgroundReaderConfig = BackgroundReaderConfig()
     ):
-        log.logger.info(f"Use ERA5 {bkg_file} as background")
+        log.logger.info(f"Use ERA5 {bkg_file} as background.")
         super().__init__(
             bkg_file=bkg_file,
             para=para,
-            hori_interp_method=hori_interp_method,
-            hori_extrap=hori_extrap,
+            cfg=cfg
         )
 
     def extract_data(self):

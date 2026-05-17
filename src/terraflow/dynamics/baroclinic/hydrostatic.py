@@ -56,9 +56,9 @@ class ExVifHydrostaticEquationSet4UGRID(
         **kwargs
     ):
         super().__init__(
-            disc=disc, 
-            method=method, 
-            ideal_dry_core=ideal_dry_core, 
+            disc=disc,
+            method=method,
+            ideal_dry_core=ideal_dry_core,
             **kwargs
         )
 
@@ -229,6 +229,7 @@ class HydrostaticEquationBuilder:
             *args,
             **kwargs
         )
+        config.__print__()
         equation.build_with_config(cfg=config)
         return equation
 

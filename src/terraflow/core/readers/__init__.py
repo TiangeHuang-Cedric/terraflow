@@ -4,8 +4,17 @@ import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from terraflow.prepare.readers.abstract import (
+        TopographyReaderConfig,
+        BackgroundReaderConfig,
+    )
     from . import bkg as bkg
     from . import topo as topo
+
+_LAZY_CLASS = {
+    "TopographyReaderConfig": "terraflow.prepare.readers.abstract.TopographyReaderConfig",
+    "BackgroundReaderConfig": "terraflow.prepare.readers.abstract.BackgroundReaderConfig",
+}
 
 
 _LAZY_SUBMODULES = {
@@ -14,6 +23,8 @@ _LAZY_SUBMODULES = {
 }
 
 __all__ = [
+    "TopographyReaderConfig",
+    "BackgroundReaderConfig",
     "bkg",
     "topo",
 ]
@@ -24,6 +35,12 @@ def __getattr__(name: str):
         module = importlib.import_module(_LAZY_SUBMODULES[name])
         globals()[name] = module
         return module
+    if name in _LAZY_CLASS:
+        module_path, class_name = _LAZY_CLASS[name].rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+        globals()[name] = cls
+        return cls
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

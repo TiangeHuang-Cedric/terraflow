@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 from terraflow.util import typing, log, math, formula
@@ -8,13 +8,13 @@ from terraflow.prepare.vert_interp import (
     vert_interp_linear,
     vert_interp_log_linear
 )
-from terraflow.mesh.scvt.interp import latlon_interp_bilinear_column
 from terraflow.mesh.scvt.operators import interp_weighted_add_plg2dua
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybrid_op
 
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
+    from terraflow.mesh.scvt.regridder import Regridder
     from terraflow.layout.field import StaggeredFieldMetaData
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
@@ -34,33 +34,18 @@ def _get_hori_coord(meta: StaggeredFieldMetaData, coord) -> dict[str, Float[Arra
     return coord_info
 
 
-def _get_hori_interp_fun(interp_method: str) -> Callable:
-    if interp_method == "bilinear":
-        return latlon_interp_bilinear_column
-    else:
-        raise ValueError(f"Unsupported interpolation method: {interp_method}")
-
-
-def regrid_phs(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
+def regrid_phs(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> BLOCK:
     log.logger.info("Regrid surface hydrostatic pressure.")
     g = block.para.gravity.unwrap()
     coord = block.coord
     gzs = block.static.gzs.unwrap()
-    phs_meta = block.state.phs.meta
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        coord_info = _get_hori_coord(phs_meta, coord)
-        dst_lon = coord_info["lon"]
-        dst_lat = coord_info["lat"]
-        z0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.z,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        z0 = regridder(reader.z)
         logp0 = jnp.expand_dims(jnp.log(reader.lev), axis=1)
         logp0 = jnp.tile(logp0, (1, z0.shape[1]))
         phs = vert_interp_linear(
@@ -107,7 +92,11 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
     )
 
 
-def regrid_gz(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
+def regrid_gz(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> BLOCK:
     log.logger.info("Regrid geopotential height.")
     coord = block.coord
     mesh = coord.mesh
@@ -120,21 +109,9 @@ def regrid_gz(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
     gzs = block.static.gzs.unwrap()
     gz = block.state.gz.unwrap()[0, ...]
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
-    gz_lev_meta = block.state.gz_lev.meta
-    coord_info = _get_hori_coord(gz_lev_meta, coord)
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        dst_lon = coord_info["lon"]
-        dst_lat = coord_info["lat"]
-        z0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.z,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        z0 = regridder(reader.z)
         p0 = reader.lev
         gz_lev = vert_interp_log_linear(
             x1=p0,
@@ -212,25 +189,17 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
     )
 
 
-def regrid_t(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
+def regrid_t(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> BLOCK:
     log.logger.info("Regrid temperature.")
     coord = block.coord
-    t_meta = block.aux.t.meta
     ph = block.state.ph.unwrap()[0, ...]
-    coord_info = _get_hori_coord(t_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        t0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.t,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        t0 = regridder(reader.t)
         t = vert_interp_log_linear(
             x1=reader.lev,
             data1=t0,
@@ -251,15 +220,19 @@ def regrid_t(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
     )
 
 
-def regrid_un_from_uv(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
+def regrid_un_from_uv(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> BLOCK:
     coord = block.coord
     un_meta = block.state.un.meta
     coord_info = _get_hori_coord(un_meta, coord)
     cart = coord_info["cart"]
     edge_normal = coord_info["nr_orient"]
     # =================================================================
-    u = _regrid_u(block=block, reader=reader)
-    v = _regrid_v(block=block, reader=reader)
+    u = _regrid_u(block=block, reader=reader, regridder=regridder)
+    v = _regrid_v(block=block, reader=reader, regridder=regridder)
     vec_cart = math.convert_vector_ltln2cart(u, v, cart)
     un = jnp.sum(vec_cart * edge_normal, axis=-1)
     # =================================================================
@@ -273,28 +246,20 @@ def regrid_un_from_uv(block: BLOCK, reader: AbstractBackgroundReader) -> BLOCK:
     )
 
 
-def _regrid_u(block: BLOCK, reader: AbstractBackgroundReader) -> Float[Array, "nlev nedge"]:
+def _regrid_u(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid u wind component.")
-    un_meta = block.state.un.meta
     edd_v = block.coord.mesh._edd.v
     cell_0 = edd_v[:, 0]
     cell_1 = edd_v[:, 1]
     ph = block.state.ph.unwrap()[0, ...]
-    coord_info = _get_hori_coord(un_meta, block.coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     ph_e = 0.5 * (ph[:, cell_0] + ph[:, cell_1])
     if isinstance(reader, ERA5Reader):
-        u = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.u,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        u = regridder(reader.u)
         u = vert_interp_linear(
             x1=reader.lev,
             data1=u,
@@ -310,28 +275,20 @@ def _regrid_u(block: BLOCK, reader: AbstractBackgroundReader) -> Float[Array, "n
     return u
 
 
-def _regrid_v(block: BLOCK, reader: AbstractBackgroundReader) -> Float[Array, "nlev nedge"]:
+def _regrid_v(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder
+) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid v wind component.")
-    un_meta = block.state.un.meta
     edd_v = block.coord.mesh._edd.v
     cell_0 = edd_v[:, 0]
     cell_1 = edd_v[:, 1]
     ph = block.state.ph.unwrap()[0, ...]
-    coord_info = _get_hori_coord(un_meta, block.coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     ph_e = 0.5 * (ph[:, cell_0] + ph[:, cell_1])
     if isinstance(reader, ERA5Reader):
-        v = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.v,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        v = regridder(reader.v)
         v = vert_interp_linear(
             x1=reader.lev,
             data1=v,
@@ -347,7 +304,12 @@ def _regrid_v(block: BLOCK, reader: AbstractBackgroundReader) -> Float[Array, "n
     return v
 
 
-def regrid_wet_qv(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_qv(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_qv = block.tracers.idx_qv
     if idx_qv == -1:
         return block
@@ -356,23 +318,11 @@ def regrid_wet_qv(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
         log.logger.info("Regrid water vapor wet mixing ratio.")
     # =================================================================
     coord = block.coord
-    q_meta = block.tracers.q.meta
     ph = block.state.ph.unwrap()[0, ...]
     q = block.tracers.q.unwrap()[0, ...]
-    coord_info = _get_hori_coord(q_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        q0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.qv,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        q0 = regridder(reader.qv)
         qv = vert_interp_linear(
             x1=reader.lev,
             data1=q0,
@@ -397,7 +347,12 @@ def regrid_wet_qv(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_qc(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_qc(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_qc = block.tracers.idx_qc
     if idx_qc == -1:
         return block
@@ -406,23 +361,11 @@ def regrid_wet_qc(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
         log.logger.info("Regrid cloud liquid wet mixing ratio.")
     # =================================================================
     coord = block.coord
-    q_meta = block.tracers.q.meta
     ph = block.state.ph.unwrap()[0, ...]
     q = block.tracers.q.unwrap()[0, ...]
-    coord_info = _get_hori_coord(q_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        q0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.qc,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        q0 = regridder(reader.qc)
         qc = vert_interp_linear(
             x1=reader.lev,
             data1=q0,
@@ -447,7 +390,12 @@ def regrid_wet_qc(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_qi(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_qi(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_qi = block.tracers.idx_qi
     if idx_qi == -1:
         return block
@@ -456,23 +404,11 @@ def regrid_wet_qi(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
         log.logger.info("Regrid cloud ice wet mixing ratio.")
     # =================================================================
     coord = block.coord
-    q_meta = block.tracers.q.meta
     ph = block.state.ph.unwrap()[0, ...]
     q = block.tracers.q.unwrap()[0, ...]
-    coord_info = _get_hori_coord(q_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        q0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.qi,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        q0 = regridder(reader.qi)
         qi = vert_interp_linear(
             x1=reader.lev,
             data1=q0,
@@ -497,7 +433,12 @@ def regrid_wet_qi(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_nc(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_nc(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_nc = block.tracers.idx_nc
 
     if idx_nc == -1:
@@ -526,7 +467,12 @@ def regrid_wet_nc(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_ni(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_ni(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_ni = block.tracers.idx_ni
 
     if idx_ni == -1:
@@ -555,7 +501,12 @@ def regrid_wet_ni(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_qr(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_qr(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_qr = block.tracers.idx_qr
 
     if idx_qr == -1:
@@ -565,23 +516,11 @@ def regrid_wet_qr(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
         log.logger.info("Regrid rain water wet mixing ratio.")
     # =================================================================
     coord = block.coord
-    q_meta = block.tracers.q.meta
     ph = block.state.ph.unwrap()[0, ...]
     q = block.tracers.q.unwrap()[0, ...]
-    coord_info = _get_hori_coord(q_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        q0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.qr,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        q0 = regridder(reader.qr)
         qr = vert_interp_linear(
             x1=reader.lev,
             data1=q0,
@@ -606,7 +545,12 @@ def regrid_wet_qr(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
     )
 
 
-def regrid_wet_qs(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = False) -> BLOCK:
+def regrid_wet_qs(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+    mute: bool = False
+) -> BLOCK:
     idx_qs = block.tracers.idx_qs
 
     if idx_qs == -1:
@@ -616,23 +560,11 @@ def regrid_wet_qs(block: BLOCK, reader: AbstractBackgroundReader, mute: bool = F
         log.logger.info("Regrid snow water wet mixing ratio.")
     # =================================================================
     coord = block.coord
-    q_meta = block.tracers.q.meta
     ph = block.state.ph.unwrap()[0, ...]
     q = block.tracers.q.unwrap()[0, ...]
-    coord_info = _get_hori_coord(q_meta, coord)
-    dst_lon = coord_info["lon"]
-    dst_lat = coord_info["lat"]
-    interp_fun = _get_hori_interp_fun(interp_method=reader.hori_interp_method)
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        q0 = interp_fun(
-            src_lat=reader.lat,
-            src_lon=reader.lon,
-            src_data=reader.qs,
-            dst_lon=dst_lon,
-            dst_lat=dst_lat,
-            extrap=reader.hori_extrap
-        )
+        q0 = regridder(reader.qs)
         qs = vert_interp_linear(
             x1=reader.lev,
             data1=q0,

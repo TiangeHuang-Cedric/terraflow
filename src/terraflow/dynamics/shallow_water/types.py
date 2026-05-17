@@ -595,6 +595,7 @@ class ShallowWaterEquationBuilder:
             *args,
             **kwargs
         )
+        config.__print__()
         equation.build_with_config(cfg=config)
         return equation
 

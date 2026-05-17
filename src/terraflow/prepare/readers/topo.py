@@ -4,8 +4,8 @@ import jax
 import jax.numpy as jnp
 import xarray as xr
 
-from terraflow.util import typing
-from terraflow.prepare.readers.abstract import AbstractTopographyReader
+from terraflow.util import typing, log
+from terraflow.prepare.readers.abstract import AbstractTopographyReader, TopographyReaderConfig
 
 if TYPE_CHECKING:
     from terraflow.planet import PlanetParameterSet
@@ -20,18 +20,17 @@ class ETOPO1Reader(AbstractTopographyReader):
         self,
         topo_file: str,
         para: PlanetParameterSet,
-        hori_interp_method: str = "fill",
-        hori_extrap: bool = True
+        cfg: TopographyReaderConfig = TopographyReaderConfig()
     ):
         if para.planet != "earth":
             raise ValueError(
                 f"Topography file '{topo_file}' is used for the Earth!"
             )
+        log.logger.info(f"Use ETOPO1 {topo_file} as topography.")
         super().__init__(
             topo_file=topo_file,
             para=para,
-            hori_interp_method=hori_interp_method,
-            hori_extrap=hori_extrap
+            cfg=cfg
         )
 
     def extract_data(self):
@@ -82,18 +81,17 @@ class GMETED2010Reader(AbstractTopographyReader):
         self,
         topo_file: str,
         para: PlanetParameterSet,
-        hori_interp_method: str = "fill",
-        hori_extrap: bool = True
+        cfg: TopographyReaderConfig = TopographyReaderConfig()
     ):
         if para.planet != "earth":
             raise ValueError(
                 f"Topography file '{topo_file}' is used for the Earth!"
             )
+        log.logger.info(f"Use GMETED2010 {topo_file} as topography.")
         super().__init__(
             topo_file=topo_file,
             para=para,
-            hori_interp_method=hori_interp_method,
-            hori_extrap=hori_extrap
+            cfg=cfg
         )
 
     def extract_data(self):

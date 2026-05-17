@@ -7,8 +7,8 @@ import terraflow.core as tf
 tf.util.datetime.perf_start("program")
 
 grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
@@ -49,16 +49,29 @@ equation = tf.dynamics.HydrostaticEquation.build_with_config(
 topo_reader = tf.readers.topo.ETOPO1Reader(
     topo_file="../../../data/topo/ETOPO1_Ice_g_gmt4.grd",
     para=para,
+    cfg=tf.readers.TopographyReaderConfig(
+        regrid_type="fill",
+        fill_backend="scipy",
+        fill_split_with_chunks=True,
+        fill_lon_chunk_size=360,
+        fill_lat_chunk_size=180,
+    )
 )
 
 bkg_reader = tf.readers.bkg.ERA5Reader(
     bkg_file="../../../data/bkg/era5_2022060100.nc",
     para=para,
+    cfg=tf.readers.BackgroundReaderConfig(
+        hori_interp_backend="esmf",
+        hori_interp_method="conserve_1st",
+        hori_interp_method_at_edge="patch",
+        hori_extrap=True,
+    )
 )
 
 time_manager = tf.util.datetime.DateTimeManager.from_reader(
     reader=bkg_reader,
-    run_time="12 days",
+    run_time="1 days",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(
@@ -66,7 +79,7 @@ solver = tf.solver.ExRungeKutta3Solver(
     time_manager=time_manager,
     save_interval="6 hours",
     dt_dyn="300 seconds",
-    dt_adv="600 seconds",
+    dt_adv="300 seconds",
     dev=dev,
 )
 

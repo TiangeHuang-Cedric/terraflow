@@ -1,12 +1,13 @@
 # ---
 # jupyter:
 #   jupytext:
+#     cell_metadata_filter: -all
 #     formats: py:percent,ipynb
+#     notebook_metadata_filter: language_info,jupytext,-jupytext.text_representation.jupytext_version
 #     text_representation:
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.19.1
 #   kernelspec:
 #     display_name: Python (terraflow-dev)
 #     language: python

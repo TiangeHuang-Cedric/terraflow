@@ -1,8 +1,11 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar, Generic, Any
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 import os
 import xarray as xr
+
+from terraflow.util import log
 
 if TYPE_CHECKING:
     from terraflow.planet import PlanetParameterSet
@@ -12,19 +15,144 @@ if TYPE_CHECKING:
     Array = typing.Array
 
 
-class AbstractReader(ABC):
-    lon: Float[Array, "nlon"]
-    lat: Float[Array, "nlat"]
+READERCFG = TypeVar("READERCFG", bound="AbstractReaderConfig")
 
-    def __init__(
-        self,
-        para: PlanetParameterSet,
-        hori_interp_method: str = "bilinear",
-        hori_extrap: bool = True
-    ):
+
+class AbstractReaderConfig(ABC):
+    pass
+
+
+@dataclass
+class TopographyReaderConfig(AbstractReaderConfig):
+    # "interp" or "fill"
+    regrid_type: str = "fill"
+
+    # "esmf" or "native"
+    interp_backend: str = "esmf"
+
+    # "nearest", "bilinear", "conserve_1st", "conserve_2nd"
+    interp_method: str = "conserve_1st"
+
+    # True or False
+    interp_extrap: bool = True
+
+    # norm_opt: "destarea" or "fracarea"
+    interp_conserve_opt: dict[str, Any] = field(
+        default_factory=lambda: {"norm_opt": "destarea"}
+    )
+
+    # "scipy" or "jaxkd"
+    fill_backend: str = "scipy"
+
+    # True or False
+    fill_split_with_chunks: bool = True
+
+    # Int
+    fill_lon_chunk_size: int = 360
+    fill_lat_chunk_size: int = 180
+
+    def __print__(self):
+        log.logger.info(
+            "########################################################"
+        )
+        log.logger.info(
+            "--Topography Reader Config--"
+        )
+        log.logger.info(
+            f"  regrid_type: {self.regrid_type}"
+        )
+        if self.regrid_type == "interp":
+            log.logger.info(
+                f"  interp_backend: {self.interp_backend}"
+            )
+            log.logger.info(
+                f"  interp_method: {self.interp_method}"
+            )
+            log.logger.info(
+                f"  interp_extrap: {self.interp_extrap}"
+            )
+            log.logger.info(
+                f"  interp_conserve_opt: {self.interp_conserve_opt}"
+            )
+        elif self.regrid_type == "fill":
+            log.logger.info(
+                f"  fill_backend: {self.fill_backend}"
+            )
+            log.logger.info(
+                f"  fill_split_with_chunks: {self.fill_split_with_chunks}"
+            )
+            log.logger.info(
+                f"  fill_lon_chunk_size: {self.fill_lon_chunk_size}"
+            )
+            log.logger.info(
+                f"  fill_lat_chunk_size: {self.fill_lat_chunk_size}"
+            )
+        else:
+            raise ValueError(
+                f"Unsupported regrid_type: {self.regrid_type}. Supported types: 'interp', 'fill'."
+            )
+        log.logger.info(
+            "--Topography Reader Config--"
+        )
+        log.logger.info(
+            "########################################################"
+        )
+
+
+@dataclass
+class BackgroundReaderConfig(AbstractReaderConfig):
+    # "esmf" or "native"
+    hori_interp_backend: str = "esmf"
+
+    # "nearest", "bilinear", "conserve_1st", "conserve_2nd"
+    hori_interp_method: str = "conserve_1st"
+
+    # "nearest", "bilinear", "patch"
+    hori_interp_method_at_edge: str = "patch"
+
+    # True or False
+    hori_extrap: bool = True
+
+    # norm_opt: "destarea" or "fracarea"
+    hori_conserve_opt: dict[str, Any] = field(
+        default_factory=lambda: {"norm_opt": "destarea"}
+    )
+
+    def __print__(self):
+        log.logger.info(
+            "########################################################"
+        )
+        log.logger.info(
+            "--Background Reader Config--"
+        )
+        log.logger.info(
+            f"  hori_interp_backend: {self.hori_interp_backend}"
+        )
+        log.logger.info(
+            f"  hori_interp_method: {self.hori_interp_method}"
+        )
+        log.logger.info(
+            f"  hori_interp_method_at_edge: {self.hori_interp_method_at_edge}"
+        )
+        log.logger.info(
+            f"  hori_extrap: {self.hori_extrap}"
+        )
+        log.logger.info(
+            f"  hori_conserve_opt: {self.hori_conserve_opt}"
+        )
+        log.logger.info(
+            "--Background Reader Config--"
+        )
+        log.logger.info(
+            "########################################################"
+        )
+
+
+class AbstractReader(ABC, Generic[READERCFG]):
+
+    def __init__(self, para: PlanetParameterSet, cfg: READERCFG):
         self._para = para
-        self.hori_interp_method = hori_interp_method
-        self.hori_extrap = hori_extrap
+        self.cfg = cfg
 
     @property
     @abstractmethod
@@ -35,57 +163,65 @@ class AbstractReader(ABC):
     def extract_data(self):
         raise NotImplementedError
 
+    def get_config(self) -> READERCFG:
+        return self.cfg
 
-class AbstractTopographyReader(AbstractReader):
+
+class AbstractTopographyReader(AbstractReader[TopographyReaderConfig]):
     topo_file: str
-    lon: Float[Array, "nlon nlat"]
-    lat: Float[Array, "nlon nlat"]
-    gzs: Float[Array, "nlon nlat"]
-    mask: Float[Array, "nlon nlat"]
+    lon: Float[Array, "nlon"]
+    lat: Float[Array, "nlat"]
+    gzs: Float[Array, "nlev"]
+    mask: Float[Array, "nlat", "nlon"]
 
     def __init__(
         self,
         topo_file: str,
         para: PlanetParameterSet,
-        hori_interp_method: str = "bilinear",
-        hori_extrap: bool = True
+        cfg: TopographyReaderConfig
     ):
-        super().__init__(
-            para=para,
-            hori_interp_method=hori_interp_method,
-            hori_extrap=hori_extrap
-        )
+        super().__init__(para=para, cfg=cfg)
         if not os.path.exists(topo_file):
             raise FileNotFoundError(
                 f"Topography file '{topo_file}' not found!"
             )
+        self.cfg.__print__()
         self.topo_file = topo_file
         self.extract_data()
+        if self.lon.shape[0] < self.cfg.fill_lon_chunk_size:
+            raise ValueError(
+                f"Chunk size for filling topo is larger than the topo grid size! "
+                f"Please reduce fill_lon_chunk_size in TopographyReaderConfig."
+            )
+        if self.lat.shape[0] < self.cfg.fill_lat_chunk_size:
+            raise ValueError(
+                f"Chunk size for filling topo is larger than the topo grid size! "
+                f"Please reduce fill_lat_chunk_size in TopographyReaderConfig."
+            )
 
     def open_dataset(self) -> xr.Dataset:
         return xr.open_dataset(self.topo_file)
 
 
-class AbstractBackgroundReader(AbstractReader):
+class AbstractBackgroundReader(AbstractReader[BackgroundReaderConfig]):
     bkg_file: str
     time_str: str
+    lon: Float[Array, "nlon"]
+    lat: Float[Array, "nlat"]
+    lev: Float[Array, "nlev"]
 
     def __init__(
         self,
         bkg_file: str,
         para: PlanetParameterSet,
-        hori_interp_method: str = "bilinear",
-        hori_extrap: bool = True
+        cfg: BackgroundReaderConfig
     ):
-        super().__init__(
-            para=para,
-            hori_interp_method=hori_interp_method,
-            hori_extrap=hori_extrap
-        )
+        super().__init__(para=para, cfg=cfg)
         if not os.path.exists(bkg_file):
             raise FileNotFoundError(
                 f"Background file '{bkg_file}' not found!"
             )
+        self.cfg.__print__()
         self.bkg_file = bkg_file
         self.extract_data()
 
