@@ -102,7 +102,6 @@ def baroclinic_steady_state_case_init_fn(
         mode=mode,
         test_case=test_case
     )
-    ref_ps = mgs
     block = tree_at(
         coord=coord,
         where=lambda b: (
@@ -117,9 +116,9 @@ def baroclinic_steady_state_case_init_fn(
     )
     block = tree_at(
         coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
+        where=lambda b: b.static.gzs,
         pytree=block,
-        replace=(gzs, ref_ps),
+        replace=gzs,
     )
     block = tree_at(
         coord=coord,
@@ -174,7 +173,6 @@ def baroclinic_mountain_wave_case_init_fn(
         mode=mode,
         test_case=test_case
     )
-    ref_ps = mgs
     block = tree_at(
         coord=coord,
         where=lambda b: (
@@ -187,9 +185,9 @@ def baroclinic_mountain_wave_case_init_fn(
     )
     block = tree_at(
         coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
+        where=lambda b: b.static.gzs,
         pytree=block,
-        replace=(gzs, ref_ps)
+        replace=gzs
     )
     return block
 
@@ -248,7 +246,6 @@ def baroclinic_rossby_wave_case_init_fn(
         test_case=test_case,
         mg=mg_lev
     )
-    ref_ps = mgs
     block = tree_at(
         coord=coord,
         where=lambda b: (
@@ -263,9 +260,9 @@ def baroclinic_rossby_wave_case_init_fn(
     )
     block = tree_at(
         coord=coord,
-        where=lambda b: (b.static.gzs, b.static.ref_ps),
+        where=lambda b: b.static.gzs,
         pytree=block,
-        replace=(gzs, ref_ps)
+        replace=gzs
     )
     return block
 

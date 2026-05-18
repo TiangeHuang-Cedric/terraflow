@@ -3,7 +3,7 @@
 #   jupytext:
 #     cell_metadata_filter: -all
 #     formats: py:percent,ipynb
-#     notebook_metadata_filter: language_info,jupytext,-jupytext.text_representation.jupytext_version
+#     notebook_metadata_filter: jupytext,-jupytext.text_representation.jupytext_version
 #     text_representation:
 #       extension: .py
 #       format_name: percent

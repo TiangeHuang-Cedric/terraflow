@@ -6,6 +6,7 @@ from typing import (
     TYPE_CHECKING
 )
 import jax.numpy as jnp
+import equinox as eqx
 
 from terraflow.util import log
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -71,11 +72,10 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
         *,
         case: Optional[AbstractTestCase] = None,
     ) -> Self:
-        # =======================================================
         equation = solver.equation
         mode: EquationMode = equation.mode
+        # =======================================================
         if mode.is_baroclinic():
-            # ==============================================
             # Baroclinic case
             if case is None:
                 case = SteadyStateTestCase(para)
@@ -108,9 +108,7 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
                 raise NotImplementedError(
                     f"Initialization for case {type(case)} is not implemented yet."
                 )
-            # ==============================================
         elif mode.is_advection3d():
-            # ==============================================
             # Advection case
             if case is None:
                 case = DCMIP12TestCase(para)
@@ -133,14 +131,16 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
                 raise NotImplementedError(
                     f"Initialization for case {type(case)} is not implemented yet."
                 )
-            # ==============================================
         else:
             raise ValueError(
                 f"Invalid equation mode for testcase initialization. Invalid mode={equation.mode}"
             )
-        log.logger.success("Initialized block from testcase.")
         # =======================================================
-        return solver.equation.prepare_block(block)
+        block = prepare_block_before_integration(block=block)
+        block = solver.equation.prepare_block(block)
+        # =======================================================
+        log.logger.success("Initialized block from testcase.")
+        return block
 
     @classmethod
     def from_reader(
@@ -166,7 +166,21 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
                 )
             )
         )
+        # =======================================================
         block = prepare_topo(block=block, reader=topo_reader)
         block = prepare_bkg(block=block, reader=bkg_reader)
+        # =======================================================
+        block = prepare_block_before_integration(block=block)
+        block = solver.equation.prepare_block(block)
+        # =======================================================
         log.logger.success("Initialized block from reader.")
-        return solver.equation.prepare_block(block)
+        return block
+
+
+def prepare_block_before_integration(block: Block) -> Block:
+    block = eqx.tree_at(
+        lambda b: b.static.ref_ps.data,
+        block,
+        block.state.mgs.unwrap()[0, :]
+    )
+    return block

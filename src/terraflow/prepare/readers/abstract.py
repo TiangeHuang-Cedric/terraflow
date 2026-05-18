@@ -52,51 +52,24 @@ class TopographyReaderConfig(AbstractReaderConfig):
     fill_lat_chunk_size: int = 180
 
     def __print__(self):
-        log.logger.info(
-            "########################################################"
-        )
-        log.logger.info(
-            "--Topography Reader Config--"
-        )
-        log.logger.info(
-            f"  regrid_type: {self.regrid_type}"
-        )
+        print("=============Topography Reader Config===============")
         if self.regrid_type == "interp":
-            log.logger.info(
-                f"  interp_backend: {self.interp_backend}"
-            )
-            log.logger.info(
-                f"  interp_method: {self.interp_method}"
-            )
-            log.logger.info(
-                f"  interp_extrap: {self.interp_extrap}"
-            )
-            log.logger.info(
-                f"  interp_conserve_opt: {self.interp_conserve_opt}"
-            )
+            print(f"  regrid_type          = {self.regrid_type}")
+            print(f"  interp_backend       = {self.interp_backend}")
+            print(f"  interp_method        = {self.interp_method}")
+            print(f"  interp_extrap        = {self.interp_extrap}")
+            print(f"  interp_conserve_opt  = {self.interp_conserve_opt}")
         elif self.regrid_type == "fill":
-            log.logger.info(
-                f"  fill_backend: {self.fill_backend}"
-            )
-            log.logger.info(
-                f"  fill_split_with_chunks: {self.fill_split_with_chunks}"
-            )
-            log.logger.info(
-                f"  fill_lon_chunk_size: {self.fill_lon_chunk_size}"
-            )
-            log.logger.info(
-                f"  fill_lat_chunk_size: {self.fill_lat_chunk_size}"
-            )
+            print(f"  regrid_type            = {self.regrid_type}")
+            print(f"  fill_backend           = {self.fill_backend}")
+            print(f"  fill_split_with_chunks = {self.fill_split_with_chunks}")
+            print(f"  fill_lon_chunk_size    = {self.fill_lon_chunk_size}")
+            print(f"  fill_lat_chunk_size    = {self.fill_lat_chunk_size}")
         else:
             raise ValueError(
                 f"Unsupported regrid_type: {self.regrid_type}. Supported types: 'interp', 'fill'."
             )
-        log.logger.info(
-            "--Topography Reader Config--"
-        )
-        log.logger.info(
-            "########################################################"
-        )
+        print("====================================================")
 
 
 @dataclass
@@ -119,33 +92,13 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     )
 
     def __print__(self):
-        log.logger.info(
-            "########################################################"
-        )
-        log.logger.info(
-            "--Background Reader Config--"
-        )
-        log.logger.info(
-            f"  hori_interp_backend: {self.hori_interp_backend}"
-        )
-        log.logger.info(
-            f"  hori_interp_method: {self.hori_interp_method}"
-        )
-        log.logger.info(
-            f"  hori_interp_method_at_edge: {self.hori_interp_method_at_edge}"
-        )
-        log.logger.info(
-            f"  hori_extrap: {self.hori_extrap}"
-        )
-        log.logger.info(
-            f"  hori_conserve_opt: {self.hori_conserve_opt}"
-        )
-        log.logger.info(
-            "--Background Reader Config--"
-        )
-        log.logger.info(
-            "########################################################"
-        )
+        print("=============Background Reader Config===============")
+        print(f"  hori_interp_backend        = {self.hori_interp_backend}")
+        print(f"  hori_interp_method         = {self.hori_interp_method}")
+        print(f"  hori_interp_method_at_edge = {self.hori_interp_method_at_edge}")
+        print(f"  hori_extrap                = {self.hori_extrap}")
+        print(f"  hori_conserve_opt          = {self.hori_conserve_opt}")
+        print("====================================================")
 
 
 class AbstractReader(ABC, Generic[READERCFG]):

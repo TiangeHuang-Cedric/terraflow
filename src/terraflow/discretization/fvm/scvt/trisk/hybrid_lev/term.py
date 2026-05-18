@@ -62,7 +62,8 @@ class Temperature(DynOperator):
         tv = block.aux.tv.unwrap()
         # ==========================================================
         if idx_qv >= 0:
-            q = block.tracers.q.unwrap()[star_idx, idx_qv, :, :]
+            old_idx = block.adv_batches["moist"].get_time_idx(itime_str="old")
+            q = block.tracers.q.unwrap()[old_idx, idx_qv, :, :]
             rd_o_cpd = block.para.rd_o_cpd.unwrap()
             t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
                 formula.temperature(

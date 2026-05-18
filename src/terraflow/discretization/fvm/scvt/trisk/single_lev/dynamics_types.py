@@ -56,12 +56,10 @@ class Block(AbstractBaseBlock[OneLayerVertCoordinate, OneLayerVertCoordLayout]):
         *,
         case: Optional[AbstractTestCase] = None,
     ) -> Self:
-        # =======================================================
         equation = solver.equation
         mode: EquationMode = equation.mode
-        # ==================================================
+        # =======================================================
         if mode.is_advection2d():
-            # ==============================================
             # Advection case
             if case is None:
                 case = SolidRotationTestCase(para)
@@ -76,9 +74,7 @@ class Block(AbstractBaseBlock[OneLayerVertCoordinate, OneLayerVertCoordLayout]):
                 solver=solver,
                 test_case=case
             )
-            # ==============================================
         elif mode.is_barotropic():
-            # ==============================================
             # Barotropic case
             if case is None:
                 case = MountainZonalFlowTestCase(para)
@@ -92,11 +88,11 @@ class Block(AbstractBaseBlock[OneLayerVertCoordinate, OneLayerVertCoordLayout]):
                 solver=solver,
                 test_case=case
             )
-            # ==============================================
         else:
             raise ValueError(
                 f"Invalid equation mode for testcase initialization. Invalid mode={equation.mode}"
             )
-        log.logger.success("Initialized block from testcase.")
+        block = solver.equation.prepare_block(block)
         # =======================================================
-        return solver.equation.prepare_block(block)
+        log.logger.success("Initialized block from testcase.")
+        return block

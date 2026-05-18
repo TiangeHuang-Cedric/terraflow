@@ -53,85 +53,35 @@ class ModelConfig:
             object.__setattr__(self, "upwind_order_v", self.upwind_order)
 
     def __print__(self):
-        log.logger.info(
-            "########################################################"
-        )
-        log.logger.info(
-            "--Model Config--"
-        )
-        log.logger.info(
-            f"  pgf_scheme: {self.pgf_scheme}"
-        )
-        log.logger.info(
-            f"  ke_scheme: {self.ke_scheme}, ke_gamma: {self.ke_gamma}"
-        )
-        log.logger.info(
-            f"  coriolis_scheme: {self.coriolis_scheme}"
-        )
-        # =======================================================
-        # PV advection
-        log.logger.info(
-            f"  pv_adv_scheme: {self.pv_adv_scheme}"
-        )
-        log.logger.info(
-            f"  upwind_order_pv: {self.upwind_order_pv}"
-        )
-        log.logger.info(
-            f"  upwind_use_mbs_pv: {self.upwind_use_mbs_pv}"
-        )
-        log.logger.info(
-            f"  upwind_optimized_pv: {self.upwind_optimized_pv}"
-        )
-        # =======================================================
-        # Background advection
-        log.logger.info(
-            "  "
-            f"bg_adv_scheme: {self.bg_adv_scheme}, "
-            f"upwind_order_bg: {self.upwind_order_bg}, "
-            f"upwind_optimized_bg: {self.upwind_optimized_bg}"
-        )
-        # =======================================================
-        # Potential Temperature advection
-        log.logger.info(
-            f"  pt_adv_scheme: {self.pt_adv_scheme}"
-        )
-        # =======================================================
-        # Tracer batches advection
-        log.logger.info(
-            f"  adv_scheme: {self.adv_scheme}"
-        )
-        log.logger.info(
-            "  "
-            f"upwind_order: {self.upwind_order}, "
-            f"upwind_order_h: {self.upwind_order_h}, "
-            f"upwind_order_v: {self.upwind_order_v}"
-        )
-        log.logger.info(
-            "  "
-            f"upwind_wgt: {self.upwind_wgt}, "
-            f"upwind_use_mbs: {self.upwind_use_mbs}, "
-            f"upwind_optimized: {self.upwind_optimized}"
-        )
-        log.logger.info(
-            "  "
-            f"wrf_order_h: {self.wrf_order_h}, "
-            f"wrf_use_mbs: {self.wrf_use_mbs}, "
-            f"wrf_optimized: {self.wrf_optimized}"
-        )
-        log.logger.info(
-            "  "
-            f"limiter_type: {self.limiter_type}, "
-            f"fct_regression_h: {self.fct_regression_h}, "
-            f"fct_lo_scheme_h: {self.fct_lo_scheme_h}, "
-            f"fct_regression_v: {self.fct_regression_v}, "
-            f"fct_lo_scheme_v: {self.fct_lo_scheme_v}"
-        )
-        log.logger.info(
-            "--Model Config--"
-        )
-        log.logger.info(
-            "########################################################"
-        )
+        print("===================Model Config=====================")
+        print(f"  pgf_scheme          = {self.pgf_scheme}")
+        print(f"  ke_scheme           = {self.ke_scheme}")
+        print(f"  ke_gamma            = {self.ke_gamma}")
+        print(f"  coriolis_scheme     = {self.coriolis_scheme}")
+        print(f"  pv_adv_scheme       = {self.pv_adv_scheme}")
+        print(f"  upwind_order_pv     = {self.upwind_order_pv}")
+        print(f"  upwind_use_mbs_pv   = {self.upwind_use_mbs_pv}")
+        print(f"  upwind_optimized_pv = {self.upwind_optimized_pv}")
+        print(f"  bg_adv_scheme       = {self.bg_adv_scheme}")
+        print(f"  upwind_order_bg     = {self.upwind_order_bg}")
+        print(f"  upwind_optimized_bg = {self.upwind_optimized_bg}")
+        print(f"  pt_adv_scheme       = {self.pt_adv_scheme}")
+        print(f"  adv_scheme          = {self.adv_scheme}")
+        print(f"  upwind_order        = {self.upwind_order}")
+        print(f"  upwind_order_h      = {self.upwind_order_h}")
+        print(f"  upwind_order_v      = {self.upwind_order_v}")
+        print(f"  upwind_wgt          = {self.upwind_wgt}")
+        print(f"  upwind_use_mbs      = {self.upwind_use_mbs}")
+        print(f"  upwind_optimized    = {self.upwind_optimized}")
+        print(f"  wrf_order_h         = {self.wrf_order_h}")
+        print(f"  wrf_use_mbs         = {self.wrf_use_mbs}")
+        print(f"  wrf_optimized       = {self.wrf_optimized}")
+        print(f"  limiter_type        = {self.limiter_type}")
+        print(f"  fct_regression_h    = {self.fct_regression_h}")
+        print(f"  fct_lo_scheme_h     = {self.fct_lo_scheme_h}")
+        print(f"  fct_regression_v    = {self.fct_regression_v}")
+        print(f"  fct_lo_scheme_v     = {self.fct_lo_scheme_v}")
+        print("====================================================")
 
     @classmethod
     def from_yaml(cls, yaml_str: str) -> Self:
