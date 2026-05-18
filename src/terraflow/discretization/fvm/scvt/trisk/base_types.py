@@ -573,8 +573,6 @@ class AbstractBaseBlock(
             where=lambda b: b.tracers.qm,
             pytree=self,
             replace=qm,
-            at_dims=0,
-            at_idxes=itime
         )
 
 

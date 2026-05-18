@@ -14,12 +14,14 @@ time0 = 0.0  # program start time in seconds
 time1 = 0.0  # integration start time in seconds
 time_last = 0.0  # last log time in seconds
 time_curr = 0.0  # current log time in seconds
+time_write_last = 0.0  # last write history time in seconds
+time_write_curr = 0.0  # current write history time in seconds
 elapsed_secondes_in_real_world = 0.0  # elapsed secondes in real world
 elapsed_seconds_in_integration = 0.0  # elapsed seconds in integration
 
 
 def perf_start(name: str) -> None:
-    global time0, time1, time_last, time_curr
+    global time0, time1, time_last, time_curr, time_write_last, time_write_curr
     global elapsed_secondes_in_real_world, elapsed_seconds_in_integration
     if name == "program":
         time0 = time.perf_counter()
@@ -44,6 +46,8 @@ def perf_start(name: str) -> None:
         elapsed_secondes_in_real_world += time1 - time_last
         time_last = time1
         time_curr = time1
+        time_write_last = time1
+        time_write_curr = time1
         elapsed_seconds_in_integration = 0.0
         log.logger.log("STAGE", "INTEGRATION STAGE START... ")
     elif name != "":
@@ -96,6 +100,19 @@ def perf_runtime() -> float:
     tmp = time_last
     time_last = time_curr
     return time_curr - tmp
+
+
+def perf_write_history() -> float:
+    global time_last, time_curr
+    global time_write_last, time_write_curr
+    global elapsed_secondes_in_real_world, elapsed_seconds_in_integration
+    time_write_curr = time.perf_counter()
+    elapsed_secondes_in_real_world += time_write_curr - time_last
+    elapsed_seconds_in_integration += time_write_curr - time_last
+    tmp = time_write_last
+    time_last = time_write_curr
+    time_write_last = time_write_curr
+    return time_write_curr - tmp
 
 
 class DateTimeManager(eqx.Module):

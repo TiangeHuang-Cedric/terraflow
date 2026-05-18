@@ -308,6 +308,12 @@ class EquationMode(ABC):
     def is_nonhydrostatic(self) -> bool:
         return self.is_dry_nonhydrostatic() or self.is_moist_nonhydrostatic()
 
+    def is_dry(self) -> bool:
+        return self.is_dry_hydrostatic() or self.is_dry_nonhydrostatic()
+
+    def is_moist(self) -> bool:
+        return self.is_moist_hydrostatic() or self.is_moist_nonhydrostatic()
+
     def is_dry_hydrostatic(self) -> bool:
         return (
             self.baroclinic

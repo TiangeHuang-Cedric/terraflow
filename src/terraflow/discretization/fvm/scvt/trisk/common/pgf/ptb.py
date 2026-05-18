@@ -304,8 +304,11 @@ class PerturbationPressureGradientForce(DynOperator):
         ad_ptb = ad - pro_ad
 
         # compute pgf tendency
-        # TODO: For ideal dry core, need to add mixing ratio effect
-        L = 1
+        if self.mode.is_moist():
+            qm = block.tracers.qm.unwrap()[full_kds:full_kde+1, c_ids:c_ihe+1]
+            L = 1 + 0.5 * (qm[:, cell_1] + qm[:, cell_2])
+        else:
+            L = 1
         tmp1 = pro.dmgdn * 0.5 * (
             jnp.take(ad_ptb, cell_1, axis=1)
             + jnp.take(ad_ptb, cell_2, axis=1)

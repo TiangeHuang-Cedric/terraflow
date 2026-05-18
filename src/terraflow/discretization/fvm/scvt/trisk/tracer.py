@@ -210,9 +210,6 @@ def default_tracer_meta(
             coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal",
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
             output="",
         )
         meta["qm_lev"] = StaggeredFieldMetaData(
@@ -227,9 +224,6 @@ def default_tracer_meta(
             coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal",
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
             output="",
         )
     if mode.is_advection2d():
@@ -283,11 +277,6 @@ def default_tracer_meta(
             coordinates="lon_cell lat_cell",
             staggered_kind="C",
             mesh_name="primal",
-            is_tracer=True,
-            ntracers=ntracers,
-            is_expand_dims=True,
-            expand_axis=0,
-            expand_axis_length=mode.state_tile_depth,
             output="",
         )
     return meta

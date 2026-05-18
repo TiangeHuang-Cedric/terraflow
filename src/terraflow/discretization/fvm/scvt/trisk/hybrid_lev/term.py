@@ -55,23 +55,43 @@ class Temperature(DynOperator):
         vert = block.coord.vert
         ids, ihe = mesh.polg_ids, mesh.polg_ihe[0]
         full_kds, full_kde = vert.full_kds, vert.full_kde
+        idx_qv = block.tracers.idx_qv
         pt = block.state.pt.unwrap()[star_idx, :, :]
         p = block.state.p.unwrap()[star_idx, :, :]
         t = block.aux.t.unwrap()
         tv = block.aux.tv.unwrap()
         # ==========================================================
-        t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
-            formula.temperature(
-                pt=pt[full_kds:full_kde+1, ids:ihe+1],
-                p=p[full_kds:full_kde+1, ids:ihe+1],
-                qv=jnp.asarray(0.0, dtype=pt.dtype),
-                para=block.para
+        if idx_qv >= 0:
+            q = block.tracers.q.unwrap()[star_idx, idx_qv, :, :]
+            rd_o_cpd = block.para.rd_o_cpd.unwrap()
+            t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
+                formula.temperature(
+                    pt=pt[full_kds:full_kde+1, ids:ihe+1],
+                    p=p[full_kds:full_kde+1, ids:ihe+1],
+                    qv=q[full_kds:full_kde+1, ids:ihe+1],
+                    para=block.para
+                )
             )
-        )
-        # TODO: For ideal dry core, need to add mixing ratio effect
-        tv = tv.at[full_kds:full_kde+1, ids:ihe+1].set(
-            t[full_kds:full_kde+1, ids:ihe+1]
-        )
+            tv = tv.at[full_kds:full_kde+1, ids:ihe+1].set(
+                formula.virtual_temperature_from_modified_potential_temperature(
+                    pt=pt[full_kds:full_kde+1, ids:ihe+1],
+                    pk=p[full_kds:full_kde+1, ids:ihe+1]**rd_o_cpd,
+                    qm=q[full_kds:full_kde+1, ids:ihe+1],
+                    para=block.para
+                )
+            )
+        else:
+            t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
+                formula.temperature(
+                    pt=pt[full_kds:full_kde+1, ids:ihe+1],
+                    p=p[full_kds:full_kde+1, ids:ihe+1],
+                    qv=jnp.asarray(0.0, dtype=pt.dtype),
+                    para=block.para
+                )
+            )
+            tv = tv.at[full_kds:full_kde+1, ids:ihe+1].set(
+                t[full_kds:full_kde+1, ids:ihe+1]
+            )
         # ==========================================================
         return tree_at(
             coord=block.coord,
@@ -251,6 +271,7 @@ class DeltaDryAirWeight(DynOperator):
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
+        kds, kde = coord.vert.full_kds, coord.vert.full_kde
         mg = block.state.mg.unwrap()[star_idx, :, :]
         mg_lev = block.state.mg_lev.unwrap()[star_idx, :, :]
         dmg = block.state.dmg.unwrap()[star_idx, :, :]
@@ -262,6 +283,12 @@ class DeltaDryAirWeight(DynOperator):
             coord=coord,
             x_lev=mg_lev,
             dx=dmg,
+        )
+        dmg = eqx.error_if(
+            x=dmg,
+            pred=jnp.any(dmg < 0),
+            msg="The dry-air weight levels are not monotonic!",
+            on_error="raise"
         )
         dmg_lev = hybrid_op.delta_at_half_lev(
             coord=coord,
@@ -443,17 +470,29 @@ class HydrostaticPressure(DynOperator):
         ph_lev = block.state.ph_lev.unwrap()[star_idx, :, :]
         ph = block.state.ph.unwrap()[star_idx, :, :]
         phs = block.state.phs.unwrap()[star_idx, :]
-        # TODO: For ideal dry core, need to add mixing ratio effect
         # =======================================================
         # Calculate ph at half level
         kds, kde = half_kds, half_kde
-        ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
-            mg_lev[kds, :] + jnp.cumulative_sum(
-                dmg[kds:kde+1, ids:ihe+1],
-                axis=0,
-                include_initial=True
+        if self.mode.is_moist():
+            qm = block.tracers.qm.unwrap()[:, :]
+            dmg_ = dmg[kds:kde+1, ids:ihe+1]
+            qm_ = qm[kds:kde+1, ids:ihe+1]
+            moist_dmg = dmg_ * (1.0 + qm_)
+            ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
+                mg_lev[kds, :] + jnp.cumulative_sum(
+                    moist_dmg,
+                    axis=0,
+                    include_initial=True
+                )
             )
-        )
+        else:
+            ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
+                mg_lev[kds, :] + jnp.cumulative_sum(
+                    dmg[kds:kde+1, ids:ihe+1],
+                    axis=0,
+                    include_initial=True
+                )
+            )
         # =======================================================
         # Calculate ph at full level
         kds, kde = full_kds, full_kde

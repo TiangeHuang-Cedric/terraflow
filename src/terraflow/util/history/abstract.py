@@ -22,6 +22,7 @@ from terraflow.util.device import AbstractDevice
 from terraflow.util.datetime import (
     DateTimeManager,
     perf_runtime,
+    perf_write_history,
     format_seconds
 )
 from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
@@ -36,7 +37,7 @@ if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.discretization.abstract import (
         AbstractEquationSet,
-        AbstractEquationMode,
+        EquationMode,
         AbstractFields,
         AbstractBlock,
         TracerMetaData
@@ -276,6 +277,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
             )
 
     def log_diag(self, itimestep: int) -> None:
+        perf_runtime()
+
         log.logger.log(
             "RUNTIME",
             f"==> {self.time_manager.curr_time4itimestep(self.dt_dyn, itimestep)}  "
@@ -285,6 +288,8 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         return None
 
     def _prepare_for_output(self, save_interval_idx: int) -> None:
+        perf_runtime()
+
         log.logger.log(
             "RUNTIME",
             f"==> {self.time_manager.curr_time4save(self.save_interval, save_interval_idx)}  "
@@ -292,9 +297,9 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         )
         return None
 
-    def log_runtime(self) -> None:
+    def log_write_elapsed_seconds(self) -> None:
         log.logger.success(
-            f"Time cost {format(perf_runtime(), '.16f')} seconds."
+            f"Time cost {format(perf_write_history(), '.16f')} seconds."
         )
         return None
 
@@ -343,7 +348,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         first_call: bool = False
     ) -> None:
 
-        self.log_runtime()
+        self.log_write_elapsed_seconds()
 
         def _set_time_var(h: HY | SHY):
             ds = nc4.Dataset(h.file_path, mode="a")
@@ -586,7 +591,7 @@ class UnstructuredHistoryset(
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
         **kwargs
     ) -> None:
-        mode: AbstractEquationMode = equation.mode
+        mode: EquationMode = equation.mode
         with_edge = False if not mode.is_advection() else True
         with_vtx = True if not mode.is_advection() else False
         super().__init__(

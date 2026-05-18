@@ -156,7 +156,7 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
     idx_qv = block.tracers.idx_qv
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
     gz_lev = block.state.gz_lev.unwrap()[0, ...]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     t = block.aux.t.unwrap()
     # =================================================================
     delta_gz = (
@@ -599,7 +599,7 @@ def bkg_calc_mgs(block: BLOCK, mute: bool = False) -> BLOCK:
     kds, kde = vert.full_kds, vert.full_kde
     phs = block.state.phs.unwrap()[0, ...]
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
-    qm = block.tracers.qm.unwrap()[0, ...]
+    qm = block.tracers.qm.unwrap()[:, :]
     # =================================================================
     delta_ph = ph_lev[kds+1:kde+2, ids:ide+1] - ph_lev[kds:kde+1, ids:ide+1]
     mgs = phs - jnp.sum(delta_ph * qm, axis=0)
@@ -691,7 +691,7 @@ def bkg_calc_tv(block: BLOCK) -> BLOCK:
         tv = t
     else:
         qv = block.tracers.q.unwrap()[0, idx_qv, :, :]
-        qm = block.tracers.qm.unwrap()[0, :, :]
+        qm = block.tracers.qm.unwrap()[:, :]
         tv = formula.virtual_temperature_from_dry_mixing_ratio(
             t=t,
             qv=qv,
@@ -753,7 +753,7 @@ def bkg_calc_dry_qv(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate water vapor dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qv = q[idx_qv, :, :] / (1 - qm)
     q = q.at[idx_qv, :, :].set(qv)
@@ -778,7 +778,7 @@ def bkg_calc_dry_qc(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate cloud liquid dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qc = q[idx_qc, :, :] / (1 - qm)
     q = q.at[idx_qc, :, :].set(qc)
@@ -803,7 +803,7 @@ def bkg_calc_dry_qi(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate cloud ice dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qi = q[idx_qi, :, :] / (1 - qm)
     q = q.at[idx_qi, :, :].set(qi)
@@ -828,7 +828,7 @@ def bkg_calc_dry_nc(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate cloud liquid number dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     nc = q[idx_nc, :, :] / (1 - qm)
     q = q.at[idx_nc, :, :].set(nc)
@@ -853,7 +853,7 @@ def bkg_calc_dry_ni(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate cloud ice number dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     ni = q[idx_ni, :, :] / (1 - qm)
     q = q.at[idx_ni, :, :].set(ni)
@@ -878,7 +878,7 @@ def bkg_calc_dry_qr(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate rain water dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qr = q[idx_qr, :, :] / (1 - qm)
     q = q.at[idx_qr, :, :].set(qr)
@@ -903,7 +903,7 @@ def bkg_calc_dry_qs(block: BLOCK, mute: bool = False) -> BLOCK:
         log.logger.info("Calculate snow water dry mixing ratio.")
     # =================================================================
     q = block.tracers.q.unwrap()[0, :, :, :]
-    qm = block.tracers.qm.unwrap()[0, :, :]
+    qm = block.tracers.qm.unwrap()[:, :]
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qs = q[idx_qs, :, :] / (1 - qm)
     q = q.at[idx_qs, :, :].set(qs)
