@@ -2324,6 +2324,50 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
             int_type=int_type
         )
 
+    def get_coord_info(
+        self,
+        loc: str,
+        entity: str,
+    ) -> dict[str, Float[Array, "npoints"]]:
+        if entity == "primal":
+            if loc == "cell":
+                return {
+                    "lon": self.primal.cell.centroid.lon,
+                    "lat": self.primal.cell.centroid.lat
+                }
+            elif loc == "node":
+                return {
+                    "lon": self.primal.node.coordinate.lon,
+                    "lat": self.primal.node.coordinate.lat
+                }
+            elif loc == "edge":
+                return {
+                    "lon": self.primal.edge.midpoint.lon,
+                    "lat": self.primal.edge.midpoint.lat
+                }
+            else:
+                raise ValueError(f"Invalid loc for primal: {loc}")
+        elif entity == "dual":
+            if loc == "cell":
+                return {
+                    "lon": self.dual.cell.centroid.lon,
+                    "lat": self.dual.cell.centroid.lat
+                }
+            elif loc == "node":
+                return {
+                    "lon": self.dual.node.coordinate.lon,
+                    "lat": self.dual.node.coordinate.lat
+                }
+            elif loc == "edge":
+                return {
+                    "lon": self.dual.edge.midpoint.lon,
+                    "lat": self.dual.edge.midpoint.lat
+                }
+            else:
+                raise ValueError(f"Invalid loc for dual: {loc}")
+        else:
+            raise ValueError(f"Invalid entity: {entity}")
+
     def get_idx(
         self,
         entity: str,

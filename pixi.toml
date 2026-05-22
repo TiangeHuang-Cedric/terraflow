@@ -49,7 +49,7 @@ dependencies = { cuda = ">=12.0, <13.0" }
 
 [feature.cuda.pypi-dependencies]
 jax = { version = "<=0.7.2", extras = ["cuda12"] }
-jaxkd = { version = ">=0.1.2", extras = ["cuda"] }
+jaxkd = { version = ">=0.1.2"}
 
 [tasks]
 build-mpi4jax = "pip uninstall -y mpi4jax; pip install --no-build-isolation 'mpi4jax>=0.8.1,<0.9'"

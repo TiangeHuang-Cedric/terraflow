@@ -50,7 +50,7 @@ def latlon_interp_bilinear_column(
     src_data: Float[Array, "nlev nlat nlon"],
     dst_lon: Float[Array, "npoint_dst"],
     dst_lat: Float[Array, "npoint_dst"],
-    extrap: bool = False
+    extrap: bool = True
 ) -> Float[Array, "nlev npoint_dst"]:
     if src_data.ndim == 3:
         # When src_data has 3 dimensions, we apply the interpolation to each vertical level independently using vmap
@@ -86,7 +86,7 @@ def _latlon_interp_bilinear_column(
     src_data: Float[Array, "nlat nlon"],
     dst_lon: Float[Array, "npoint_dst"],
     dst_lat: Float[Array, "npoint_dst"],
-    extrap: bool = False
+    extrap: bool = True
 ) -> Float[Array, "npoint_dst"]:
     nx1 = src_lon.shape[0]
     ny1 = src_lat.shape[0]
@@ -181,7 +181,7 @@ def latlon_interp_bilinear_init(
     src_lat: Float[Array, "nlat"],
     dst_lon: Float[Array, "npoint_dst"],
     dst_lat: Float[Array, "npoint_dst"],
-    extrap: bool = False,
+    extrap: bool = True,
 ) -> dict[str, object]:
     check_strictly_increasing_if_concrete("src_lon", src_lon)
     check_strictly_increasing_if_concrete("src_lat", src_lat)

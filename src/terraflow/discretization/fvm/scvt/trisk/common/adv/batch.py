@@ -201,7 +201,7 @@ class AdvBatchType(AbstractAdvBatchType[StaggeredFieldMetaData]):
                 )
 
         def istep_at_accumulating(batch: Self) -> Self:
-            # 0 < istep <= nsteps -1
+            # 0 <= istep <= nsteps -1
             m_ = batch.mstp.data + m
             mfn_ = batch.mfn.data + mfn
             if mfz is not None:

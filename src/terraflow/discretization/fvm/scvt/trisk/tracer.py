@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, TypeVar, Self, Optional
-import equinox as eqx
 import datetime
+import jax.numpy as jnp
+import equinox as eqx
 
+from terraflow.util import typing
 from terraflow.discretization.abstract import AbstractFields
 from terraflow.layout.abstract import MeshEntity, VertLoc, Basis
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData, NumericMetaData
@@ -27,6 +29,9 @@ if TYPE_CHECKING:
         TriSKBasedCGridStaggeringLayout,
         VLO
     ]
+
+Int = typing.Int
+Array = typing.Array
 
 FDT = ArrayField[StaggeredFieldMetaData]
 NDT = ArrayField[NumericMetaData]
@@ -57,9 +62,8 @@ class Tracer(AbstractFields[StaggeredFieldMetaData]):
     idx_qh: int = eqx.field(static=True, init=False, default=-1)
     idx_qo3: int = eqx.field(static=True, init=False, default=-1)
     idx_qso2: int = eqx.field(static=True, init=False, default=-1)
-    is_water_tracer: list[bool] = eqx.field(
-        static=True, init=False, default_factory=list
-    )
+    is_water_tracer: list[bool] = eqx.field(static=True, init=False, default_factory=list)
+    idxs_water_tracers: Int[Array, "ntracers_is_water"]
     ntracers_water: int = eqx.field(static=True, init=False, default=0)
     q: FDT
     mq: FDT
@@ -285,31 +289,37 @@ def default_tracer_meta(
 def tracer_catalog(tracer: Tracer) -> Tracer:
     tracer_names = list(tracer.tracers_meta.keys())
     is_water_tracer = [False] * len(tracer_names)
+    idxs_water_tracers = []
     ntracers_water = 0
     for idx, tracer_name in enumerate(tracer_names):
         if tracer_name == "qv" or tracer_name == "Q":
             object.__setattr__(tracer, "idx_qv", idx)
             is_water_tracer[idx] = True
+            idxs_water_tracers.append(idx)
             ntracers_water += 1
         elif tracer_name == "qc" or tracer_name == "CLDLIQ":
             object.__setattr__(tracer, "idx_qc", idx)
             is_water_tracer[idx] = True
+            idxs_water_tracers.append(idx)
             ntracers_water += 1
         elif tracer_name == "nc" or tracer_name == "NUMLIQ":
             object.__setattr__(tracer, "idx_nc", idx)
         elif tracer_name == "qi" or tracer_name == "CLDICE":
             object.__setattr__(tracer, "idx_qi", idx)
             is_water_tracer[idx] = True
+            idxs_water_tracers.append(idx)
             ntracers_water += 1
         elif tracer_name == "ni" or tracer_name == "NUMICE":
             object.__setattr__(tracer, "idx_ni", idx)
         elif tracer_name == "qr" or tracer_name == "RAINQM":
             object.__setattr__(tracer, "idx_qr", idx)
             is_water_tracer[idx] = True
+            idxs_water_tracers.append(idx)
             ntracers_water += 1
         elif tracer_name == "qs" or tracer_name == "SNOWQM":
             object.__setattr__(tracer, "idx_qs", idx)
             is_water_tracer[idx] = True
+            idxs_water_tracers.append(idx)
             ntracers_water += 1
         elif tracer_name == "qg":
             object.__setattr__(tracer, "idx_qg", idx)
@@ -322,5 +332,6 @@ def tracer_catalog(tracer: Tracer) -> Tracer:
         elif tracer_name == "qso2" or tracer_name == "SO2":
             object.__setattr__(tracer, "idx_qso2", idx)
     object.__setattr__(tracer, "is_water_tracer", is_water_tracer)
+    object.__setattr__(tracer, "idxs_water_tracers", jnp.array(idxs_water_tracers, dtype=jnp.int32))
     object.__setattr__(tracer, "ntracers_water", ntracers_water)
     return tracer

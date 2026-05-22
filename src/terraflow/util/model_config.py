@@ -2,8 +2,6 @@ from typing import Self
 import yaml
 import dataclasses
 
-from terraflow.util import log
-
 
 @dataclasses.dataclass
 class ModelConfig:
@@ -40,12 +38,6 @@ class ModelConfig:
     fct_regression_v: bool = True
     fct_lo_scheme_v: str = "upwind1"
 
-    def __init__(self, *args, **kwargs):
-        for field in dataclasses.fields(self):
-            if field.name in kwargs:
-                setattr(self, field.name, kwargs[field.name])
-        self.__post_init__()
-
     def __post_init__(self):
         if self.upwind_order_h == -1:
             object.__setattr__(self, "upwind_order_h", self.upwind_order)
@@ -53,35 +45,35 @@ class ModelConfig:
             object.__setattr__(self, "upwind_order_v", self.upwind_order)
 
     def __print__(self):
-        print("===================Model Config=====================")
-        print(f"  pgf_scheme          = {self.pgf_scheme}")
-        print(f"  ke_scheme           = {self.ke_scheme}")
-        print(f"  ke_gamma            = {self.ke_gamma}")
-        print(f"  coriolis_scheme     = {self.coriolis_scheme}")
-        print(f"  pv_adv_scheme       = {self.pv_adv_scheme}")
-        print(f"  upwind_order_pv     = {self.upwind_order_pv}")
-        print(f"  upwind_use_mbs_pv   = {self.upwind_use_mbs_pv}")
-        print(f"  upwind_optimized_pv = {self.upwind_optimized_pv}")
-        print(f"  bg_adv_scheme       = {self.bg_adv_scheme}")
-        print(f"  upwind_order_bg     = {self.upwind_order_bg}")
-        print(f"  upwind_optimized_bg = {self.upwind_optimized_bg}")
-        print(f"  pt_adv_scheme       = {self.pt_adv_scheme}")
-        print(f"  adv_scheme          = {self.adv_scheme}")
-        print(f"  upwind_order        = {self.upwind_order}")
-        print(f"  upwind_order_h      = {self.upwind_order_h}")
-        print(f"  upwind_order_v      = {self.upwind_order_v}")
-        print(f"  upwind_wgt          = {self.upwind_wgt}")
-        print(f"  upwind_use_mbs      = {self.upwind_use_mbs}")
-        print(f"  upwind_optimized    = {self.upwind_optimized}")
-        print(f"  wrf_order_h         = {self.wrf_order_h}")
-        print(f"  wrf_use_mbs         = {self.wrf_use_mbs}")
-        print(f"  wrf_optimized       = {self.wrf_optimized}")
-        print(f"  limiter_type        = {self.limiter_type}")
-        print(f"  fct_regression_h    = {self.fct_regression_h}")
-        print(f"  fct_lo_scheme_h     = {self.fct_lo_scheme_h}")
-        print(f"  fct_regression_v    = {self.fct_regression_v}")
-        print(f"  fct_lo_scheme_v     = {self.fct_lo_scheme_v}")
-        print("====================================================")
+        print("====================== Model Config ========================")
+        print(f"  pgf_scheme                 = {self.pgf_scheme}")
+        print(f"  ke_scheme                  = {self.ke_scheme}")
+        print(f"  ke_gamma                   = {self.ke_gamma}")
+        print(f"  coriolis_scheme            = {self.coriolis_scheme}")
+        print(f"  pv_adv_scheme              = {self.pv_adv_scheme}")
+        print(f"  upwind_order_pv            = {self.upwind_order_pv}")
+        print(f"  upwind_use_mbs_pv          = {self.upwind_use_mbs_pv}")
+        print(f"  upwind_optimized_pv        = {self.upwind_optimized_pv}")
+        print(f"  bg_adv_scheme              = {self.bg_adv_scheme}")
+        print(f"  upwind_order_bg            = {self.upwind_order_bg}")
+        print(f"  upwind_optimized_bg        = {self.upwind_optimized_bg}")
+        print(f"  pt_adv_scheme              = {self.pt_adv_scheme}")
+        print(f"  adv_scheme                 = {self.adv_scheme}")
+        print(f"  upwind_order               = {self.upwind_order}")
+        print(f"  upwind_order_h             = {self.upwind_order_h}")
+        print(f"  upwind_order_v             = {self.upwind_order_v}")
+        print(f"  upwind_wgt                 = {self.upwind_wgt}")
+        print(f"  upwind_use_mbs             = {self.upwind_use_mbs}")
+        print(f"  upwind_optimized           = {self.upwind_optimized}")
+        print(f"  wrf_order_h                = {self.wrf_order_h}")
+        print(f"  wrf_use_mbs                = {self.wrf_use_mbs}")
+        print(f"  wrf_optimized              = {self.wrf_optimized}")
+        print(f"  limiter_type               = {self.limiter_type}")
+        print(f"  fct_regression_h           = {self.fct_regression_h}")
+        print(f"  fct_lo_scheme_h            = {self.fct_lo_scheme_h}")
+        print(f"  fct_regression_v           = {self.fct_regression_v}")
+        print(f"  fct_lo_scheme_v            = {self.fct_lo_scheme_v}")
+        print("============================================================")
 
     @classmethod
     def from_yaml(cls, yaml_str: str) -> Self:

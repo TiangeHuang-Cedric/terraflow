@@ -3,6 +3,10 @@ from typing import TYPE_CHECKING
 
 from terraflow.util import log
 from terraflow.mesh.scvt.regridder import Regridder
+from terraflow.prepare.vert_interp import (
+    VerticalLinearInterpolator,
+    VerticalLogLinearInterpolator,
+)
 
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import (
@@ -20,6 +24,8 @@ from . import ref
 def prepare_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     # Regrid topo
     block = topo.regrid_topo(block=block, reader=reader)
+    if reader.cfg.use_zs_grad_filter:
+        block = topo.topo_smooth(block=block, reader=reader)
     block = ref.ref_calc_ps(block=block)
     return block
 
@@ -51,7 +57,7 @@ def prepare_bkg(
         backend=reader.cfg.hori_interp_backend,
         ndbounds=(reader.lev.shape[0],),
         method=reader.cfg.hori_interp_method,
-        extrap=reader.cfg.hori_extrap,
+        extrap=True,
         conserve_opt=reader.cfg.hori_conserve_opt,
         precompute_weights=True,
     )
@@ -62,16 +68,25 @@ def prepare_bkg(
         backend=reader.cfg.hori_interp_backend,
         ndbounds=(reader.lev.shape[0],),
         method=reader.cfg.hori_interp_method_at_edge,
-        extrap=reader.cfg.hori_extrap,
+        extrap=True,
         conserve_opt=reader.cfg.hori_conserve_opt,
         precompute_weights=True,
+    )
+    vert_linear_interp = VerticalLinearInterpolator(
+        backend=reader.cfg.vert_interp_backend,
+        allow_extrap=True
+    )
+    vert_log_linear_interp = VerticalLogLinearInterpolator(
+        backend=reader.cfg.vert_interp_backend,
+        allow_extrap=True
     )
     # Regrid background data and calculate derived variables
     # Stage 1:
     block = bkg.regrid_phs(
         block=block,
         reader=reader,
-        regridder=regridder_at_cell
+        regridder=regridder_at_cell,
+        vert_interp_linear=vert_linear_interp,
     )
     block = bkg.bkg_calc_ph(block=block)
     for cyc in range(3):
@@ -80,32 +95,37 @@ def prepare_bkg(
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
+            vert_interp_linear=vert_linear_interp,
         )
         block = bkg.regrid_wet_qc(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
+            vert_interp_linear=vert_linear_interp,
         )
         block = bkg.regrid_wet_qi(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
+            vert_interp_linear=vert_linear_interp,
         )
         block = bkg.regrid_wet_qr(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
+            vert_interp_linear=vert_linear_interp,
         )
         block = bkg.regrid_wet_qs(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
+            vert_interp_linear=vert_linear_interp,
         )
-        block = block.calc_qm(itime=0)
+        block = block.calc_qm(itime_str="old")
         # Stage 2:
         block = bkg.bkg_calc_mgs(block=block, mute=cyc != 0)
         block = bkg.bkg_calc_mg(block=block, mute=cyc != 0)
@@ -114,23 +134,30 @@ def prepare_bkg(
         block = bkg.bkg_calc_dry_qi(block=block, mute=cyc != 0)
         block = bkg.bkg_calc_dry_qr(block=block, mute=cyc != 0)
         block = bkg.bkg_calc_dry_qs(block=block, mute=cyc != 0)
-        block = block.calc_qm(itime=0)
+        block = block.calc_qm(itime_str="old")
         block = bkg.bkg_calc_ph(block=block)
-        # Stage 3:
-        block = bkg.regrid_un_from_uv(
+    # Stage 3:
+    block = bkg.regrid_un_from_uv(
+        block=block,
+        reader=reader,
+        regridder=regridder_at_edge,
+        vert_interp_linear=vert_linear_interp,
+    )
+    if prepare_regrid_gz:
+        block = bkg.regrid_gz(
             block=block,
             reader=reader,
-            regridder=regridder_at_edge
+            regridder=regridder_at_cell,
+            vert_interp_log_linear=vert_log_linear_interp,
         )
-        if prepare_regrid_gz:
-            block = bkg.regrid_gz(
-                block=block,
-                reader=reader,
-                regridder=regridder_at_cell
-            )
-            block = bkg.bkg_calc_t(block=block)
-        else:
-            block = bkg.bkg_calc_t(block=block)
-        block = bkg.bkg_calc_tv(block=block)
-        block = bkg.bkg_calc_pt(block=block)
+        block = bkg.bkg_calc_t(block=block)
+    else:
+        block = bkg.regrid_t(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_log_linear=vert_log_linear_interp,
+        )
+    block = bkg.bkg_calc_tv(block=block)
+    block = bkg.bkg_calc_pt(block=block)
     return block

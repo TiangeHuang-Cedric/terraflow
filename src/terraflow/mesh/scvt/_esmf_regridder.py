@@ -267,7 +267,7 @@ class ESMFRegridder:
         *,
         method: str = "bilinear",
         ndbounds: tuple[int, ...] | None = None,
-        extrap: bool = False,
+        extrap: bool = True,
         conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
         precompute_weights: bool = True,
     ):

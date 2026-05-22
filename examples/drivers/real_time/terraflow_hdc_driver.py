@@ -23,7 +23,7 @@ mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.cam_l32(dev=dev)
+vert = tf.vert_coord.HybridVertCoordinate.cam_l30(dev=dev)
 
 coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 
@@ -55,6 +55,7 @@ topo_reader = tf.readers.topo.ETOPO1Reader(
         fill_split_with_chunks=True,
         fill_lon_chunk_size=360,
         fill_lat_chunk_size=180,
+        use_zs_grad_filter=True,
     )
 )
 
@@ -65,13 +66,13 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
         hori_interp_method_at_edge="patch",
-        hori_extrap=True,
+        vert_interp_backend="jax",
     )
 )
 
 time_manager = tf.util.datetime.DateTimeManager.from_reader(
     reader=bkg_reader,
-    run_time="1 days",
+    run_time="12 days",
 )
 
 solver = tf.solver.ExRungeKutta3Solver(

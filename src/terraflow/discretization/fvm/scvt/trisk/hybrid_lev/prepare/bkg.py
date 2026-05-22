@@ -4,10 +4,6 @@ import jax.numpy as jnp
 
 from terraflow.util import typing, log, math, formula
 from terraflow.prepare.readers.era5 import ERA5Reader
-from terraflow.prepare.vert_interp import (
-    vert_interp_linear,
-    vert_interp_log_linear
-)
 from terraflow.mesh.scvt.operators import interp_weighted_add_plg2dua
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybrid_op
@@ -15,6 +11,10 @@ from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybr
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
     from terraflow.mesh.scvt.regridder import Regridder
+    from terraflow.prepare.vert_interp import (
+        VerticalLinearInterpolator,
+        VerticalLogLinearInterpolator,
+    )
     from terraflow.layout.field import StaggeredFieldMetaData
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
@@ -37,7 +37,8 @@ def _get_hori_coord(meta: StaggeredFieldMetaData, coord) -> dict[str, Float[Arra
 def regrid_phs(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
 ) -> BLOCK:
     log.logger.info("Regrid surface hydrostatic pressure.")
     g = block.para.gravity.unwrap()
@@ -52,8 +53,6 @@ def regrid_phs(
             x1=jnp.flip(z0, axis=0),
             data1=jnp.flip(logp0, axis=0),
             x2=gzs / g,
-            left="extrapolate",
-            right="extrapolate"
         )
         phs = jnp.exp(phs)
     else:
@@ -95,13 +94,14 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
 def regrid_gz(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_log_linear: VerticalLogLinearInterpolator
 ) -> BLOCK:
     log.logger.info("Regrid geopotential height.")
     coord = block.coord
     mesh = coord.mesh
-    polg_ids = mesh.polg_ids
-    polg_ihe = mesh.polg_ihe[0]
+    ids = mesh.polg_ids
+    ihe = mesh.polg_ihe[0]
     half_kde = coord.vert.half_kde
     full_kds = coord.vert.full_kds
     full_kde = coord.vert.full_kde
@@ -117,17 +117,13 @@ def regrid_gz(
             x1=p0,
             data1=z0,
             x2=ph_lev,
-            left="extrapolate",
-            right="extrapolate"
         )
         gz_lev = gz_lev * g
-        gz_lev = gz_lev.at[half_kde, polg_ids:polg_ihe+1].set(
-            gzs[polg_ids:polg_ihe+1]
-        )
-        gz = gz.at[full_kds:full_kde+1, polg_ids:polg_ihe+1].set(
+        gz_lev = gz_lev.at[half_kde, ids:ihe+1].set(gzs[ids:ihe+1])
+        gz = gz.at[full_kds:full_kde+1, ids:ihe+1].set(
             0.5 * (
-                gz_lev[full_kds:full_kde+1, polg_ids:polg_ihe+1]
-                + gz_lev[full_kds+1:full_kde+2, polg_ids:polg_ihe+1]
+                gz_lev[full_kds:full_kde+1, ids:ihe+1]
+                + gz_lev[full_kds+1:full_kde+2, ids:ihe+1]
             )
         )
     else:
@@ -156,16 +152,14 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
     idx_qv = block.tracers.idx_qv
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
     gz_lev = block.state.gz_lev.unwrap()[0, ...]
-    qm = block.tracers.qm.unwrap()[:, :]
+    qm = block.tracers.qm.unwrap()
     t = block.aux.t.unwrap()
     # =================================================================
     delta_gz = (
-        gz_lev[kds:kde+1, ids:ihe+1]
-        - gz_lev[kds+1:kde+2, ids:ihe+1]
+        gz_lev[kds:kde+1, ids:ihe+1] - gz_lev[kds+1:kde+2, ids:ihe+1]
     )
     log_ratio = jnp.log(
-        ph_lev[kds+1:kde+2, ids:ihe+1]
-        / ph_lev[kds:kde+1, ids:ihe+1]
+        ph_lev[kds+1:kde+2, ids:ihe+1] / ph_lev[kds:kde+1, ids:ihe+1]
     )
     tv = delta_gz / (rd * log_ratio)
     if idx_qv == -1:
@@ -192,7 +186,8 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
 def regrid_t(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_log_linear: VerticalLogLinearInterpolator
 ) -> BLOCK:
     log.logger.info("Regrid temperature.")
     coord = block.coord
@@ -204,8 +199,6 @@ def regrid_t(
             x1=reader.lev,
             data1=t0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -223,7 +216,8 @@ def regrid_t(
 def regrid_un_from_uv(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator
 ) -> BLOCK:
     coord = block.coord
     un_meta = block.state.un.meta
@@ -231,8 +225,18 @@ def regrid_un_from_uv(
     cart = coord_info["cart"]
     edge_normal = coord_info["nr_orient"]
     # =================================================================
-    u = _regrid_u(block=block, reader=reader, regridder=regridder)
-    v = _regrid_v(block=block, reader=reader, regridder=regridder)
+    u = _regrid_u(
+        block=block,
+        reader=reader,
+        regridder=regridder,
+        vert_interp_linear=vert_interp_linear
+    )
+    v = _regrid_v(
+        block=block,
+        reader=reader,
+        regridder=regridder,
+        vert_interp_linear=vert_interp_linear
+    )
     vec_cart = math.convert_vector_ltln2cart(u, v, cart)
     un = jnp.sum(vec_cart * edge_normal, axis=-1)
     # =================================================================
@@ -249,7 +253,8 @@ def regrid_un_from_uv(
 def _regrid_u(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator
 ) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid u wind component.")
     edd_v = block.coord.mesh._edd.v
@@ -264,8 +269,6 @@ def _regrid_u(
             x1=reader.lev,
             data1=u,
             x2=ph_e,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -278,7 +281,8 @@ def _regrid_u(
 def _regrid_v(
     block: BLOCK,
     reader: AbstractBackgroundReader,
-    regridder: Regridder
+    regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator
 ) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid v wind component.")
     edd_v = block.coord.mesh._edd.v
@@ -293,8 +297,6 @@ def _regrid_v(
             x1=reader.lev,
             data1=v,
             x2=ph_e,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -308,6 +310,7 @@ def regrid_wet_qv(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
 ) -> BLOCK:
     idx_qv = block.tracers.idx_qv
@@ -327,8 +330,6 @@ def regrid_wet_qv(
             x1=reader.lev,
             data1=q0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -351,6 +352,7 @@ def regrid_wet_qc(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
 ) -> BLOCK:
     idx_qc = block.tracers.idx_qc
@@ -370,8 +372,6 @@ def regrid_wet_qc(
             x1=reader.lev,
             data1=q0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -394,6 +394,7 @@ def regrid_wet_qi(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
 ) -> BLOCK:
     idx_qi = block.tracers.idx_qi
@@ -413,8 +414,6 @@ def regrid_wet_qi(
             x1=reader.lev,
             data1=q0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -505,6 +504,7 @@ def regrid_wet_qr(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
 ) -> BLOCK:
     idx_qr = block.tracers.idx_qr
@@ -525,8 +525,6 @@ def regrid_wet_qr(
             x1=reader.lev,
             data1=q0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(
@@ -549,6 +547,7 @@ def regrid_wet_qs(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
 ) -> BLOCK:
     idx_qs = block.tracers.idx_qs
@@ -569,8 +568,6 @@ def regrid_wet_qs(
             x1=reader.lev,
             data1=q0,
             x2=ph,
-            left="extrapolate",
-            right="extrapolate"
         )
     else:
         raise ValueError(

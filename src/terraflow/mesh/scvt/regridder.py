@@ -28,45 +28,8 @@ class SCVTRegridInfo:
     loc: str
     entity: str
 
-    def get_coord(self) -> dict:
-        if self.entity == "primal":
-            if self.loc == "cell":
-                return {
-                    "lon": self.mesh.primal.cell.centroid.lon,
-                    "lat": self.mesh.primal.cell.centroid.lat
-                }
-            elif self.loc == "node":
-                return {
-                    "lon": self.mesh.primal.node.coordinate.lon,
-                    "lat": self.mesh.primal.node.coordinate.lat
-                }
-            elif self.loc == "edge":
-                return {
-                    "lon": self.mesh.primal.edge.midpoint.lon,
-                    "lat": self.mesh.primal.edge.midpoint.lat
-                }
-            else:
-                raise ValueError(f"Invalid loc for primal: {self.loc}")
-        elif self.entity == "dual":
-            if self.loc == "cell":
-                return {
-                    "lon": self.mesh.dual.cell.centroid.lon,
-                    "lat": self.mesh.dual.cell.centroid.lat
-                }
-            elif self.loc == "node":
-                return {
-                    "lon": self.mesh.dual.node.coordinate.lon,
-                    "lat": self.mesh.dual.node.coordinate.lat
-                }
-            elif self.loc == "edge":
-                return {
-                    "lon": self.mesh.dual.edge.midpoint.lon,
-                    "lat": self.mesh.dual.edge.midpoint.lat
-                }
-            else:
-                raise ValueError(f"Invalid loc for dual: {self.loc}")
-        else:
-            raise ValueError(f"Invalid entity: {self.entity}")
+    def get_coord(self) -> dict[str, Float[Array, "npoints"]]:
+        return self.mesh.get_coord_info(loc=self.loc, entity=self.entity)
 
 
 class Regridder:
@@ -85,7 +48,7 @@ class Regridder:
         backend: str = "native",
         ndbounds: tuple[int, ...] | None = None,
         method: str = "bilinear",
-        extrap: bool = False,
+        extrap: bool = True,
         conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
         precompute_weights: bool = True,
     ):

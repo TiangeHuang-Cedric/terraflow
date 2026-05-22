@@ -1,10 +1,12 @@
 from __future__ import annotations
 from typing import Any, Dict, Self, TYPE_CHECKING
-import equinox as eqx
+import jax
 import jax.numpy as jnp
+import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
+from terraflow.mesh.scvt.operators import div_at_primal_cell
 from terraflow.discretization.abstract import (
     AbstractDynamicalEquationOperator,
     AbstractPrepareSpaceOperators
@@ -21,18 +23,89 @@ from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.dynamics.adv import types
 from terraflow.test_case import adv as test_case_adv
 
-
-DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
-
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
+    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
+    from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
+    from terraflow.layout.abstract import CoordinateSystem
     from terraflow.discretization.abstract import DiscretizationInfo, EquationMode
+    from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
     from .term import ExSpaceOperators as BaroclinicExSpaceOperators
     from .dynamics_types import Block as BLOCK
 
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
+
+    CoordSys = CoordinateSystem[
+        SphericalCentroidVoronoiTessellations,
+        HybridVertCoordinate,
+        TriSKBasedCGridStaggeringLayout,
+        HybridVertCoordLayout
+    ]
+
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
+
+
+def update_mfz_lev(block: BLOCK) -> BLOCK:
+    coord = block.coord
+
+    def update_at_batch(batch: AdvBatchType) -> AdvBatchType:
+
+        def istep_at_end(batch: AdvBatchType) -> AdvBatchType:
+            mesh = coord.mesh
+            vert = coord.vert
+            ids, ide = mesh.polg_ids, mesh.polg_ide
+            kds, kde = vert.full_kds, vert.full_kde
+            mfn = batch.mfn.unwrap()
+            mfz_lev = batch.mfz.unwrap()
+            # ==========================================================
+            dmf = div_at_primal_cell(
+                x_at_primal_edge=mfn,
+                coord=coord,
+                para=block.para
+            )
+            dmgsdt = - jnp.sum(dmf[kds:kde+1, ids:ide+1], axis=0)
+            dmgdt_lev = vert.calc_dmgdt_lev(
+                dmgsdt=dmgsdt,
+                ks=kds + 1,
+                ke=kde
+            )
+            mfz_lev = mfz_lev.at[kds+1:kde+1, ids:ide+1].set(
+                -dmgdt_lev - jnp.cumsum(
+                    dmf[:kde, ids:ide+1],
+                    axis=0
+                )
+            )
+            # ==========================================================
+            return tree_at(
+                coord=coord,
+                where=lambda b: b.mfz,
+                pytree=batch,
+                replace=mfz_lev,
+            )
+
+        def not_istep_at_end(batch: AdvBatchType) -> AdvBatchType:
+            return batch
+
+        return jax.lax.cond(
+            pred=batch.istep == batch.nsteps - 1,
+            true_fun=istep_at_end,
+            false_fun=not_istep_at_end,
+            operand=batch
+        )
+
+    for batch_name, batch in block.adv_batches.items():
+        batch = update_at_batch(batch)
+        block = eqx.tree_at(
+            lambda b: b.adv_batches[batch_name],
+            block,
+            batch
+        )
+
+    return block
 
 
 class ExPrepareSpaceOperators(
@@ -47,42 +120,6 @@ class ExPrepareSpaceOperators(
         super().__init__(disc=disc, method=method, mode=mode)
 
     def first_call(self, block: BLOCK) -> BLOCK:
-        # ===============================================
-        # Prepare background wind and mass for the first time step
-        m_old = block.state.dmg.unwrap()[block.old, ...]
-        un_old = block.state.un.unwrap()[block.old, ...]
-        block = eqx.tree_at(
-            lambda b: (
-                b.adv_batch_bg.m.data,
-                b.adv_batch_bg.un.data
-            ),
-            block,
-            (m_old, un_old),
-        )
-        # ===============================================
-        # Prepare tracer mass for the first time step
-        q_old = block.tracers.q.unwrap()[block.old, ...]
-        mq_old = m_old[None, ...] * q_old
-        block = tree_at(
-            coord=block.coord,
-            where=lambda b: b.tracers.mq,
-            pytree=block,
-            replace=mq_old,
-            at_dims=0,
-            at_idxes=block.old
-        )
-        # ===============================================
-        # Prepare wind and mass for all batches for the first time step
-        for batch_name in block.adv_batches.keys():
-            block = eqx.tree_at(
-                lambda b: (
-                    b.adv_batches[batch_name].m.data,
-                    b.adv_batches[batch_name].un.data,
-                ),
-                block,
-                (m_old, un_old),
-            )
-        # ===============================================
         return block
 
     def __call__(
@@ -242,6 +279,8 @@ class TracerRun3D:
     def d2a_coupling(self, block: BLOCK) -> BLOCK:
         block = self.space_operators.set_bg_wind(block, block.old)
         block = self.space_operators.accum_wind(block)
+        if not block.mode.is_advection():
+            block = update_mfz_lev(block)
         return block
 
 

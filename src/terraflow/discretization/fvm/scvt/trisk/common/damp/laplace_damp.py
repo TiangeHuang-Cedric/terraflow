@@ -27,20 +27,19 @@ def laplace_damp_1d(
     g = f_1d.reshape(1, -1)
     f = f.reshape(1, -1)
     df = df.reshape(1, -1)
-    if (order - 2) // 2 > 0:
-        for _ in range((order - 2) // 2):
-            f = mesh_ops.grad_at_dual_edge(
-                x_at_primal_cell=g,  # in
-                x_at_dual_edge=f,    # out
-                coord=coord,
-                para=para
-            )
-            g = mesh_ops.div_at_primal_cell(
-                x_at_primal_edge=f,  # in
-                x_at_primal_cell=g,  # out
-                coord=coord,
-                para=para
-            )
+    for _ in range((order - 2) // 2):
+        f = mesh_ops.grad_at_dual_edge(
+            x_at_primal_cell=g,  # in
+            x_at_dual_edge=f,    # out
+            coord=coord,
+            para=para
+        )
+        g = mesh_ops.div_at_primal_cell(
+            x_at_primal_edge=f,  # in
+            x_at_primal_cell=g,  # out
+            coord=coord,
+            para=para
+        )
     f = mesh_ops.grad_at_dual_edge(
         x_at_primal_cell=g,  # in
         x_at_dual_edge=f,    # out

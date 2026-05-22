@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 import os
 import xarray as xr
 
-from terraflow.util import log
-
 if TYPE_CHECKING:
     from terraflow.planet import PlanetParameterSet
     from terraflow.util import typing
@@ -33,9 +31,6 @@ class TopographyReaderConfig(AbstractReaderConfig):
     # "nearest", "bilinear", "conserve_1st", "conserve_2nd"
     interp_method: str = "conserve_1st"
 
-    # True or False
-    interp_extrap: bool = True
-
     # norm_opt: "destarea" or "fracarea"
     interp_conserve_opt: dict[str, Any] = field(
         default_factory=lambda: {"norm_opt": "destarea"}
@@ -51,25 +46,36 @@ class TopographyReaderConfig(AbstractReaderConfig):
     fill_lon_chunk_size: int = 360
     fill_lat_chunk_size: int = 180
 
+    # zs grad filter parameters
+    use_zs_grad_filter: bool = False
+    zs_grad_filter_order: int = 2
+    zs_grad_filter_coef: float = 1.0e6
+    zs_grad_filter_cycles: int = 100
+    topo_max_slope: float = 0.12
+
     def __print__(self):
-        print("=============Topography Reader Config===============")
+        print("================ Topography Reader Config ==================")
         if self.regrid_type == "interp":
-            print(f"  regrid_type          = {self.regrid_type}")
-            print(f"  interp_backend       = {self.interp_backend}")
-            print(f"  interp_method        = {self.interp_method}")
-            print(f"  interp_extrap        = {self.interp_extrap}")
-            print(f"  interp_conserve_opt  = {self.interp_conserve_opt}")
+            print(f"  regrid_type                = {self.regrid_type}")
+            print(f"  interp_backend             = {self.interp_backend}")
+            print(f"  interp_method              = {self.interp_method}")
+            print(f"  interp_conserve_opt        = {self.interp_conserve_opt}")
         elif self.regrid_type == "fill":
-            print(f"  regrid_type            = {self.regrid_type}")
-            print(f"  fill_backend           = {self.fill_backend}")
-            print(f"  fill_split_with_chunks = {self.fill_split_with_chunks}")
-            print(f"  fill_lon_chunk_size    = {self.fill_lon_chunk_size}")
-            print(f"  fill_lat_chunk_size    = {self.fill_lat_chunk_size}")
+            print(f"  regrid_type                = {self.regrid_type}")
+            print(f"  fill_backend               = {self.fill_backend}")
+            print(f"  fill_split_with_chunks     = {self.fill_split_with_chunks}")
+            print(f"  fill_lon_chunk_size        = {self.fill_lon_chunk_size}")
+            print(f"  fill_lat_chunk_size        = {self.fill_lat_chunk_size}")
         else:
             raise ValueError(
                 f"Unsupported regrid_type: {self.regrid_type}. Supported types: 'interp', 'fill'."
             )
-        print("====================================================")
+        print(f"  use_zs_grad_filter         = {self.use_zs_grad_filter}")
+        print(f"  zs_grad_filter_order       = {self.zs_grad_filter_order}")
+        print(f"  zs_grad_filter_coef        = {self.zs_grad_filter_coef}")
+        print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
+        print(f"  topo_max_slope             = {self.topo_max_slope}")
+        print("============================================================")
 
 
 @dataclass
@@ -83,22 +89,22 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     # "nearest", "bilinear", "patch"
     hori_interp_method_at_edge: str = "patch"
 
-    # True or False
-    hori_extrap: bool = True
-
     # norm_opt: "destarea" or "fracarea"
     hori_conserve_opt: dict[str, Any] = field(
         default_factory=lambda: {"norm_opt": "destarea"}
     )
 
+    # "jax" or "native"
+    vert_interp_backend: str = "jax"
+
     def __print__(self):
-        print("=============Background Reader Config===============")
+        print("================ Background Reader Config ==================")
         print(f"  hori_interp_backend        = {self.hori_interp_backend}")
         print(f"  hori_interp_method         = {self.hori_interp_method}")
         print(f"  hori_interp_method_at_edge = {self.hori_interp_method_at_edge}")
-        print(f"  hori_extrap                = {self.hori_extrap}")
         print(f"  hori_conserve_opt          = {self.hori_conserve_opt}")
-        print("====================================================")
+        print(f"  vert_interp_backend        = {self.vert_interp_backend}")
+        print("============================================================")
 
 
 class AbstractReader(ABC, Generic[READERCFG]):

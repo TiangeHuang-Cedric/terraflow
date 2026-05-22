@@ -215,27 +215,26 @@ class DryAirWeight(DynOperator):
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         mesh = block.coord.mesh
         vert = block.coord.vert
-        polg_ids = mesh.polg_ids
-        polg_ihe = mesh.polg_ihe[0]
-        full_kds = vert.full_kds
-        full_kde = vert.full_kde
-        half_kds = vert.half_kds
-        half_kde = vert.half_kde
+        ids, ihe = mesh.polg_ids, mesh.polg_ihe[0]
+        full_kds, full_kde = vert.full_kds, vert.full_kde
+        half_kds, half_kde = vert.half_kds, vert.half_kde
         mgs = block.state.mgs.unwrap()[star_idx, :]
         mg_lev = block.state.mg_lev.unwrap()[star_idx, :, :]
         mg = block.state.mg.unwrap()[star_idx, :, :]
         # ==========================================================
-        mg_lev = mg_lev.at[half_kds:half_kde+1, polg_ids:polg_ihe+1].set(
+        kds, kde = half_kds, half_kde
+        mg_lev = mg_lev.at[kds:kde+1, ids:ihe+1].set(
             block.coord.vert.calc_mg_lev(
-                mgs[polg_ids:polg_ihe+1],
-                ks=half_kds,
-                ke=half_kde
+                mgs[ids:ihe+1],
+                ks=kds,
+                ke=kde
             )
         )
-        mg = mg.at[full_kds:full_kde+1, polg_ids:polg_ihe+1].set(
+        kds, kde = full_kds, full_kde
+        mg = mg.at[kds:kde+1, ids:ihe+1].set(
             0.5 * (
-                mg_lev[full_kds:full_kde+1, polg_ids:polg_ihe+1]
-                + mg_lev[full_kds+1:full_kde+2, polg_ids:polg_ihe+1]
+                mg_lev[kds:kde+1, ids:ihe+1]
+                + mg_lev[kds+1:kde+2, ids:ihe+1]
             )
         )
         # ==========================================================
@@ -272,7 +271,6 @@ class DeltaDryAirWeight(DynOperator):
 
     def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
         coord = block.coord
-        kds, kde = coord.vert.full_kds, coord.vert.full_kde
         mg = block.state.mg.unwrap()[star_idx, :, :]
         mg_lev = block.state.mg_lev.unwrap()[star_idx, :, :]
         dmg = block.state.dmg.unwrap()[star_idx, :, :]
@@ -475,9 +473,9 @@ class HydrostaticPressure(DynOperator):
         # Calculate ph at half level
         kds, kde = half_kds, half_kde
         if self.mode.is_moist():
-            qm = block.tracers.qm.unwrap()[:, :]
-            dmg_ = dmg[kds:kde+1, ids:ihe+1]
-            qm_ = qm[kds:kde+1, ids:ihe+1]
+            qm = block.tracers.qm.unwrap()
+            dmg_ = dmg[kds:kde, ids:ihe+1]
+            qm_ = qm[kds:kde, ids:ihe+1]
             moist_dmg = dmg_ * (1.0 + qm_)
             ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
                 mg_lev[kds, :] + jnp.cumulative_sum(
@@ -489,7 +487,7 @@ class HydrostaticPressure(DynOperator):
         else:
             ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
                 mg_lev[kds, :] + jnp.cumulative_sum(
-                    dmg[kds:kde+1, ids:ihe+1],
+                    dmg[kds:kde, ids:ihe+1],
                     axis=0,
                     include_initial=True
                 )
@@ -551,11 +549,14 @@ class Pressure(DynOperator):
         p_lev = block.state.p_lev.unwrap()[star_idx, :, :]
         # =======================================================
         if self.mode.hydrostatic:
-            p_lev = p_lev.at[half_kds:half_kde+1, ids:ihe+1].set(
-                ph_lev[half_kds:half_kde+1, ids:ihe+1]
+            kds, kde = half_kds, half_kde
+            p_lev = p_lev.at[kds:kde+1, ids:ihe+1].set(
+                ph_lev[kds:kde+1, ids:ihe+1]
             )
-            p = p.at[full_kds:full_kde+1, ids:ihe+1].set(
-                ph[full_kds:full_kde+1, ids:ihe+1]
+
+            kds, kde = full_kds, full_kde
+            p = p.at[kds:kde+1, ids:ihe+1].set(
+                ph[kds:kde+1, ids:ihe+1]
             )
         else:
             raise NotImplementedError
@@ -1177,6 +1178,8 @@ class ExPrepareSpaceOperators(
         old = block.old
         block = self.mg(block, old)
         block = self.dmg(block, old)
+        if self.mode.is_moist():
+            block = block.calc_qm(itime_str="old")
         block = self.mfn(block, old)
         block = self.dmf(block, old)
         block = self.ph(block, old)
@@ -1198,7 +1201,6 @@ class ExPrepareSpaceOperators(
         pass_tag: str,
         explicit: bool
     ) -> BLOCK:
-        # TODO: optimize by using forward-backward scheme
         if pass_tag == "all_pass":
             block = self.ut(block, star_idx)
             block = self.mfn(block, star_idx)
@@ -1385,6 +1387,7 @@ class ExSpaceOperators(
     def advection_stepper(self, block: BLOCK, explicit: bool) -> BLOCK:
         if not self.mode.ideal_dry_core:
             block = self.tracer_run(block, explicit=explicit)
+            block = block.calc_qm(itime_str="old")
         return block
 
     def diagnose(
@@ -1471,7 +1474,7 @@ class ExSpaceOperators(
                     old_pt[kds:kde+1, ids:ide+1]
                     * old_dmg[kds:kde+1, ids:ide+1]
                     + dptdt[kds:kde+1, ids:ide+1] * dt
-                )/new_dmg[kds:kde+1, ids:ide+1]
+                ) / new_dmg[kds:kde+1, ids:ide+1]
             )
             # ==================================================
             block = tree_at(

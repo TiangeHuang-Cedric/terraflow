@@ -293,6 +293,7 @@ class AbstractHistoryset(ABC, Generic[HY, SHY]):
         log.logger.log(
             "RUNTIME",
             f"==> {self.time_manager.curr_time4save(self.save_interval, save_interval_idx)}  "
+            f"{format_seconds(tfdatetime.elapsed_seconds_in_integration, precision=16)}  "
             f"{format_seconds(tfdatetime.elapsed_secondes_in_real_world, precision=16)}"
         )
         return None
@@ -592,7 +593,7 @@ class UnstructuredHistoryset(
         **kwargs
     ) -> None:
         mode: EquationMode = equation.mode
-        with_edge = False if not mode.is_advection() else True
+        with_edge = False if not mode.is_advection() and not mode.is_baroclinic() else True
         with_vtx = True if not mode.is_advection() else False
         super().__init__(
             solver=solver,

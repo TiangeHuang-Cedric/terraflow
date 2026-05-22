@@ -6,6 +6,7 @@ from typing import (
     TYPE_CHECKING
 )
 import jax.numpy as jnp
+import equinox as eqx
 
 from terraflow.util import log
 from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
@@ -19,6 +20,7 @@ from terraflow.test_case.adv import (
     SolidRotationTestCase,
 )
 from terraflow.discretization.fvm.scvt.trisk.base_types import AbstractBaseBlock
+from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from ..test_case.swm import barotropic_case_init_fn
 from ..test_case.adv import advection2d_case_init_fn
 
@@ -92,7 +94,50 @@ class Block(AbstractBaseBlock[OneLayerVertCoordinate, OneLayerVertCoordLayout]):
             raise ValueError(
                 f"Invalid equation mode for testcase initialization. Invalid mode={equation.mode}"
             )
+        # =======================================================
+        block = prepare_block_before_integration(block)
         block = solver.equation.prepare_block(block)
         # =======================================================
         log.logger.success("Initialized block from testcase.")
         return block
+
+
+def prepare_block_before_integration(block: Block) -> Block:
+    if block.mode.is_advection2d():
+        # ===============================================
+        # Background wind and mass
+        m_old = block.state.dmg.unwrap()[block.old, ...]
+        un_old = block.state.un.unwrap()[block.old, ...]
+        block = eqx.tree_at(
+            lambda b: (
+                b.adv_batch_bg.m.data,
+                b.adv_batch_bg.un.data
+            ),
+            block,
+            (m_old, un_old),
+        )
+        # ===============================================
+        # Tracer mass
+        q_old = block.tracers.q.unwrap()[block.old, ...]
+        mq_old = m_old[None, ...] * q_old
+        block = tree_at(
+            coord=block.coord,
+            where=lambda b: b.tracers.mq,
+            pytree=block,
+            replace=mq_old,
+            at_dims=0,
+            at_idxes=block.old
+        )
+        # ===============================================
+        # Wind and mass for all batches
+        for batch_name in block.adv_batches.keys():
+            block = eqx.tree_at(
+                lambda b: (
+                    b.adv_batches[batch_name].m.data,
+                    b.adv_batches[batch_name].un.data,
+                ),
+                block,
+                (m_old, un_old),
+            )
+        # ===============================================
+    return block

@@ -290,10 +290,16 @@ class AbstractBaseBlock(
 
     def diagnose_total_water_vapor(
         self,
-        itime: Int[Array, ""] | int
+        itime_str: str
     ) -> Float[Array, ""]:
-        # TODO: When processing moist dycore, this should be modified
-        raise NotImplementedError
+        idx_qv = self.tracers.idx_qv
+        if idx_qv >= 0:
+            itime_qv = self.adv_batches["moist"].get_time_idx(itime_str=itime_str)
+            primal_area = self.coord.mesh.primal.cell.area
+            mqv = self.tracers.mq.unwrap()[itime_qv, idx_qv, :, :]
+            return jnp.sum(mqv * primal_area[None, :])
+        else:
+            return jnp.array(0.0, dtype=jnp.float64)
 
     def diagnose_total_energy(
         self,
@@ -438,8 +444,8 @@ class AbstractBaseBlock(
         # Total mass
         tm = self.diagnose_total_mass(itime_str=itime_str)
         # =========================================
-        # TODO: When processing moist dycore, this should be modified
         # Total water vapor
+        tqv = self.diagnose_total_water_vapor(itime_str=itime_str)
         # =========================================
         # Total energy
         out = self.diagnose_total_energy(itime_str=itime_str)
@@ -454,7 +460,7 @@ class AbstractBaseBlock(
         # Wrap diagnosed variables into block
         itime = self.get_time_idx(itime_str=itime_str)
         coord = cast(CoordSys, self.coord)
-        if self.mode.is_baroclinic():
+        if self.mode.is_baroclinic() and self.mode.is_dry():
             return tree_at(
                 coord=coord,
                 where=lambda b: (
@@ -465,6 +471,18 @@ class AbstractBaseBlock(
                 replace=(tm, te, tpe, tpt, te_ke, te_ie, te_pe),
                 at_dims=(0,) * 7,
                 at_idxes=(itime,) * 7
+            )
+        if self.mode.is_baroclinic() and self.mode.is_moist():
+            return tree_at(
+                coord=coord,
+                where=lambda b: (
+                    b.state.tm, b.state.tqv, b.state.te, b.state.tpe, b.state.tpt,
+                    b.state.te_ke, b.state.te_ie, b.state.te_pe
+                ),
+                pytree=self,
+                replace=(tm, tqv, te, tpe, tpt, te_ke, te_ie, te_pe),
+                at_dims=(0,) * 8,
+                at_idxes=(itime,) * 8
             )
         else:
             raise ValueError(
@@ -564,16 +582,20 @@ class AbstractBaseBlock(
         # ==========================================
         return self
 
-    def calc_qm(self, itime: Int[Array, ""] | int) -> Self:
-        q = self.tracers.q.unwrap()[itime, :, :, :]
-        is_water_tracer = self.tracers.is_water_tracer
-        qm = jnp.sum(q[is_water_tracer, :, :], axis=0)
-        return tree_at(
-            coord=cast(CoordSys, self.coord),
-            where=lambda b: b.tracers.qm,
-            pytree=self,
-            replace=qm,
-        )
+    def calc_qm(self, itime_str: str) -> Self:
+        if self.mode.is_moist():
+            itime = self.adv_batches["moist"].get_time_idx(itime_str=itime_str)
+            q = self.tracers.q.unwrap()[itime, :, :, :]
+            idxs_water_tracers = self.tracers.idxs_water_tracers
+            qm = jnp.sum(q[idxs_water_tracers, :, :], axis=0)
+            return tree_at(
+                coord=cast(CoordSys, self.coord),
+                where=lambda b: b.tracers.qm,
+                pytree=self,
+                replace=qm,
+            )
+        else:
+            return self
 
 
 class State(AbstractFields[StaggeredFieldMetaData]):
@@ -597,6 +619,7 @@ class State(AbstractFields[StaggeredFieldMetaData]):
     p: FDT
     p_lev: FDT
     tm: NDT
+    tqv: NDT
     te: NDT
     te_ke: NDT
     te_ie: NDT
@@ -690,7 +713,11 @@ class Tendency(AbstractFields[StaggeredFieldMetaData]):
 class Static(AbstractFields[StaggeredFieldMetaData]):
     mode: EquationMode = eqx.field(static=True)
     fields: Dict[str, StaggeredFieldMetaData] = eqx.field(static=True)
+    landmask: FDT
+    # Topography
     gzs: FDT
+    grad_zs: FDT
+    # Reference surface pressure
     ref_ps: FDT
     ref_ps_smth: FDT
     ref_ps_perb: FDT

@@ -53,67 +53,6 @@ DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 AdvOperator = AbstractAdvectionEquationOperator[FiniteVolumeMethod]
 
 
-class MassFluxAtEdge(DynOperator):
-    def __init__(
-        self,
-        disc: DiscretizationInfo,
-        method: FiniteVolumeMethod,
-        mode: EquationMode
-    ):
-        super().__init__(disc=disc, method=method, mode=mode)
-        self.adv_scheme = HorizontalAdvectionSchemeAtCell()
-
-    def __call__(self, block: BLOCK, star_idx: Int[Array, ""] | int) -> BLOCK:
-        coord = block.coord
-        batch = block.adv_batch_bg
-        m = block.state.dmg.unwrap()[star_idx, ...]
-        # ===================================
-        # Calculate mass flux at edge
-        batch = self.adv_scheme.calc_mass_hflx(
-            m=m,
-            batch=batch,
-            coord=coord,
-            aux=block.equaux.adv,
-        )
-        # ===================================
-        return eqx.tree_at(
-            where=lambda b: b.adv_batch_bg,
-            pytree=block,
-            replace=batch,
-        )
-
-    def upwind(
-        self,
-        order: int = 3,
-        optimized: bool = True
-    ) -> Self:
-        self.adv_scheme.upwind(order=order, optimized=optimized)
-        self._cfg = {
-            "bg_adv_scheme": "upwind",
-            "upwind_order_bg": order,
-            "upwind_optimized_bg": int(optimized)
-        }
-        return self
-
-    def config2dict(self) -> Dict[str, Any]:
-        self._cfg.update(
-            self.adv_scheme.config2dict()
-        )
-        return self._cfg
-
-    def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
-        if not self.has_built():
-            self.adv_scheme.build_with_config(
-                target="bg",
-                cfg=cfg,
-            )
-            self._built = True
-        return self
-
-    def prepare_block(self, block: BLOCK) -> BLOCK:
-        return self.adv_scheme.prepare_block(block)
-
-
 class SetWindForBackground(DynOperator):
     def __init__(
         self,
@@ -123,34 +62,35 @@ class SetWindForBackground(DynOperator):
     ):
         super().__init__(disc=disc, method=method, mode=mode)
 
-    def __call__(self, block: BLOCK, itime: Int[Array, ""] | int) -> BLOCK:
-        if self.mode.is_2d_model():
-            un = block.state.un.unwrap()[itime, ...]
-            m = block.state.dmg.unwrap()[itime, ...]
+    def __call__(self, block: BLOCK, old: Int[Array, ""] | int) -> BLOCK:
+        if self.mode.is_advection2d():
+            m = block.state.dmg.unwrap()[old, ...]
             return eqx.tree_at(
-                lambda b: (
-                    b.adv_batch_bg.un.data,
-                    b.adv_batch_bg.m.data,
-                ),
+                lambda b: b.adv_batch_bg.m.data,
                 block,
-                (un, m)
+                m
             )
-        elif self.mode.is_3d_model():
-            un = block.state.un.unwrap()[itime, ...]
-            m = block.state.dmg.unwrap()[itime, ...]
-            mfz_lev = block.aux.mfz_lev.unwrap()
+        elif self.mode.is_advection3d():
+            m = block.state.dmg.unwrap()[old, ...]
+            mfz = block.aux.mfz_lev.unwrap()
             return eqx.tree_at(
                 lambda b: (
-                    b.adv_batch_bg.un.data,
                     b.adv_batch_bg.m.data,
                     b.adv_batch_bg.mfz.data
                 ),
                 block,
-                (un, m, mfz_lev)
+                (m, mfz)
             )
         else:
-            raise NotImplementedError(
-                f"Unsupported model mode: {self.mode}"
+            m = block.state.dmg.unwrap()[old, ...]
+            mfn = block.aux.mfn.unwrap()
+            return eqx.tree_at(
+                lambda b: (
+                    b.adv_batch_bg.m.data,
+                    b.adv_batch_bg.mfn.data
+                ),
+                block,
+                (m, mfn)
             )
 
     def config2dict(self) -> Dict[str, Any]:
@@ -176,21 +116,7 @@ class AccumWind(DynOperator):
         super().__init__(disc=disc, method=method, mode=mode)
 
     def __call__(self, block: BLOCK) -> BLOCK:
-        if self.mode.is_2d_model():
-            m = block.adv_batch_bg.m.unwrap()
-            mfn = block.adv_batch_bg.mfn.unwrap()
-            for batch_name, batch in block.adv_batches.items():
-                batch = batch.accum_wind(
-                    coord=block.coord,
-                    m=m,
-                    mfn=mfn,
-                )
-                block = eqx.tree_at(
-                    lambda b: b.adv_batches[batch_name],
-                    block,
-                    batch
-                )
-        elif self.mode.is_3d_model():
+        if self.mode.is_advection3d():
             m = block.adv_batch_bg.m.unwrap()
             mfn = block.adv_batch_bg.mfn.unwrap()
             mfz = block.adv_batch_bg.mfz.unwrap()
@@ -199,7 +125,7 @@ class AccumWind(DynOperator):
                     coord=block.coord,
                     m=m,
                     mfn=mfn,
-                    mfz=mfz,
+                    mfz=mfz
                 )
                 block = eqx.tree_at(
                     lambda b: b.adv_batches[batch_name],
@@ -207,9 +133,19 @@ class AccumWind(DynOperator):
                     batch
                 )
         else:
-            raise NotImplementedError(
-                f"Unsupported model mode: {self.mode}"
-            )
+            m = block.adv_batch_bg.m.unwrap()
+            mfn = block.adv_batch_bg.mfn.unwrap()
+            for batch_name, batch in block.adv_batches.items():
+                batch = batch.accum_wind(
+                    coord=block.coord,
+                    m=m,
+                    mfn=mfn,
+                )
+                block = eqx.tree_at(
+                    lambda b: b.adv_batches[batch_name],
+                    block,
+                    batch
+                )
         return block
 
     def config2dict(self) -> Dict[str, Any]:
@@ -234,7 +170,7 @@ class TendencyOfMassDueToDivergenceOfMassFlux(
         mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
-        self.mfn = MassFluxAtEdge(disc=disc, method=method, mode=mode)
+        self.adv_scheme = HorizontalAdvectionSchemeAtCell()
 
     def __call__(
         self,
@@ -248,17 +184,32 @@ class TendencyOfMassDueToDivergenceOfMassFlux(
     ) -> BLOCK:
         coord = block.coord
         para = block.para
+        un_old = block.state.un.unwrap()[old_idx, ...]
         m_old = block.state.dmg.unwrap()[old_idx, :, :]
+        m_star = block.state.dmg.unwrap()[star_idx, :, :]
+        batch = block.adv_batch_bg
         # ===================================
-        block = self.mfn(block=block, star_idx=star_idx)
-        mfn = block.adv_batch_bg.mfn.unwrap()
+        # Set wind
+        batch = batch.set_wind(un_old)
+        # Calculate mass flux at edge
+        batch = self.adv_scheme.calc_mass_hflx(
+            m=m_star,
+            batch=batch,
+            coord=coord,
+            aux=block.equaux.adv,
+        )
         dmf = mesh_op.div_at_primal_cell(
-            x_at_primal_edge=mfn,
+            x_at_primal_edge=batch.mfn.unwrap(),
             coord=coord,
             para=para,
         )
         m_new = m_old - dt * dmf
         # ===================================
+        block = eqx.tree_at(
+            lambda b: b.adv_batch_bg,
+            block,
+            batch
+        )
         return tree_at(
             coord=coord,
             where=lambda b: b.state.dmg,
@@ -269,17 +220,17 @@ class TendencyOfMassDueToDivergenceOfMassFlux(
         )
 
     def config2dict(self) -> Dict[str, Any]:
-        cfg = self.mfn.config2dict()
+        cfg = self.adv_scheme.config2dict()
         return self._update_config(cfg=cfg)
 
     def build_with_config(self, cfg: model_config.ModelConfig) -> Self:
         if not self.has_built():
-            self.mfn.build_with_config(cfg=cfg)
+            self.adv_scheme.build_with_config(target="bg", cfg=cfg)
             self._built = True
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
-        return self.mfn.prepare_block(block)
+        return self.adv_scheme.prepare_block(block)
 
 
 class TendencyOfMassFluxDueToVerticalAdvection(

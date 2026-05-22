@@ -25,7 +25,7 @@ class NativeRegridder:
         dst_lat: Float[Array, "npoint_dst"],
         method: str = "bilinear",
         *,
-        extrap: bool = False,
+        extrap: bool = True,
         precompute_weights: bool = True,
     ):
         self.src_lon = src_lon

@@ -1,19 +1,19 @@
 from __future__ import annotations
 from typing import Any, Dict, Self, TYPE_CHECKING
-import equinox as eqx
 
 from terraflow.util import typing
 from terraflow.operator import FiniteVolumeMethod
-from terraflow.discretization.abstract import AbstractPrepareSpaceOperators
+from terraflow.discretization.abstract import (
+    AbstractDynamicalEquationOperator,
+    AbstractPrepareSpaceOperators
+)
 from terraflow.discretization.fvm.scvt.trisk.common.adv.term import (
     SetWindForBackground,
     AccumWind,
     TendencyOfMassDueToDivergenceOfMassFlux,
     TendencyOfTracerDueToDivergenceOfTracerFlux
 )
-from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.dynamics.adv import types
-
 
 if TYPE_CHECKING:
     from terraflow.util.model_config import ModelConfig
@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     Float = typing.Float
     Int = typing.Int
     Array = typing.Array
+
+DynOperator = AbstractDynamicalEquationOperator[FiniteVolumeMethod]
 
 
 class ExPrepareSpaceOperators(
@@ -37,42 +39,6 @@ class ExPrepareSpaceOperators(
         super().__init__(disc=disc, method=method, mode=mode)
 
     def first_call(self, block: Block) -> Block:
-        # ===============================================
-        # Prepare background wind and mass for the first time step
-        m_old = block.state.dmg.unwrap()[block.old, ...]
-        un_old = block.state.un.unwrap()[block.old, ...]
-        block = eqx.tree_at(
-            lambda b: (
-                b.adv_batch_bg.m.data,
-                b.adv_batch_bg.un.data
-            ),
-            block,
-            (m_old, un_old),
-        )
-        # ===============================================
-        # Prepare tracer mass for the first time step
-        q_old = block.tracers.q.unwrap()[block.old, ...]
-        mq_old = m_old[None, ...] * q_old
-        block = tree_at(
-            coord=block.coord,
-            where=lambda b: b.tracers.mq,
-            pytree=block,
-            replace=mq_old,
-            at_dims=0,
-            at_idxes=block.old
-        )
-        # ===============================================
-        # Prepare wind and mass for all batches for the first time step
-        for batch_name in block.adv_batches.keys():
-            block = eqx.tree_at(
-                lambda b: (
-                    b.adv_batches[batch_name].m.data,
-                    b.adv_batches[batch_name].un.data,
-                ),
-                block,
-                (m_old, un_old),
-            )
-        # ===============================================
         return block
 
     def __call__(
