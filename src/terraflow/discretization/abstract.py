@@ -1917,6 +1917,8 @@ class AbstractBlock(
 ):
     elapsed_seconds: Float[Array, ""]
     mode: EquationMode = eqx.field(static=True)
+    dt_dyn: float = eqx.field(static=True)
+    dt_adv: float = eqx.field(static=True)
     old: Array
     new: Array
     _coord: CoordinateSystem[HM, VM, HLO, VLO]

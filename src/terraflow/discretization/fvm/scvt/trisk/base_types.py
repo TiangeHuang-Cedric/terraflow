@@ -201,6 +201,8 @@ class AbstractBaseBlock(
         return cls(
             elapsed_seconds=jnp.array(0.0, dtype=float_type),
             mode=mode,
+            dt_dyn=solver.dt_dyn.total_seconds(),
+            dt_adv=solver.dt_adv.total_seconds(),
             old=jnp.array(0, dtype=jnp.int32),
             new=jnp.array(1, dtype=jnp.int32),
             _coord=coord,

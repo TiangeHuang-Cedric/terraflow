@@ -48,6 +48,7 @@ class TopographyReaderConfig(AbstractReaderConfig):
 
     # zs grad filter parameters
     use_zs_grad_filter: bool = False
+    zs_grad_filter_type: str = "laplacian1"  # "laplacian1" or "laplacian2"
     zs_grad_filter_order: int = 2
     zs_grad_filter_coef: float = 1.0e6
     zs_grad_filter_cycles: int = 100
@@ -71,10 +72,15 @@ class TopographyReaderConfig(AbstractReaderConfig):
                 f"Unsupported regrid_type: {self.regrid_type}. Supported types: 'interp', 'fill'."
             )
         print(f"  use_zs_grad_filter         = {self.use_zs_grad_filter}")
-        print(f"  zs_grad_filter_order       = {self.zs_grad_filter_order}")
-        print(f"  zs_grad_filter_coef        = {self.zs_grad_filter_coef}")
-        print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
-        print(f"  topo_max_slope             = {self.topo_max_slope}")
+        if self.zs_grad_filter_type == "laplacian1":
+            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type}")
+            print(f"  zs_grad_filter_order       = {self.zs_grad_filter_order}")
+            print(f"  zs_grad_filter_coef        = {self.zs_grad_filter_coef}")
+            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
+            print(f"  topo_max_slope             = {self.topo_max_slope}")
+        elif self.zs_grad_filter_type == "laplacian2":
+            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type}")
+            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
         print("============================================================")
 
 

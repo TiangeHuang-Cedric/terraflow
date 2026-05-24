@@ -96,10 +96,22 @@ def topo_smooth(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     log.logger.info(f"Maximum topography slope angle after grad filter is {tmp:.2f} deg.")
     tmp = jnp.max(block.static.gzs.unwrap() / g)
     log.logger.info(f"Maximum zs is {tmp:.2f} m")
+    # ================================================
     return block
 
 
 def zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
+    filter_type = reader.cfg.zs_grad_filter_type
+    if filter_type == "laplacian1":
+        block = _laplacian1_zs_grad_filter(block, reader)
+    elif filter_type == "laplacian2":
+        block = _laplacian2_zs_grad_filter(block, reader)
+    else:
+        raise ValueError(f"Unsupported zs grad filter type: {filter_type}")
+    return block
+
+
+def _laplacian1_zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     # Do Laplacian damping on target grid with terrain slope larger than a threshold.
     para = block.para
     coord = block.coord
@@ -128,9 +140,9 @@ def zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
                 coord=coord,
                 para=para,
             )
-            df = div_at_primal_cell(
+            f = div_at_primal_cell(
                 x_at_primal_edge=grad_f,
-                x_at_primal_cell=df,
+                x_at_primal_cell=f,
                 coord=coord,
                 para=para,
             )
@@ -152,10 +164,7 @@ def zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
         if zs_grad_filter_order > 2:
             grad_f = grad_f * jnp.maximum(
                 0.0,
-                jnp.max(
-                    jnp.sign(-grad_f * (gzs[:, cell_v1] - gzs[:, cell_v0]) * edpnr_eddtg),
-                    axis=-1
-                )
+                jnp.sign(-grad_f * (gzs[:, cell_v1] - gzs[:, cell_v0]) * edpnr_eddtg)
             )
         df = div_at_primal_cell(
             x_at_primal_edge=grad_f,
@@ -168,6 +177,44 @@ def zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
         grad_zs = calc_zs_slope(block, gzs, grad_zs)
     gzs = gzs.reshape(-1)
     grad_zs = grad_zs.reshape(-1)
+    # =========================================================
+    return tree_at(
+        coord=coord,
+        where=lambda b: (b.static.gzs, b.static.grad_zs),
+        pytree=block,
+        replace=(gzs, grad_zs),
+    )
+
+
+def _laplacian2_zs_grad_filter(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
+    para = block.para
+    coord = block.coord
+    gzs = block.static.gzs.unwrap().reshape(1, -1)
+    grad_zs = block.static.grad_zs.unwrap().reshape(1, -1)
+    grad_f = block.aux.f_1d.unwrap().reshape(1, -1)
+    df = block.aux.df_1d.unwrap().reshape(1, -1)
+    zs_grad_filter_cycles = reader.cfg.zs_grad_filter_cycles
+    dt_dyn = block.dt_dyn
+    # =========================================================
+    for _ in range(zs_grad_filter_cycles):
+        f = gzs
+        grad_f = grad_at_dual_edge(
+            x_at_primal_cell=f,
+            x_at_dual_edge=grad_f,
+            coord=coord,
+            para=para,
+        )
+        df = div_at_primal_cell(
+            x_at_primal_edge=grad_f,
+            x_at_primal_cell=df,
+            coord=coord,
+            para=para,
+        )
+        gzs = gzs + dt_dyn * df
+    grad_zs = calc_zs_slope(block, gzs, grad_zs)
+    gzs = gzs.reshape(-1)
+    grad_zs = grad_zs.reshape(-1)
+    # =========================================================
     return tree_at(
         coord=coord,
         where=lambda b: (b.static.gzs, b.static.grad_zs),
