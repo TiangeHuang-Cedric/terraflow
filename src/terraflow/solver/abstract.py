@@ -283,10 +283,12 @@ class AbstractSolver(Generic[ODE], ABC):
         return first_call_fn
 
     def terraflow_run(self) -> Callable:
+        damp_stepper = self.equation._space_operators.damp
         dynamical_stepper = self.dynamical_stepper()
         advection_stepper = self.advection_stepper()
 
         def run_fn(block: AbstractBlock) -> AbstractBlock:
+            block = damp_stepper(block, itime=block.old)
             block = dynamical_stepper(block)
             block = block.swap_time_indices()
             block = advection_stepper(block)

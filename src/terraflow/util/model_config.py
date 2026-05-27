@@ -9,19 +9,24 @@ class ModelConfig:
     ke_scheme: str = "gassmann_2013"
     ke_gamma: float = 0.9
     coriolis_scheme: str = "trisk"
+
     # pv advection
     pv_adv_scheme: str = "upwind"
     upwind_order_pv: int = 3
     upwind_use_mbs_pv: bool = True
     upwind_optimized_pv: bool = True
+
     # Background advection
     bg_adv_scheme: str = "upwind"
     upwind_order_bg: int = 3
     upwind_optimized_bg: bool = True
+
     # Potential Temperature advection
     pt_adv_scheme: str = "upwind"
+
     # Tracer batches advection
     adv_scheme: str = "upwind"
+
     # Advection configuration
     upwind_order: int = 3
     upwind_order_h: int = -1
@@ -37,6 +42,13 @@ class ModelConfig:
     fct_lo_scheme_h: str = "upwind1"
     fct_regression_v: bool = True
     fct_lo_scheme_v: str = "upwind1"
+
+    # Damp
+    use_smag_damp: bool = False
+    smag_damp_coef: float = 0.015
+    use_sponge_layer: bool = False
+    sponge_layer_k0: int = 5
+    sponge_layer_coef: float = 2.0
 
     def __post_init__(self):
         if self.upwind_order_h == -1:
@@ -73,6 +85,11 @@ class ModelConfig:
         print(f"  fct_lo_scheme_h            = {self.fct_lo_scheme_h}")
         print(f"  fct_regression_v           = {self.fct_regression_v}")
         print(f"  fct_lo_scheme_v            = {self.fct_lo_scheme_v}")
+        print(f"  use_smag_damp              = {self.use_smag_damp}")
+        print(f"  smag_damp_coef             = {self.smag_damp_coef}")
+        print(f"  use_sponge_layer           = {self.use_sponge_layer}")
+        print(f"  sponge_layer_k0            = {self.sponge_layer_k0}")
+        print(f"  sponge_layer_coef          = {self.sponge_layer_coef}")
         print("============================================================")
 
     @classmethod

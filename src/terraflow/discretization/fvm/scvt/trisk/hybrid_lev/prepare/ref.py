@@ -4,7 +4,7 @@ import jax.numpy as jnp
 
 from terraflow.util import log
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
-from terraflow.discretization.fvm.scvt.trisk.common.damp.laplace_damp import laplace_damp_1d
+from terraflow.discretization.fvm.scvt.trisk.common.damp.laplace import laplace_damp_1d
 
 if TYPE_CHECKING:
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK

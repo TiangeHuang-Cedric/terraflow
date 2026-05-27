@@ -20,6 +20,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.adv.term import (
     TendencyOfTracerDueToDivergenceOfTracerFlux,
     TendencyOfTracerDueToVerticalAdvection,
 )
+from terraflow.discretization.fvm.scvt.trisk.common.damp.schemes import Damp
 from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.adv import TracerRun3D
 from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybrid_op
 from terraflow.dynamics.baroclinic import types
@@ -1308,6 +1309,9 @@ class ExSpaceOperators(
         mode: EquationMode,
     ):
         super().__init__(disc=disc, method=method, mode=mode)
+        self.damp = Damp(
+            disc=disc, method=method, mode=mode
+        )
         self.mfz_lev = VerticalMassFluxAtHalfLev(
             disc=disc, method=method, mode=mode
         )
@@ -1476,6 +1480,14 @@ class ExSpaceOperators(
                     + dptdt[kds:kde+1, ids:ide+1] * dt
                 ) / new_dmg[kds:kde+1, ids:ide+1]
             )
+            if self.damp.use_smag_damp:
+                dptdt_damp = block.equaux.damp.smag.dptdt_damp
+                new_mpt = new_pt[kds:kde+1, ids:ide+1] * new_dmg[kds:kde+1, ids:ide+1]
+                new_pt = new_pt.at[kds:kde+1, ids:ide+1].set(
+                    (
+                        new_mpt + dptdt_damp[kds:kde+1, ids:ide+1] * dt
+                    ) / new_dmg[kds:kde+1, ids:ide+1]
+                )
             # ==================================================
             block = tree_at(
                 coord=block.coord,
@@ -1514,6 +1526,11 @@ class ExSpaceOperators(
             new_un = new_un.at[kds:kde+1, ids:ide+1].set(
                 old_un[kds:kde+1, ids:ide+1] + dundt[kds:kde+1, ids:ide+1] * dt
             )
+            if self.damp.use_smag_damp:
+                dundt_damp = block.equaux.damp.smag.dundt_damp
+                new_un = new_un.at[kds:kde+1, ids:ide+1].set(
+                    new_un[kds:kde+1, ids:ide+1] + dundt_damp[kds:kde+1, ids:ide+1] * dt
+                )
             # ==================================================
             block = tree_at(
                 coord=block.coord,
@@ -1572,6 +1589,7 @@ class ExSpaceOperators(
         return block
 
     def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.damp.config2dict())
         self._cfg.update(self.mfz_lev.config2dict())
         self._cfg.update(self.dmgsdt.config2dict())
         self._cfg.update(self.dptdt.config2dict())
@@ -1586,6 +1604,7 @@ class ExSpaceOperators(
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self.hvsplit_method()
+            self.damp.build_with_config(cfg=cfg)
             self.mfz_lev.build_with_config(cfg=cfg)
             self.dmgsdt.build_with_config(cfg=cfg)
             self.dptdt.build_with_config(cfg=cfg)
@@ -1607,6 +1626,7 @@ class ExSpaceOperators(
             block = self.dqdt.prepare_block(block)
             block = self.set_bg_wind.prepare_block(block)
             block = self.accum_wind.prepare_block(block)
+        block = self.damp.prepare_block(block)
         block = self.mfz_lev.prepare_block(block)
         block = self.prepare.prepare_block(block)
         return block

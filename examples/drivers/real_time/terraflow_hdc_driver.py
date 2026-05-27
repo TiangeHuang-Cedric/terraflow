@@ -34,6 +34,8 @@ config = tf.util.model_config.ModelConfig(
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
+    use_smag_damp=True,
+    use_sponge_layer=True,
 )
 
 equation = tf.dynamics.HydrostaticEquation.build_with_config(

@@ -43,6 +43,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.pgf.types import PressureGra
 from terraflow.discretization.fvm.scvt.trisk.common.coriolis.types import CoriolisForceAtEdgeData
 from terraflow.discretization.fvm.scvt.trisk.common.adv.types import AdvectionAuxiliaryDataset
 from terraflow.discretization.fvm.scvt.trisk.common.adv.batch import AdvBatchType
+from terraflow.discretization.fvm.scvt.trisk.common.damp.types import DampData
 from .element_meta import (
     default_state_meta,
     default_tendency_meta,
@@ -764,14 +765,17 @@ class EquationTermAuxDataset(AbstractEquationTermAuxiliaryDataset):
     pgf: PressureGradientForceDataset
     coriolis: CoriolisForceAtEdgeData
     adv: AdvectionAuxiliaryDataset
+    damp: DampData
 
     @classmethod
     def empty(cls) -> Self:
         pgf = PressureGradientForceDataset.empty()
         coriolis = CoriolisForceAtEdgeData.empty()
         adv = AdvectionAuxiliaryDataset.empty()
+        damp = DampData.empty()
         return cls(
             pgf=pgf,
             coriolis=coriolis,
-            adv=adv
+            adv=adv,
+            damp=damp
         )
