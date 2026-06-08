@@ -6,7 +6,7 @@ import equinox as eqx
 from terraflow.util import typing, math, log
 from terraflow.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractTestCase
-from terraflow.discretization.abstract import TracerMetaData
+from terraflow.discretization.abstract import AbstractTracerMetaData
 
 FloatType = typing.FloatType
 Float = typing.Float
@@ -37,7 +37,7 @@ class AbstractAdvectionEquation2DTestCase(AbstractAdvectionEquationTestCase):
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
-    def init_tracers_meta(self, dt_adv: datetime.timedelta, *args, **kwargs) -> dict[str, TracerMetaData]:
+    def init_tracers_meta(self, dt_adv: datetime.timedelta, *args, **kwargs) -> dict[str, AbstractTracerMetaData]:
         """Initialize tracer metadata.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -102,7 +102,7 @@ class AbstractAdvectionEquation3DTestCase(AbstractAdvectionEquationTestCase):
         velocity_3d_cart = math.convert_vector_ltln2cart(u, v, cartesian)
         return jnp.sum(velocity_3d_cart * edge_normal, axis=-1)
 
-    def init_tracers_meta(self, dt_adv: datetime.timedelta, *args, **kwargs) -> dict[str, TracerMetaData]:
+    def init_tracers_meta(self, dt_adv: datetime.timedelta, *args, **kwargs) -> dict[str, AbstractTracerMetaData]:
         """Initialize tracer metadata.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
@@ -192,31 +192,31 @@ class SolidRotationTestCase(AbstractAdvectionEquation2DTestCase):
         self.u0 = 2 * jnp.pi * self.para.radius.unwrap() / self.period
         log.logger.success(f"Initialized {self.name} test case. ")
 
-    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, TracerMetaData]:
+    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, AbstractTracerMetaData]:
         """Initialize tracer metadata.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
         return {
-            "q1": TracerMetaData(
+            "q1": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q1",
                 long_name="Cosine bell tracer",
             ),
-            "q2": TracerMetaData(
+            "q2": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q2",
                 long_name="Slotted cylinder tracer",
             ),
-            "q3": TracerMetaData(
+            "q3": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q3",
                 long_name="Gaussian hill tracer",
             ),
-            "q4": TracerMetaData(
+            "q4": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q4",
@@ -385,31 +385,31 @@ class DeformationalFlowTestCase(AbstractAdvectionEquation2DTestCase):
                 f"Invalid case number: {case_n}. Supported cases are from 1 to 4.")
         log.logger.success(f"Initialized {self.name} test case. ")
 
-    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, TracerMetaData]:
+    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, AbstractTracerMetaData]:
         """Initialize tracer metadata.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
         return {
-            "q1": TracerMetaData(
+            "q1": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q1",
                 long_name="Cosine hills tracer",
             ),
-            "q2": TracerMetaData(
+            "q2": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q2",
                 long_name="Slotted cylinder tracer",
             ),
-            "q3": TracerMetaData(
+            "q3": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q3",
                 long_name="Gaussian hills tracer",
             ),
-            "q4": TracerMetaData(
+            "q4": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q4",
@@ -652,13 +652,13 @@ class DCMIP12TestCase(AbstractAdvectionEquation3DTestCase):
         self.rho0 = self.p0 / (rd * self.T0)
         log.logger.success(f"Initialized {self.name} test case. ")
 
-    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, TracerMetaData]:
+    def init_tracers_meta(self, dt_adv: datetime.timedelta) -> dict[str, AbstractTracerMetaData]:
         """Initialize tracer metadata.
 
         Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
         """
         return {
-            "q1": TracerMetaData(
+            "q1": AbstractTracerMetaData(
                 batch_name="adv",
                 dt=dt_adv,
                 name="q1",

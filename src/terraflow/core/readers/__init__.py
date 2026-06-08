@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     )
     from . import bkg as bkg
     from . import topo as topo
+    from . import grist as grist
 
 _LAZY_CLASS = {
     "TopographyReaderConfig": "terraflow.prepare.readers.abstract.TopographyReaderConfig",
@@ -20,6 +21,7 @@ _LAZY_CLASS = {
 _LAZY_SUBMODULES = {
     "bkg": "terraflow.core.readers.bkg",
     "topo": "terraflow.core.readers.topo",
+    "grist": "terraflow.core.readers.grist",
 }
 
 __all__ = [
@@ -27,6 +29,7 @@ __all__ = [
     "BackgroundReaderConfig",
     "bkg",
     "topo",
+    "grist"
 ]
 
 

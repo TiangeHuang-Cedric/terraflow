@@ -7,8 +7,8 @@ import terraflow.core as tf
 tf.util.datetime.perf_start("program")
 
 grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
-grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
-grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
+grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
+grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
 
@@ -30,7 +30,7 @@ coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
 method = tf.operator.FiniteVolumeMethod()
 
 config = tf.util.model_config.ModelConfig(
-    pv_adv_scheme="upwind",
+    pv_adv_scheme="pure_upwind",
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
@@ -48,7 +48,7 @@ equation = tf.dynamics.HydrostaticEquation.build_with_config(
     ideal_dry_core=False,
 )
 
-topo_reader = tf.readers.topo.ETOPO1Reader(
+static_reader = tf.readers.topo.ETOPO1Reader(
     topo_file="../../../data/topo/ETOPO1_Ice_g_gmt4.grd",
     para=para,
     cfg=tf.readers.TopographyReaderConfig(
@@ -58,6 +58,7 @@ topo_reader = tf.readers.topo.ETOPO1Reader(
         fill_lon_chunk_size=360,
         fill_lat_chunk_size=180,
         use_zs_grad_filter=True,
+        zs_grad_filter_type="laplacian2",
     )
 )
 
@@ -69,6 +70,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
         hori_interp_method="conserve_1st",
         hori_interp_method_at_edge="patch",
         vert_interp_backend="jax",
+        vert_interp_type="grist",
     )
 )
 
@@ -82,14 +84,14 @@ solver = tf.solver.ExRungeKutta3Solver(
     time_manager=time_manager,
     save_interval="6 hours",
     dt_dyn="300 seconds",
-    dt_adv="300 seconds",
+    dt_adv="600 seconds",
     dev=dev,
 )
 
 block_cls = equation.build_block_cls(coord=coord)
 
 block = block_cls.from_reader(
-    topo_reader=topo_reader,
+    static_reader=static_reader,
     bkg_reader=bkg_reader,
     coord=coord,
     para=para,

@@ -27,6 +27,13 @@ ESMF_METHODS = {
     "conserve_2nd": esmpy.RegridMethod.CONSERVE_2ND,
 }
 
+ESMF_EXTRAP_METHODS = {
+    "none": esmpy.ExtrapMethod.NONE,
+    "nearest_stod": esmpy.ExtrapMethod.NEAREST_STOD,
+    "nearest_idavg": esmpy.ExtrapMethod.NEAREST_IDAVG,
+    "creep_fill": esmpy.ExtrapMethod.CREEP_FILL
+}
+
 ESMF_CONSERVATIVE_METHODS = {"conserve_1st", "conserve_2nd"}
 
 
@@ -129,6 +136,7 @@ def create_scvt_mesh(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.Mesh:
         elements.nodes[elements.nodes >= 0],
         dtype=np.int32
     )
+    elemArea = np.array(elements.area)
     elemCoord = np.stack(
         [
             np.rad2deg(elements.centroid.lon),
@@ -154,6 +162,7 @@ def create_scvt_mesh(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.Mesh:
         element_ids=elemId,
         element_types=elemType,
         element_conn=elemConn,
+        element_area=elemArea,
         element_coords=elemCoord,
     )
     return esmf_mesh
@@ -198,6 +207,7 @@ def regridder_setup_point_method(
     src: ESMF_OBJECTS,
     dst: ESMF_OBJECTS,
     method: str,
+    extrap_method: str = "none",
     ndbounds: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     # ===============================================
@@ -218,6 +228,7 @@ def regridder_setup_point_method(
         src_field,
         dst_field,
         regrid_method=ESMF_METHODS[method],
+        extrap_method=ESMF_EXTRAP_METHODS[extrap_method],
         unmapped_action=esmpy.UnmappedAction.IGNORE,
     )
     # ===============================================
@@ -229,6 +240,7 @@ def regridder_setup_conservative_method(
     dst: ESMF_OBJECTS,
     method: str,
     norm_opt: str,
+    extrap_method: str = "none",
     ndbounds: tuple[int, ...] | None = None,
 ) -> dict[str, Any]:
     # ===============================================
@@ -250,6 +262,7 @@ def regridder_setup_conservative_method(
         dst_field,
         regrid_method=ESMF_METHODS[method],
         norm_type=ESMF_NORM_OPTIONS[norm_opt],
+        extrap_method=ESMF_EXTRAP_METHODS[extrap_method],
         unmapped_action=esmpy.UnmappedAction.IGNORE,
         ignore_degenerate=True,
     )
@@ -268,6 +281,7 @@ class ESMFRegridder:
         method: str = "bilinear",
         ndbounds: tuple[int, ...] | None = None,
         extrap: bool = True,
+        extrap_method: str = "none",
         conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
         precompute_weights: bool = True,
     ):
@@ -281,6 +295,7 @@ class ESMFRegridder:
         self.method: str = method
         self.ndbounds: tuple[int, ...] | None = ndbounds
         self.extrap = extrap
+        self.extrap_method = extrap_method
         self.conserve_opt = conserve_opt
         self._state: dict[str, Any] | None = None
 
@@ -297,6 +312,7 @@ class ESMFRegridder:
                 dst=self.dst,
                 method=self.method,
                 norm_opt=self.conserve_opt["norm_opt"],
+                extrap_method=self.extrap_method,
                 ndbounds=self.ndbounds,
             )
             return self._state
@@ -305,6 +321,7 @@ class ESMFRegridder:
             src=self.src,
             dst=self.dst,
             method=self.method,
+            extrap_method=self.extrap_method,
             ndbounds=self.ndbounds,
         )
         return self._state

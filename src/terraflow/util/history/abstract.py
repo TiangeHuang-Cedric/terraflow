@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         EquationMode,
         AbstractFields,
         AbstractBlock,
-        TracerMetaData
+        AbstractTracerMetaData
     )
     from terraflow.solver.abstract import AbstractSolver
 
@@ -694,7 +694,7 @@ class AbstractHistory(ABC):
                 ds.variables[field.meta.name][idx, ...] = data
             else:
                 if hasattr(fields, "tracers_meta"):
-                    tracers_meta: dict[str, TracerMetaData] = getattr(
+                    tracers_meta: dict[str, AbstractTracerMetaData] = getattr(
                         fields, "tracers_meta"
                     )
                 else:
@@ -813,7 +813,7 @@ class UGRIDHistory(AbstractHistory):
                     v.description = dsxr.attrs.get("description", "")
                 else:
                     if hasattr(fields, "tracers_meta"):
-                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                        tracers_meta: dict[str, AbstractTracerMetaData] = getattr(
                             fields, "tracers_meta"
                         )
                     else:
@@ -955,7 +955,7 @@ class UnstructuredHistory(AbstractHistory):
                     v.description = field.meta.description
                 else:
                     if hasattr(fields, "tracers_meta"):
-                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                        tracers_meta: dict[str, AbstractTracerMetaData] = getattr(
                             fields, "tracers_meta"
                         )
                     else:
@@ -1162,7 +1162,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
                 )
             else:
                 if hasattr(fields, "tracers_meta"):
-                    tracers_meta: dict[str, TracerMetaData] = getattr(
+                    tracers_meta: dict[str, AbstractTracerMetaData] = getattr(
                         fields, "tracers_meta"
                     )
                 else:
@@ -1282,7 +1282,7 @@ class Unstructured2StructuredHistory(AbstractHistory):
                     )
                 else:
                     if hasattr(fields, "tracers_meta"):
-                        tracers_meta: dict[str, TracerMetaData] = getattr(
+                        tracers_meta: dict[str, AbstractTracerMetaData] = getattr(
                             fields, "tracers_meta"
                         )
                     else:

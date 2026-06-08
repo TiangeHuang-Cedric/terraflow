@@ -48,7 +48,7 @@ class TopographyReaderConfig(AbstractReaderConfig):
 
     # zs grad filter parameters
     use_zs_grad_filter: bool = False
-    zs_grad_filter_type: str = "laplacian1"  # "laplacian1" or "laplacian2"
+    zs_grad_filter_type: str = "laplacian2"  # "laplacian1" or "laplacian2"
     zs_grad_filter_order: int = 2
     zs_grad_filter_coef: float = 1.0e6
     zs_grad_filter_cycles: int = 100
@@ -89,27 +89,38 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     # "esmf" or "native"
     hori_interp_backend: str = "esmf"
 
-    # "nearest", "bilinear", "conserve_1st", "conserve_2nd"
+    # "nearest", "bilinear", "conserve_1st", "conserve_2nd", "patch"
     hori_interp_method: str = "conserve_1st"
 
     # "nearest", "bilinear", "patch"
     hori_interp_method_at_edge: str = "patch"
 
+    # "none", "nearest_stod", "nearest_idavg", "creep_fill"
+    esmf_extrap_method: str = "none"
+
     # norm_opt: "destarea" or "fracarea"
-    hori_conserve_opt: dict[str, Any] = field(
-        default_factory=lambda: {"norm_opt": "destarea"}
+    esmf_conserve_opt: dict[str, Any] = field(
+        default_factory=lambda: {"norm_opt": "fracarea"}
     )
+
+    # True or False
+    prepare_regrid_gz: bool = True
 
     # "jax" or "native"
     vert_interp_backend: str = "jax"
+
+    # "grist" or "native"
+    vert_interp_type: str = "grist"
 
     def __print__(self):
         print("================ Background Reader Config ==================")
         print(f"  hori_interp_backend        = {self.hori_interp_backend}")
         print(f"  hori_interp_method         = {self.hori_interp_method}")
         print(f"  hori_interp_method_at_edge = {self.hori_interp_method_at_edge}")
-        print(f"  hori_conserve_opt          = {self.hori_conserve_opt}")
+        print(f"  hori_conserve_opt          = {self.esmf_conserve_opt}")
+        print(f"  prepare_regrid_gz          = {self.prepare_regrid_gz}")
         print(f"  vert_interp_backend        = {self.vert_interp_backend}")
+        print(f"  vert_interp_type           = {self.vert_interp_type}")
         print("============================================================")
 
 
@@ -143,7 +154,7 @@ class AbstractTopographyReader(AbstractReader[TopographyReaderConfig]):
         self,
         topo_file: str,
         para: PlanetParameterSet,
-        cfg: TopographyReaderConfig
+        cfg: TopographyReaderConfig = TopographyReaderConfig()
     ):
         super().__init__(para=para, cfg=cfg)
         if not os.path.exists(topo_file):
@@ -179,7 +190,7 @@ class AbstractBackgroundReader(AbstractReader[BackgroundReaderConfig]):
         self,
         bkg_file: str,
         para: PlanetParameterSet,
-        cfg: BackgroundReaderConfig
+        cfg: BackgroundReaderConfig = BackgroundReaderConfig()
     ):
         super().__init__(para=para, cfg=cfg)
         if not os.path.exists(bkg_file):

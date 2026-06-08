@@ -9,6 +9,14 @@ import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import log
+from terraflow.prepare.readers.abstract import (
+    AbstractTopographyReader,
+    AbstractBackgroundReader
+)
+from terraflow.prepare.readers.grist import (
+    GRISTStaticDataReader,
+    GRISTBackgroundReader
+)
 from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
 from terraflow.layout.hybrid_vert_coord import HybridVertCoordLayout
 from terraflow.test_case.baroclinic import (
@@ -21,27 +29,22 @@ from terraflow.test_case.adv import (
     AbstractAdvectionEquation3DTestCase,
     DCMIP12TestCase
 )
-from terraflow.discretization.abstract import TracerMetaData
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
-from terraflow.discretization.fvm.scvt.trisk.tracer import Tracer
+from terraflow.discretization.fvm.scvt.trisk.tracer import (
+    TracerMetaData,
+    Tracer
+)
 from terraflow.discretization.fvm.scvt.trisk.base_types import AbstractBaseBlock
 from terraflow.discretization.fvm.scvt.trisk.test_case.baroclinic import (
     baroclinic_steady_state_case_init_fn,
     baroclinic_mountain_wave_case_init_fn,
     baroclinic_rossby_wave_case_init_fn
 )
-from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.prepare import (
-    prepare_topo,
-    prepare_bkg,
-)
+from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.prepare import bkg, topo, grist
 from terraflow.discretization.fvm.scvt.trisk.test_case.adv import dcmip12_case_init_fn
 
 
 if TYPE_CHECKING:
-    from terraflow.prepare.readers.abstract import (
-        AbstractTopographyReader,
-        AbstractBackgroundReader
-    )
     from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.layout.scvt import TriSKBasedCGridStaggeringLayout
@@ -59,7 +62,11 @@ if TYPE_CHECKING:
         TriSKBasedCGridStaggeringLayout,
         HybridVertCoordLayout
     ]
+
     ES = TypeVar("ES", bound=AbstractEquationSet)
+
+    STATICREADER = TypeVar("STATICREADER", AbstractTopographyReader, GRISTStaticDataReader)
+    BKGREADER = TypeVar("BKGREADER", AbstractBackgroundReader, GRISTBackgroundReader)
 
 
 class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
@@ -146,8 +153,8 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
     @classmethod
     def from_reader(
         cls,
-        topo_reader: AbstractTopographyReader,
-        bkg_reader: AbstractBackgroundReader,
+        static_reader: STATICREADER,
+        bkg_reader: BKGREADER,
         coord: CoordSys,
         para: PlanetParameterSet,
         solver: AbstractSolver[ES],
@@ -168,8 +175,22 @@ class Block(AbstractBaseBlock[HybridVertCoordinate, HybridVertCoordLayout]):
             )
         )
         # =======================================================
-        block = prepare_topo(block=block, reader=topo_reader)
-        block = prepare_bkg(block=block, reader=bkg_reader)
+        if isinstance(static_reader, AbstractTopographyReader):
+            block = topo.prepare_topo(block=block, reader=static_reader)
+        elif isinstance(static_reader, GRISTStaticDataReader):
+            block = grist.prepare_static(block=block, reader=static_reader)
+        else:
+            raise ValueError(
+                f"Invalid topo reader type: {type(static_reader)}"
+            )
+        if isinstance(bkg_reader, AbstractBackgroundReader):
+            block = bkg.prepare_bkg(block=block, reader=bkg_reader)
+        elif isinstance(bkg_reader, GRISTBackgroundReader):
+            block = grist.prepare_bkg(block=block, reader=bkg_reader)
+        else:
+            raise ValueError(
+                f"Invalid background reader type: {type(bkg_reader)}"
+            )
         # =======================================================
         block = prepare_block_before_integration(block=block)
         block = solver.equation.prepare_block(block)

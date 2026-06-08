@@ -4,9 +4,16 @@ import jax
 
 from terraflow.util import typing
 
-
+Int = typing.Int
 Float = typing.Float
 Array = typing.Array
+
+
+def _shape_prod(shape: tuple[int, ...]) -> int:
+    out = 1
+    for dim in shape:
+        out *= dim
+    return out
 
 
 class VerticalLinearInterpolator:
@@ -65,6 +72,94 @@ class VerticalLogLinearInterpolator:
             x2=x2,
             allow_extrap=self.allow_extrap
         )
+
+
+def grist_vert_interp_linear(
+    vert_interp_linear: VerticalLinearInterpolator,
+    nlev_eff: Int[Array, "ncol"],
+    x1: Float[Array, "nlev_src ncol"],
+    data1: Float[Array, "nlev_src ncol"],
+    x2: Float[Array, "nlev_tgt ncol"],
+    use_wraped: bool = True
+) -> Float[Array, "nlev_tgt ncol"]:
+    if not use_wraped:
+        return vert_interp_linear(
+            x1=x1,
+            data1=data1,
+            x2=x2,
+        )
+
+    nlev_src = x1.shape[0]
+    if nlev_src < 2:
+        raise ValueError(
+            "Source level count must be at least 2 for linear interpolation."
+        )
+
+    def process_1d(icol: Int[Array, ""]) -> Float[Array, "nlev_tgt"]:
+        nlev_eff_icol = jnp.asarray(nlev_eff[icol], dtype=jnp.int32)
+        x1_col = x1[:, icol]
+        data1_col = data1[:, icol]
+        x2_col = x2[:, icol]
+
+        branches = [
+            (lambda n=n: vert_interp_linear(
+                x1=x1_col[:n],
+                data1=data1_col[:n],
+                x2=x2_col,
+            ))
+            for n in range(1, nlev_src + 1)
+        ]
+        return jax.lax.switch(nlev_eff_icol - 1, branches)
+
+    return jax.vmap(
+        process_1d,
+        in_axes=0,
+        out_axes=1
+    )(jnp.arange(data1.shape[1], dtype=jnp.int32))
+
+
+def grist_vert_log_interp_linear(
+    vert_log_interp_linear: VerticalLogLinearInterpolator,
+    nlev_eff: Int[Array, "ncol"],
+    x1: Float[Array, "nlev_src ncol"],
+    data1: Float[Array, "nlev_src ncol"],
+    x2: Float[Array, "nlev_tgt ncol"],
+    use_wraped: bool = True
+) -> Float[Array, "nlev_tgt ncol"]:
+    if not use_wraped:
+        return vert_log_interp_linear(
+            x1=x1,
+            data1=data1,
+            x2=x2,
+        )
+
+    nlev_src = x1.shape[0]
+    if nlev_src < 2:
+        raise ValueError(
+            "Source level count must be at least 2 for linear interpolation."
+        )
+
+    def process_1d(icol: Int[Array, ""]) -> Float[Array, "nlev_tgt"]:
+        nlev_eff_icol = jnp.asarray(nlev_eff[icol], dtype=jnp.int32)
+        x1_col = x1[:, icol]
+        data1_col = data1[:, icol]
+        x2_col = x2[:, icol]
+
+        branches = [
+            (lambda n=n: vert_log_interp_linear(
+                x1=x1_col[:n],
+                data1=data1_col[:n],
+                x2=x2_col,
+            ))
+            for n in range(1, nlev_src + 1)
+        ]
+        return jax.lax.switch(nlev_eff_icol - 1, branches)
+
+    return jax.vmap(
+        process_1d,
+        in_axes=0,
+        out_axes=1
+    )(jnp.arange(data1.shape[1], dtype=jnp.int32))
 
 
 # -----------------------------------------------------------------------------
@@ -231,7 +326,7 @@ def _native_vert_interp_linear(
         raise ValueError("nlev_x1 must be >= 2")
 
     hori_shape = data1.shape[1:]
-    ncol = int(jnp.prod(jnp.array(hori_shape))) if hori_shape else 1
+    ncol = _shape_prod(hori_shape) if hori_shape else 1
 
     data1_cols = data1.reshape(nlev_x1, ncol)
 
@@ -300,7 +395,7 @@ def _native_vert_interp_log_linear(
         raise ValueError("nlev_x1 must be >= 2")
 
     hori_shape = data1.shape[1:]
-    ncol = int(jnp.prod(jnp.array(hori_shape))) if hori_shape else 1
+    ncol = _shape_prod(hori_shape) if hori_shape else 1
 
     data1_cols = data1.reshape(nlev_x1, ncol)
 
@@ -408,7 +503,7 @@ def _jax_vert_interp_linear(
     """
     hori_shape = data1.shape[1:]
     nlev_x1 = data1.shape[0]
-    ncol = int(jnp.prod(jnp.array(hori_shape)))
+    ncol = _shape_prod(hori_shape) if hori_shape else 1
 
     data1_cols = data1.reshape(nlev_x1, ncol)
 
@@ -451,7 +546,7 @@ def _jax_vert_interp_linear(
         )
         res_cols = interp_func(x1_cols, data1_cols, x2_)
         res_cols = res_cols.reshape(hori_shape)
-    elif x2.ndim >= 2 and int(jnp.prod(jnp.array(x2.shape[1:]))) == ncol:
+    elif x2.ndim >= 2 and _shape_prod(x2.shape[1:]) == ncol:
         # If x2 is N-Dimensional and matches the horizontal shape of data1,
         # interpolate each column to its corresponding x2 coordinates.
         interp_func = jax.vmap(

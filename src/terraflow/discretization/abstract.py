@@ -1690,7 +1690,7 @@ class AbstractAdvBatchType(AbstractFields[FMT], Generic[FMT]):
         )
 
 
-class TracerMetaData:
+class AbstractTracerMetaData(ABC):
     batch_name: str = eqx.field(static=True, default="")
     dt: datetime.timedelta = eqx.field(
         static=True,
@@ -1717,65 +1717,6 @@ class TracerMetaData:
         if unit is None:
             unit = ""
         object.__setattr__(self, "unit", unit)
-
-    @classmethod
-    def from_reader(
-        cls,
-        mode: EquationMode,
-        para: PlanetParameterSet,
-        reader: AbstractReader,
-        dt_adv: datetime.timedelta
-    ) -> Dict[str, Self]:
-        if mode.ideal_dry_core:
-            return {}
-
-        if para.planet == "earth":
-            if reader.reader_type == "era5":
-                meta: Dict[str, Self] = {}
-                meta["qv"] = cls(
-                    batch_name="moist",
-                    dt=dt_adv,
-                    name="qv",
-                    long_name="Water vapor",
-                    unit="kg kg-1"
-                )
-                meta["qc"] = cls(
-                    batch_name="moist",
-                    dt=dt_adv,
-                    name="qc",
-                    long_name="Cloud water",
-                    unit="kg kg-1"
-                )
-                meta["qi"] = cls(
-                    batch_name="moist",
-                    dt=dt_adv,
-                    name="qi",
-                    long_name="Cloud ice",
-                    unit="kg kg-1"
-                )
-                meta["qr"] = cls(
-                    batch_name="moist",
-                    dt=dt_adv,
-                    name="qr",
-                    long_name="Rain water",
-                    unit="kg kg-1"
-                )
-                meta["qs"] = cls(
-                    batch_name="moist",
-                    dt=dt_adv,
-                    name="qs",
-                    long_name="Snow",
-                    unit="kg kg-1"
-                )
-                return meta
-            else:
-                raise NotImplementedError(
-                    f"Reader type '{reader.reader_type}' not supported for TracerMetaData extraction."
-                )
-        else:
-            raise NotImplementedError(
-                f"Planet '{para.planet}' not supported for TracerMetaData extraction."
-            )
 
 
 class DiagnosticVariableSet(AbstractVariableSet, Generic[FMT], ABC):

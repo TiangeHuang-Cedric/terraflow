@@ -49,7 +49,8 @@ class Regridder:
         ndbounds: tuple[int, ...] | None = None,
         method: str = "bilinear",
         extrap: bool = True,
-        conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
+        esmf_extrap_method: str = "none",
+        esmf_conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
         precompute_weights: bool = True,
     ):
         if isinstance(src, LatlonRegridInfo) and isinstance(dst, LatlonRegridInfo):
@@ -70,7 +71,8 @@ class Regridder:
         self.ndbounds = ndbounds
         self.method = method
         self.extrap = extrap
-        self.conserve_opt = conserve_opt
+        self.esmf_extrap_method = esmf_extrap_method
+        self.esmf_conserve_opt = esmf_conserve_opt
         self.precompute_weights = precompute_weights
         if self.backend == "native":
             if not isinstance(src, LatlonRegridInfo) or not isinstance(dst, SCVTRegridInfo):
@@ -163,7 +165,8 @@ class Regridder:
                 method=self.method,
                 ndbounds=self.ndbounds,
                 extrap=self.extrap,
-                conserve_opt=self.conserve_opt,
+                extrap_method=self.esmf_extrap_method,
+                conserve_opt=self.esmf_conserve_opt,
                 precompute_weights=self.precompute_weights,
             )
         else:

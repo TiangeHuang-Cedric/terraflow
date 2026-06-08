@@ -11,7 +11,7 @@ class ModelConfig:
     coriolis_scheme: str = "trisk"
 
     # pv advection
-    pv_adv_scheme: str = "upwind"
+    pv_adv_scheme: str = "pure_upwind"
     upwind_order_pv: int = 3
     upwind_use_mbs_pv: bool = True
     upwind_optimized_pv: bool = True

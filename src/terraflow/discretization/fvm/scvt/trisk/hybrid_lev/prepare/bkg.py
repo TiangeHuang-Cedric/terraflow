@@ -4,23 +4,228 @@ import jax.numpy as jnp
 
 from terraflow.util import typing, log, math, formula
 from terraflow.prepare.readers.era5 import ERA5Reader
+from terraflow.prepare.vert_interp import (
+    VerticalLinearInterpolator,
+    VerticalLogLinearInterpolator,
+    grist_vert_interp_linear,
+    grist_vert_log_interp_linear
+)
+from terraflow.mesh.scvt.regridder import Regridder
 from terraflow.mesh.scvt.operators import interp_weighted_add_plg2dua
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.discretization.fvm.scvt.trisk.hybrid_lev import operators as hybrid_op
 
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
-    from terraflow.mesh.scvt.regridder import Regridder
-    from terraflow.prepare.vert_interp import (
-        VerticalLinearInterpolator,
-        VerticalLogLinearInterpolator,
-    )
     from terraflow.layout.field import StaggeredFieldMetaData
     from terraflow.discretization.fvm.scvt.trisk.hybrid_lev.dynamics_types import Block as BLOCK
 
 
 Float = typing.Float
 Array = typing.Array
+
+
+def prepare_bkg(
+    block: BLOCK,
+    reader: AbstractBackgroundReader
+) -> BLOCK:
+    # Regridder for background data
+    src = Regridder.create_latlon_info(
+        lon=reader.lon,
+        lat=reader.lat
+    )
+    dst_at_cell = Regridder.create_scvt_info(
+        mesh=block.coord.mesh,
+        loc="cell",
+        entity="primal"
+    )
+    log.logger.info("Build regridder for background data at cell center.")
+    regridder_at_cell = Regridder(
+        src=src,
+        dst=dst_at_cell,
+        backend=reader.cfg.hori_interp_backend,
+        ndbounds=(reader.lev.shape[0],),
+        method=reader.cfg.hori_interp_method,
+        extrap=True,
+        esmf_extrap_method=reader.cfg.esmf_extrap_method,
+        esmf_conserve_opt=reader.cfg.esmf_conserve_opt,
+        precompute_weights=True,
+    )
+    if reader.cfg.vert_interp_type == "native":
+        allow_extrap = True
+    elif reader.cfg.vert_interp_type == "grist":
+        allow_extrap = False
+    else:
+        raise ValueError(
+            f"Unsupported vertical interpolation type: {reader.cfg.vert_interp_type}"
+        )
+    vert_linear_interp = VerticalLinearInterpolator(
+        backend=reader.cfg.vert_interp_backend,
+        allow_extrap=allow_extrap
+    )
+    vert_log_linear_interp = VerticalLogLinearInterpolator(
+        backend=reader.cfg.vert_interp_backend,
+        allow_extrap=allow_extrap
+    )
+    # Regrid background data and calculate derived variables
+    if reader.cfg.vert_interp_type == "native":
+        # Stage 1:
+        block = regrid_phs(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+        )
+        block = bkg_calc_ph(block=block)
+        for cyc in range(3):
+            block = regrid_wet_qv(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                mute=cyc != 0,
+                vert_interp_linear=vert_linear_interp,
+            )
+            block = regrid_wet_qc(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                mute=cyc != 0,
+                vert_interp_linear=vert_linear_interp,
+            )
+            block = regrid_wet_qi(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                mute=cyc != 0,
+                vert_interp_linear=vert_linear_interp,
+            )
+            block = regrid_wet_qr(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                mute=cyc != 0,
+                vert_interp_linear=vert_linear_interp,
+            )
+            block = regrid_wet_qs(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                mute=cyc != 0,
+                vert_interp_linear=vert_linear_interp,
+            )
+            block = block.calc_qm(itime_str="old")
+            # Stage 2:
+            block = bkg_calc_mgs(block=block, reader=reader, mute=cyc != 0)
+            block = bkg_calc_mg(block=block, mute=cyc != 0)
+            block = bkg_calc_dry_qv(block=block, mute=cyc != 0)
+            block = bkg_calc_dry_qc(block=block, mute=cyc != 0)
+            block = bkg_calc_dry_qi(block=block, mute=cyc != 0)
+            block = bkg_calc_dry_qr(block=block, mute=cyc != 0)
+            block = bkg_calc_dry_qs(block=block, mute=cyc != 0)
+            block = block.calc_qm(itime_str="old")
+            block = calc_ph(block=block)
+        # Stage 3:
+        block = regrid_un_from_uv(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+        )
+        if reader.cfg.prepare_regrid_gz:
+            block = regrid_gz(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                vert_interp_log_linear=vert_log_linear_interp,
+            )
+            block = bkg_calc_t(block=block)
+        else:
+            block = regrid_t(
+                block=block,
+                reader=reader,
+                regridder=regridder_at_cell,
+                vert_interp_linear=vert_linear_interp,
+                vert_interp_log_linear=vert_log_linear_interp,
+            )
+        block = bkg_calc_tv(block=block)
+        block = bkg_calc_pt(block=block)
+    elif reader.cfg.vert_interp_type == "grist":
+        reader = grist_post_process(
+            reader=reader,
+            regridder=regridder_at_cell,
+        )
+        block = regrid_phs(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp
+        )
+        block = bkg_calc_ph(block=block)
+        block = regrid_wet_qv(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            mute=False
+        )
+        block = regrid_wet_qc(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            mute=False
+        )
+        block = regrid_wet_qi(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            mute=False
+        )
+        block = regrid_wet_qr(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            mute=False
+        )
+        block = regrid_wet_qs(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            mute=False
+        )
+        block = block.calc_qm(itime_str="old")
+        block = bkg_calc_dry_qv(block=block, mute=False)
+        block = bkg_calc_dry_qc(block=block, mute=False)
+        block = bkg_calc_dry_qi(block=block, mute=False)
+        block = bkg_calc_dry_qr(block=block, mute=False)
+        block = bkg_calc_dry_qs(block=block, mute=False)
+        block = block.calc_qm(itime_str="old")
+        block = regrid_un_from_uv(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp
+        )
+        block = regrid_t(
+            block=block,
+            reader=reader,
+            regridder=regridder_at_cell,
+            vert_interp_linear=vert_linear_interp,
+            vert_interp_log_linear=vert_log_linear_interp
+        )
+        block = bkg_calc_mgs(block=block, reader=reader, mute=False)
+        block = bkg_calc_mg(block=block, mute=False)
+        block = calc_ph(block=block)
+        block = bkg_calc_tv(block=block)
+        block = bkg_calc_pt(block=block)
+    else:
+        raise ValueError(
+            f"Unsupported vertical interpolation type: {reader.cfg.vert_interp_type}"
+        )
+    return block
 
 
 def _get_hori_coord(meta: StaggeredFieldMetaData, coord) -> dict[str, Float[Array, "npoint"]]:
@@ -32,6 +237,34 @@ def _get_hori_coord(meta: StaggeredFieldMetaData, coord) -> dict[str, Float[Arra
     coord_info["lon"] = jnp.rad2deg(coord_info["lon"])
     coord_info["lat"] = jnp.rad2deg(coord_info["lat"])
     return coord_info
+
+
+def grist_post_process(
+    reader: AbstractBackgroundReader,
+    regridder: Regridder,
+) -> AbstractBackgroundReader:
+    log.logger.info("Post-process background data for GRIST vertical interpolation.")
+    if isinstance(reader, ERA5Reader):
+        ps = jnp.tile(reader.ps[None, :, :], (reader.lev.shape[0], 1, 1))
+        ps = regridder(ps)[0, :]
+        qv = regridder(reader.qv)
+        qc = regridder(reader.qc)
+        qi = regridder(reader.qi)
+        qr = regridder(reader.qr)
+        qs = regridder(reader.qs)
+        reader.grist_post_process(
+            ps=ps,
+            qv=qv,
+            qc=qc,
+            qi=qi,
+            qr=qr,
+            qs=qs,
+        )
+        return reader
+    else:
+        raise ValueError(
+            f"Unsupported reader type for GRIST post-processing: {type(reader)}"
+        )
 
 
 def regrid_phs(
@@ -46,15 +279,24 @@ def regrid_phs(
     gzs = block.static.gzs.unwrap()
     # =================================================================
     if isinstance(reader, ERA5Reader):
-        z0 = regridder(reader.z)
-        logp0 = jnp.expand_dims(jnp.log(reader.lev), axis=1)
-        logp0 = jnp.tile(logp0, (1, z0.shape[1]))
-        phs = vert_interp_linear(
-            x1=jnp.flip(z0, axis=0),
-            data1=jnp.flip(logp0, axis=0),
-            x2=gzs / g,
-        )
-        phs = jnp.exp(phs)
+        if reader.cfg.vert_interp_type == "native":
+            z0 = regridder(reader.z)
+            logp0 = jnp.expand_dims(jnp.log(reader.plev), axis=1)
+            logp0 = jnp.tile(logp0, (1, z0.shape[1]))
+            phs = vert_interp_linear(
+                x1=jnp.flip(z0, axis=0),
+                data1=jnp.flip(logp0, axis=0),
+                x2=gzs / g,
+            )
+            phs = jnp.exp(phs)
+        elif reader.cfg.vert_interp_type == "grist":
+            plev_lev = reader.plev_lev
+            ncol_range = jnp.arange(plev_lev.shape[1])
+            phs = plev_lev[reader.nlev_eff, ncol_range]
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for phs: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for phs interpolation: {type(reader)}"
@@ -91,6 +333,64 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
     )
 
 
+def calc_ph(block: BLOCK) -> BLOCK:
+    mesh = block.coord.mesh
+    vert = block.coord.vert
+    ids, ihe = mesh.polg_ids, mesh.polg_ihe[0]
+    full_kds, full_kde = vert.full_kds, vert.full_kde
+    half_kds, half_kde = vert.half_kds, vert.half_kde
+    mg_lev = block.state.mg_lev.unwrap()[0, :, :]
+    dmg = block.state.dmg.unwrap()[0, :, :]
+    ph_lev = block.state.ph_lev.unwrap()[0, :, :]
+    ph = block.state.ph.unwrap()[0, :, :]
+    phs = block.state.phs.unwrap()[0, :]
+    # =======================================================
+    # Calculate ph at half level
+    kds, kde = half_kds, half_kde
+    if block.mode.is_moist():
+        qm = block.tracers.qm.unwrap()
+        dmg_ = dmg[kds:kde, ids:ihe+1]
+        qm_ = qm[kds:kde, ids:ihe+1]
+        moist_dmg = dmg_ * (1.0 + qm_)
+        ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
+            mg_lev[kds, :] + jnp.cumulative_sum(
+                moist_dmg,
+                axis=0,
+                include_initial=True
+            )
+        )
+    else:
+        ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
+            mg_lev[kds, :] + jnp.cumulative_sum(
+                dmg[kds:kde, ids:ihe+1],
+                axis=0,
+                include_initial=True
+            )
+        )
+    # =======================================================
+    # Calculate ph at full level
+    kds, kde = full_kds, full_kde
+    ph = ph.at[kds:kde+1, ids:ihe+1].set(
+        0.5 * (
+            ph_lev[kds:kde+1, ids:ihe+1]
+            + ph_lev[kds+1:kde+2, ids:ihe+1]
+        )
+    )
+    # =======================================================
+    # Calculate phs
+    kde = half_kde
+    phs = phs.at[ids:ihe+1].set(ph_lev[kde, ids:ihe+1])
+    # =======================================================
+    return tree_at(
+        coord=block.coord,
+        where=lambda b: (b.state.phs, b.state.ph, b.state.ph_lev),
+        pytree=block,
+        replace=(phs, ph, ph_lev),
+        at_dims=(0, 0, 0),
+        at_idxes=(0, 0, 0)
+    )
+
+
 def regrid_gz(
     block: BLOCK,
     reader: AbstractBackgroundReader,
@@ -112,12 +412,25 @@ def regrid_gz(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         z0 = regridder(reader.z)
-        p0 = reader.lev
-        gz_lev = vert_interp_log_linear(
-            x1=p0,
-            data1=z0,
-            x2=ph_lev,
-        )
+        p0 = reader.plev
+        if reader.cfg.vert_interp_type == "native":
+            gz_lev = vert_interp_log_linear(
+                x1=p0,
+                data1=z0,
+                x2=ph_lev,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            gz_lev = grist_vert_log_interp_linear(
+                vert_log_interp_linear=vert_interp_log_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=p0,
+                data1=z0,
+                x2=ph_lev,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for gz: {reader.cfg.vert_interp_type}"
+            )
         gz_lev = gz_lev * g
         gz_lev = gz_lev.at[half_kde, ids:ihe+1].set(gzs[ids:ihe+1])
         gz = gz.at[full_kds:full_kde+1, ids:ihe+1].set(
@@ -187,6 +500,7 @@ def regrid_t(
     block: BLOCK,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
+    vert_interp_linear: VerticalLinearInterpolator,
     vert_interp_log_linear: VerticalLogLinearInterpolator
 ) -> BLOCK:
     log.logger.info("Regrid temperature.")
@@ -195,11 +509,24 @@ def regrid_t(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         t0 = regridder(reader.t)
-        t = vert_interp_log_linear(
-            x1=reader.lev,
-            data1=t0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            t = vert_interp_log_linear(
+                x1=reader.plev,
+                data1=t0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            t = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=t0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for t: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for t interpolation: {type(reader)}"
@@ -221,22 +548,27 @@ def regrid_un_from_uv(
 ) -> BLOCK:
     coord = block.coord
     un_meta = block.state.un.meta
+    edd_v = coord.mesh._edd.v
+    cell_0 = edd_v[:, 0]
+    cell_1 = edd_v[:, 1]
     coord_info = _get_hori_coord(un_meta, coord)
     cart = coord_info["cart"]
     edge_normal = coord_info["nr_orient"]
     # =================================================================
-    u = _regrid_u(
+    u_cell = _regrid_u(
         block=block,
         reader=reader,
         regridder=regridder,
         vert_interp_linear=vert_interp_linear
     )
-    v = _regrid_v(
+    u = 0.5 * (u_cell[:, cell_0] + u_cell[:, cell_1])
+    v_cell = _regrid_v(
         block=block,
         reader=reader,
         regridder=regridder,
         vert_interp_linear=vert_interp_linear
     )
+    v = 0.5 * (v_cell[:, cell_0] + v_cell[:, cell_1])
     vec_cart = math.convert_vector_ltln2cart(u, v, cart)
     un = jnp.sum(vec_cart * edge_normal, axis=-1)
     # =================================================================
@@ -257,19 +589,28 @@ def _regrid_u(
     vert_interp_linear: VerticalLinearInterpolator
 ) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid u wind component.")
-    edd_v = block.coord.mesh._edd.v
-    cell_0 = edd_v[:, 0]
-    cell_1 = edd_v[:, 1]
     ph = block.state.ph.unwrap()[0, ...]
     # =================================================================
-    ph_e = 0.5 * (ph[:, cell_0] + ph[:, cell_1])
     if isinstance(reader, ERA5Reader):
         u = regridder(reader.u)
-        u = vert_interp_linear(
-            x1=reader.lev,
-            data1=u,
-            x2=ph_e,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            u = vert_interp_linear(
+                x1=reader.plev,
+                data1=u,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            u = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=u,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for u: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for u interpolation: {type(reader)}"
@@ -285,19 +626,28 @@ def _regrid_v(
     vert_interp_linear: VerticalLinearInterpolator
 ) -> Float[Array, "nlev nedge"]:
     log.logger.info("Regrid v wind component.")
-    edd_v = block.coord.mesh._edd.v
-    cell_0 = edd_v[:, 0]
-    cell_1 = edd_v[:, 1]
     ph = block.state.ph.unwrap()[0, ...]
     # =================================================================
-    ph_e = 0.5 * (ph[:, cell_0] + ph[:, cell_1])
     if isinstance(reader, ERA5Reader):
         v = regridder(reader.v)
-        v = vert_interp_linear(
-            x1=reader.lev,
-            data1=v,
-            x2=ph_e,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            v = vert_interp_linear(
+                x1=reader.plev,
+                data1=v,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            v = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=v,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for v: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for v interpolation: {type(reader)}"
@@ -326,11 +676,24 @@ def regrid_wet_qv(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regridder(reader.qv)
-        qv = vert_interp_linear(
-            x1=reader.lev,
-            data1=q0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            qv = vert_interp_linear(
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            qv = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for qv: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for qv interpolation: {type(reader)}"
@@ -368,11 +731,24 @@ def regrid_wet_qc(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regridder(reader.qc)
-        qc = vert_interp_linear(
-            x1=reader.lev,
-            data1=q0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            qc = vert_interp_linear(
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            qc = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for qc: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for qc interpolation: {type(reader)}"
@@ -410,11 +786,24 @@ def regrid_wet_qi(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regridder(reader.qi)
-        qi = vert_interp_linear(
-            x1=reader.lev,
-            data1=q0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            qi = vert_interp_linear(
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            qi = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for qi: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for qi interpolation: {type(reader)}"
@@ -521,11 +910,24 @@ def regrid_wet_qr(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regridder(reader.qr)
-        qr = vert_interp_linear(
-            x1=reader.lev,
-            data1=q0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            qr = vert_interp_linear(
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            qr = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for qr: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for qr interpolation: {type(reader)}"
@@ -564,11 +966,24 @@ def regrid_wet_qs(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regridder(reader.qs)
-        qs = vert_interp_linear(
-            x1=reader.lev,
-            data1=q0,
-            x2=ph,
-        )
+        if reader.cfg.vert_interp_type == "native":
+            qs = vert_interp_linear(
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        elif reader.cfg.vert_interp_type == "grist":
+            qs = grist_vert_interp_linear(
+                vert_interp_linear=vert_interp_linear,
+                nlev_eff=reader.nlev_eff,
+                x1=reader.plev,
+                data1=q0,
+                x2=ph,
+            )
+        else:
+            raise ValueError(
+                f"Unsupported vertical interpolation type for qs: {reader.cfg.vert_interp_type}"
+            )
     else:
         raise ValueError(
             f"Unsupported reader type for qs interpolation: {type(reader)}"
@@ -586,7 +1001,11 @@ def regrid_wet_qs(
     )
 
 
-def bkg_calc_mgs(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_mgs(
+    block: BLOCK,
+    reader: AbstractBackgroundReader,
+    mute: bool = False
+) -> BLOCK:
     if not mute:
         log.logger.info("Calculate surface dry-air pressure.")
     coord = block.coord
@@ -598,8 +1017,15 @@ def bkg_calc_mgs(block: BLOCK, mute: bool = False) -> BLOCK:
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
     qm = block.tracers.qm.unwrap()[:, :]
     # =================================================================
-    delta_ph = ph_lev[kds+1:kde+2, ids:ide+1] - ph_lev[kds:kde+1, ids:ide+1]
-    mgs = phs - jnp.sum(delta_ph * qm, axis=0)
+    if reader.cfg.vert_interp_type == "native":
+        delta_ph = ph_lev[kds+1:kde+2, ids:ide+1] - ph_lev[kds:kde+1, ids:ide+1]
+        mgs = phs - jnp.sum(delta_ph * qm[kds:kde+1, ids:ide+1], axis=0)
+    elif reader.cfg.vert_interp_type == "grist":
+        mgs = phs
+    else:
+        raise ValueError(
+            f"Unsupported vertical interpolation type for mgs calculation: {reader.cfg.vert_interp_type}"
+        )
     # =================================================================
     return tree_at(
         coord=coord,

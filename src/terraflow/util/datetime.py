@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, TypeVar, Self
 from terraflow.util import log
 from typing import Optional
 import time
@@ -8,6 +8,9 @@ import equinox as eqx
 
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
+    from terraflow.prepare.readers.grist import GRISTBackgroundReader
+
+    BKGREADER = TypeVar("BKGREADER", AbstractBackgroundReader, GRISTBackgroundReader)
 
 
 time0 = 0.0  # program start time in seconds
@@ -221,7 +224,7 @@ class DateTimeManager(eqx.Module):
     @classmethod
     def from_reader(
         cls,
-        reader: AbstractBackgroundReader,
+        reader: BKGREADER,
         end_time: Optional[str] = None,
         run_time: Optional[str] = None,
     ) -> Self:

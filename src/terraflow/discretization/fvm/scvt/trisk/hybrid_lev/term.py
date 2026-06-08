@@ -290,6 +290,12 @@ class DeltaDryAirWeight(DynOperator):
             msg="The dry-air weight levels are not monotonic!",
             on_error="raise"
         )
+        dmg = eqx.error_if(
+            x=dmg,
+            pred=jnp.any(jnp.isnan(dmg)),
+            msg="The dry-air weight levels contain NaN values!",
+            on_error="raise"
+        )
         dmg_lev = hybrid_op.delta_at_half_lev(
             coord=coord,
             x=mg,

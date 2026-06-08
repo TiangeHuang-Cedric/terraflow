@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, TypeVar, Self, Optional
+from typing import TYPE_CHECKING, TypeVar, Self, Optional, Dict
 import datetime
 import jax.numpy as jnp
 import equinox as eqx
@@ -8,9 +8,12 @@ from terraflow.util import typing
 from terraflow.discretization.abstract import AbstractFields
 from terraflow.layout.abstract import MeshEntity, VertLoc, Basis
 from terraflow.layout.field import ArrayField, StaggeredFieldMetaData, NumericMetaData
-from terraflow.discretization.abstract import TracerMetaData
+from terraflow.discretization.abstract import AbstractTracerMetaData
 
 if TYPE_CHECKING:
+    from terraflow.planet import PlanetParameterSet
+    from terraflow.prepare.readers.abstract import AbstractBackgroundReader
+    from terraflow.prepare.readers.grist import GRISTBackgroundReader
     from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
     from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
     from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
@@ -30,6 +33,8 @@ if TYPE_CHECKING:
         VLO
     ]
 
+    BKGREADER = AbstractBackgroundReader | GRISTBackgroundReader
+
 Int = typing.Int
 Array = typing.Array
 
@@ -43,12 +48,110 @@ NEDGE = "edge"
 NVTX = "vtx"
 
 
+class TracerMetaData(AbstractTracerMetaData):
+    batch_name: str = eqx.field(static=True, default="")
+    dt: datetime.timedelta = eqx.field(
+        static=True,
+        default=datetime.timedelta(0)
+    )
+    dt_seconds: float = eqx.field(static=True, default=0.0)
+    name: str = eqx.field(static=True, default="")
+    long_name: str = eqx.field(static=True, default="")
+    unit: str = eqx.field(static=True, default="")
+
+    def __init__(
+        self,
+        batch_name: str,
+        dt: datetime.timedelta,
+        name: str,
+        long_name: str,
+        unit: Optional[str] = None,
+    ):
+        object.__setattr__(self, "batch_name", batch_name)
+        object.__setattr__(self, "dt", dt)
+        object.__setattr__(self, "dt_seconds", dt.total_seconds())
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "long_name", long_name)
+        if unit is None:
+            unit = ""
+        object.__setattr__(self, "unit", unit)
+
+    @classmethod
+    def from_reader(
+        cls,
+        mode: EquationMode,
+        para: PlanetParameterSet,
+        reader: BKGREADER,
+        dt_adv: datetime.timedelta
+    ) -> Dict[str, Self]:
+        if mode.ideal_dry_core:
+            return {}
+
+        if para.planet == "earth":
+            if reader.reader_type == "era5":
+                meta: Dict[str, Self] = {}
+                meta["qv"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qv",
+                    long_name="Water vapor",
+                    unit="kg kg-1"
+                )
+                meta["qc"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qc",
+                    long_name="Cloud water",
+                    unit="kg kg-1"
+                )
+                meta["qi"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qi",
+                    long_name="Cloud ice",
+                    unit="kg kg-1"
+                )
+                meta["qr"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qr",
+                    long_name="Rain water",
+                    unit="kg kg-1"
+                )
+                meta["qs"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qs",
+                    long_name="Snow",
+                    unit="kg kg-1"
+                )
+                return meta
+            elif reader.reader_type == "grist":
+                meta: Dict[str, Self] = {}
+                meta["qv"] = cls(
+                    batch_name="moist",
+                    dt=dt_adv,
+                    name="qv",
+                    long_name="Water vapor",
+                    unit="kg kg-1"
+                )
+                return meta
+            else:
+                raise NotImplementedError(
+                    f"Reader type '{reader.reader_type}' not supported for TracerMetaData extraction."
+                )
+        else:
+            raise NotImplementedError(
+                f"Planet '{para.planet}' not supported for TracerMetaData extraction."
+            )
+
+
 class Tracer(AbstractFields[StaggeredFieldMetaData]):
     nbatches: int = eqx.field(static=True)
     batch_dts: dict[str, datetime.timedelta] = eqx.field(static=True)
     batch_dts_seconds: dict[str, float] = eqx.field(static=True)
     ntracers: int = eqx.field(static=True)
-    tracers_meta: dict[str, TracerMetaData] = eqx.field(static=True)
+    tracers_meta: dict[str, AbstractTracerMetaData] = eqx.field(static=True)
     idx_qv: int = eqx.field(static=True, init=False, default=-1)
     idx_qc: int = eqx.field(static=True, init=False, default=-1)
     idx_nc: int = eqx.field(static=True, init=False, default=-1)
