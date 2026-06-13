@@ -36,6 +36,24 @@ Int = typing.Int
 Array = typing.Array
 
 
+@overload
+def compiled_with_block(
+    block: AbstractBlock,
+    fun: Callable[[AbstractBlock], AbstractBlock],
+    with_jit: bool = True
+) -> Callable[[AbstractBlock], AbstractBlock]:
+    ...
+
+
+@overload
+def compiled_with_block(
+    block: AbstractBlock,
+    fun: Callable[[AbstractBlock], Tuple[AbstractFields, ...]],
+    with_jit: bool = True
+) -> Callable[[AbstractBlock], Tuple[AbstractFields, ...]]:
+    ...
+
+
 def compiled_with_block(
     block: AbstractBlock,
     fun: Callable[[AbstractBlock], Union[AbstractBlock, Tuple[AbstractFields, ...]]],

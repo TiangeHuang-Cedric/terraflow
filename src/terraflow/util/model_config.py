@@ -38,9 +38,9 @@ class ModelConfig:
     wrf_use_mbs: bool = True
     wrf_optimized: bool = True
     limiter_type: str = "fct"
-    fct_regression_h: bool = True
+    fct_regression_h: bool = False
     fct_lo_scheme_h: str = "upwind1"
-    fct_regression_v: bool = True
+    fct_regression_v: bool = False
     fct_lo_scheme_v: str = "upwind1"
 
     # Damp

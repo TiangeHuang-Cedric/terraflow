@@ -35,9 +35,17 @@ def spherical_plg_kite_areas(
     pv = dual.centroid.cartesian  # (n_dual_cell, 3)
     pv_tile = jnp.take(pv, trv, axis=0)  # (n_cell, maxnnb, 3)
     area1 = math.spherical_triangle_area(
-        pc_tile, ped1_tile, pv_tile, axis=-1)
+        pc_tile,
+        ped1_tile,
+        pv_tile,
+        axis=-1
+    )
     area2 = math.spherical_triangle_area(
-        pc_tile, pv_tile, ped2_tile, axis=-1)
+        pc_tile,
+        pv_tile,
+        ped2_tile,
+        axis=-1
+    )
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     cell.check_kite_areas(kite_area)
@@ -71,9 +79,17 @@ def spherical_tri_kite_areas(
     pv = dual.centroid.cartesian  # (n_dual_cell, 3)
     pv_tile = jnp.take(pv, trv, axis=0)  # (n_cell, maxnnb, 3)
     area1 = math.spherical_triangle_area(
-        pc_tile, ped1_tile, pv_tile, axis=-1)
+        pc_tile,
+        ped1_tile,
+        pv_tile,
+        axis=-1
+    )
     area2 = math.spherical_triangle_area(
-        pc_tile, pv_tile, ped2_tile, axis=-1)
+        pc_tile,
+        pv_tile,
+        ped2_tile,
+        axis=-1
+    )
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     cell.check_kite_areas(kite_area)
