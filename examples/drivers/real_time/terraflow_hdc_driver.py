@@ -70,7 +70,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
         hori_interp_method="conserve_1st",
         hori_interp_method_at_edge="patch",
         vert_interp_backend="jax",
-        vert_interp_type="grist",
+        vert_interp_type="native",
     )
 )
 
@@ -98,6 +98,9 @@ block = block_cls.from_reader(
     solver=solver,
 )
 
+era5_1deg_lon = jnp.arange(0, 359 + 1.0, 1.0, dtype=dev.float_type)
+era5_1deg_lat = jnp.arange(90, -90 - 1.0, -1.0, dtype=dev.float_type)
+
 history = tf.util.history.UnstructuredHistoryset(
     solver=solver,
     coord=coord,
@@ -105,6 +108,15 @@ history = tf.util.history.UnstructuredHistoryset(
     case_name="terraflow" + "." + mesh.glevel,
     output_h1=False,
     output_h2=False,
+    h2_opt={
+        "hori_regrid_method": "conserve_1st",
+        "hori_regrid_backend": "esmf",
+        "vert_interp": True,
+        "lon": era5_1deg_lon,
+        "lat": era5_1deg_lat,
+        "plev": bkg_reader.lev,
+        "plev_unit": "Pa",
+    }
 ).setup(block)
 
 integrate_fn = tf.solver.compiled_with_block(

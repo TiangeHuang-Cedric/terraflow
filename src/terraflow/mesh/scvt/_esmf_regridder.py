@@ -1,15 +1,25 @@
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
+from typing import Any, TypeVar, TYPE_CHECKING
 import numpy as np
 import jax.numpy as jnp
 import esmpy
 
+import terraflow.util.math as tfmath
+
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
+    from terraflow.vert_coord.abstract import AbstractVertCoordinate
     from .construct import SphericalCentroidVoronoiTessellations as SCVT_MESH
 
     Float = typing.Float
     Array = typing.Array
+
+    VM = TypeVar("VM", bound=AbstractVertCoordinate)
+    HLO = TypeVar("HLO", bound=AbstractLayout)
+    VLO = TypeVar("VLO", bound=AbstractLayout)
+
+    CoordSys = CoordinateSystem[SCVT_MESH, VM, HLO, VLO]
 
 ESMF_OBJECTS = esmpy.Grid | esmpy.Mesh | esmpy.LocStream
 
@@ -36,6 +46,12 @@ ESMF_EXTRAP_METHODS = {
 
 ESMF_CONSERVATIVE_METHODS = {"conserve_1st", "conserve_2nd"}
 
+LOC_REMAP_SCVT2ESMF = {
+    "cell": "cell",
+    "vtx": "node",
+    "edge": "edge",
+}
+
 
 def _cell_bounds_from_centers(center: Float[Array, "n"]) -> Float[Array, "n 2"]:
     if center.shape[0] < 2:
@@ -46,6 +62,38 @@ def _cell_bounds_from_centers(center: Float[Array, "n"]) -> Float[Array, "n 2"]:
     edge = edge.at[0].set(center[0] - 0.5 * (center[1] - center[0]))
     edge = edge.at[-1].set(center[-1] + 0.5 * (center[-1] - center[-2]))
     return jnp.stack([edge[:-1], edge[1:]], axis=1)
+
+
+def _normalize_rows(value: np.ndarray) -> np.ndarray:
+    norm = np.linalg.norm(value, axis=1, keepdims=True)
+    return value / np.where(norm == 0.0, 1.0, norm)
+
+
+def _sort_conn_counterclockwise_on_sphere(
+    elem_conn: np.ndarray,
+    node_cart: np.ndarray,
+    elem_center_cart: np.ndarray,
+) -> np.ndarray:
+    """Sort fixed-width element connectivity counterclockwise around centers."""
+    center = _normalize_rows(np.asarray(elem_center_cart, dtype=np.float64))
+    ref = np.zeros_like(center)
+    ref[:, 2] = 1.0
+    near_pole = np.abs(np.sum(center * ref, axis=1)) > 0.9
+    ref[near_pole, :] = np.array([1.0, 0.0, 0.0])
+
+    east = _normalize_rows(np.cross(ref, center))
+    north = np.cross(center, east)
+
+    corner = np.asarray(node_cart, dtype=np.float64)[elem_conn]
+    tangent = corner - np.sum(
+        corner * center[:, None, :],
+        axis=2,
+        keepdims=True,
+    ) * center[:, None, :]
+    x = np.sum(tangent * east[:, None, :], axis=2)
+    y = np.sum(tangent * north[:, None, :], axis=2)
+    order = np.argsort(np.arctan2(y, x), axis=1)
+    return np.take_along_axis(elem_conn, order, axis=1)
 
 
 def create_latlon_grid(lon: np.ndarray, lat: np.ndarray) -> esmpy.Grid:
@@ -88,62 +136,132 @@ def create_latlon_grid(lon: np.ndarray, lat: np.ndarray) -> esmpy.Grid:
     return grid
 
 
-def create_scvt_mesh(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.Mesh:
+def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
+    mesh = coord.mesh
+    layout = coord.hori_layout.alias_name()
     # ===================================================
-    if entity == "primal":
-        if loc == "cell":
-            elements = mesh.primal.cell
+    if LOC_REMAP_SCVT2ESMF[loc] == "edge":
+        if layout == "triskC":
+            cells = mesh.primal.cell
             nodes = mesh.primal.node
-        elif loc == "node":
-            elements = mesh.dual.cell
-            nodes = mesh.dual.node
+            edges = mesh.primal.edge
+            dual_edges = mesh.dual.edge
         else:
-            raise ValueError(
-                f"Invalid loc: {loc} for {entity} entity on scvt mesh"
-            )
-    elif entity == "dual":
-        if loc == "cell":
-            elements = mesh.dual.cell
-            nodes = mesh.dual.node
-        elif loc == "node":
-            elements = mesh.primal.cell
-            nodes = mesh.primal.node
-        else:
-            raise ValueError(
-                f"Invalid loc: {loc} for {entity} entity on scvt mesh"
-            )
-    else:
-        raise ValueError(f"Invalid entity: {entity} for scvt mesh")
+            raise ValueError(f"Invalid layout: {layout} for scvt mesh")
 
-    num_node = nodes.shape[0]
-    num_elem = elements.shape[0]
+        endpoints = np.asarray(edges.endpoints, dtype=np.int32)
+        adjacent_cells = np.asarray(edges.dual_cells, dtype=np.int32)
+        if np.any(endpoints < 0) or np.any(adjacent_cells < 0):
+            raise ValueError(
+                "Cannot build an ESMF edge auxiliary mesh with missing edge "
+                "endpoints or adjacent cells."
+            )
+
+        node_lon = np.asarray(nodes.coordinate.lon)
+        node_lat = np.asarray(nodes.coordinate.lat)
+        cell_lon = np.asarray(cells.centroid.lon)
+        cell_lat = np.asarray(cells.centroid.lat)
+        node_cart = np.asarray(nodes.coordinate.cartesian)
+        cell_cart = np.asarray(cells.centroid.cartesian)
+
+        aux_lon = np.concatenate([node_lon, cell_lon])
+        aux_lat = np.concatenate([node_lat, cell_lat])
+        aux_cart = np.concatenate([node_cart, cell_cart], axis=0)
+        num_node = aux_lon.shape[0]
+        num_elem = endpoints.shape[0]
+        cell_offset = node_lon.shape[0]
+
+        elemConn = np.column_stack(
+            [
+                endpoints[:, 0],
+                adjacent_cells[:, 0] + cell_offset,
+                endpoints[:, 1],
+                adjacent_cells[:, 1] + cell_offset,
+            ]
+        ).astype(np.int32)
+        elemConn = _sort_conn_counterclockwise_on_sphere(
+            elem_conn=elemConn,
+            node_cart=aux_cart,
+            elem_center_cart=np.asarray(dual_edges.midpoint.cartesian),
+        )
+        elemType = np.full(num_elem, 4, dtype=np.int32)
+
+        p0 = aux_cart[elemConn[:, 0], :]
+        p1 = aux_cart[elemConn[:, 1], :]
+        p2 = aux_cart[elemConn[:, 2], :]
+        p3 = aux_cart[elemConn[:, 3], :]
+        elemArea = np.asarray(
+            np.abs(
+                tfmath.spherical_triangle_area(
+                    jnp.array(p0),
+                    jnp.array(p1),
+                    jnp.array(p2)
+                )
+            )
+            + np.abs(
+                tfmath.spherical_triangle_area(
+                    jnp.array(p0),
+                    jnp.array(p2),
+                    jnp.array(p3)
+                )
+            ),
+            dtype=np.float64,
+        )
+        nodeCoord = np.stack(
+            [np.rad2deg(aux_lon), np.rad2deg(aux_lat)],
+            axis=1,
+        ).ravel()
+        elemCoord = np.stack(
+            [
+                np.rad2deg(dual_edges.midpoint.lon),
+                np.rad2deg(dual_edges.midpoint.lat),
+            ],
+            axis=1,
+        ).ravel()
+    else:
+        if layout == "triskC":
+            if LOC_REMAP_SCVT2ESMF[loc] == "cell":
+                elements = mesh.primal.cell
+                nodes = mesh.primal.node
+            elif LOC_REMAP_SCVT2ESMF[loc] == "node":
+                elements = mesh.dual.cell
+                nodes = mesh.dual.node
+            else:
+                raise ValueError(
+                    f"Invalid loc: {loc} for {layout} layout on scvt mesh"
+                )
+        else:
+            raise ValueError(f"Invalid layout: {layout} for scvt mesh")
+
+        num_node = nodes.shape[0]
+        num_elem = elements.shape[0]
+        nodeCoord = np.stack(
+            [
+                np.rad2deg(nodes.coordinate.lon),
+                np.rad2deg(nodes.coordinate.lat)
+            ],
+            axis=1
+        ).ravel()
+        elemType = np.array(elements.n_adjacency, dtype=np.int32)
+        # ESMF uses local indexing for element connectivity, not nodeId
+        elemConn = np.array(
+            elements.nodes[elements.nodes >= 0],
+            dtype=np.int32
+        )
+        elemArea = np.array(elements.area)
+        elemCoord = np.stack(
+            [
+                np.rad2deg(elements.centroid.lon),
+                np.rad2deg(elements.centroid.lat)
+            ],
+            axis=1
+        ).ravel()
 
     # ESMF uses 1-based indexing
     nodeId = np.arange(0, num_node, dtype=np.int32) + 1
-    nodeCoord = np.stack(
-        [
-            np.rad2deg(nodes.coordinate.lon),
-            np.rad2deg(nodes.coordinate.lat)
-        ],
-        axis=1
-    ).ravel()
     nodeOwner = np.zeros(num_node, dtype=np.int32)
     # ESMF uses 1-based indexing
     elemId = np.arange(0, num_elem, dtype=np.int32) + 1
-    elemType = np.array(elements.n_adjacency, dtype=np.int32)
-    # ESMF uses local indexing for element connectivity, not nodeId
-    elemConn = np.array(
-        elements.nodes[elements.nodes >= 0],
-        dtype=np.int32
-    )
-    elemArea = np.array(elements.area)
-    elemCoord = np.stack(
-        [
-            np.rad2deg(elements.centroid.lon),
-            np.rad2deg(elements.centroid.lat)
-        ],
-        axis=1
-    ).ravel()
 
     esmf_mesh = esmpy.Mesh(
         parametric_dim=2,
@@ -168,25 +286,19 @@ def create_scvt_mesh(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.Mesh:
     return esmf_mesh
 
 
-def create_locstream(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.LocStream:
-    if entity == "primal":
-        if loc == "edge":
-            lon = mesh.primal.edge.midpoint.lon
-            lat = mesh.primal.edge.midpoint.lat
-        else:
-            raise ValueError(
-                f"Invalid loc: {loc} for {entity} entity on scvt mesh"
-            )
-    elif entity == "dual":
-        if loc == "edge":
+def create_locstream(coord: CoordSys, loc: str) -> esmpy.LocStream:
+    mesh = coord.mesh
+    layout = coord.hori_layout.alias_names()
+    if layout == "triskC":
+        if LOC_REMAP_SCVT2ESMF[loc] == "edge":
             lon = mesh.dual.edge.midpoint.lon
             lat = mesh.dual.edge.midpoint.lat
         else:
             raise ValueError(
-                f"Invalid loc: {loc} for {entity} entity on scvt mesh"
+                f"Invalid loc: {loc} for {layout} layout on scvt mesh"
             )
     else:
-        raise ValueError(f"Invalid entity: {entity} for scvt mesh")
+        raise ValueError(f"Invalid layout: {layout} for scvt mesh")
 
     locstream = esmpy.LocStream(
         location_count=lon.shape[0],
@@ -203,73 +315,6 @@ def create_locstream(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.LocStream:
     return locstream
 
 
-def regridder_setup_point_method(
-    src: ESMF_OBJECTS,
-    dst: ESMF_OBJECTS,
-    method: str,
-    extrap_method: str = "none",
-    ndbounds: tuple[int, ...] | None = None,
-) -> dict[str, Any]:
-    # ===============================================
-    src_field = esmpy.Field(
-        src,
-        name="src",
-        staggerloc=esmpy.StaggerLoc.CENTER,
-        ndbounds=ndbounds
-    )
-    dst_field = esmpy.Field(
-        dst,
-        name="dst",
-        meshloc=esmpy.MeshLoc.ELEMENT,
-        ndbounds=ndbounds
-    )
-    # ===============================================
-    regrid = esmpy.Regrid(
-        src_field,
-        dst_field,
-        regrid_method=ESMF_METHODS[method],
-        extrap_method=ESMF_EXTRAP_METHODS[extrap_method],
-        unmapped_action=esmpy.UnmappedAction.IGNORE,
-    )
-    # ===============================================
-    return {"src_field": src_field, "dst_field": dst_field, "regrid": regrid}
-
-
-def regridder_setup_conservative_method(
-    src: ESMF_OBJECTS,
-    dst: ESMF_OBJECTS,
-    method: str,
-    norm_opt: str,
-    extrap_method: str = "none",
-    ndbounds: tuple[int, ...] | None = None,
-) -> dict[str, Any]:
-    # ===============================================
-    src_field = esmpy.Field(
-        src,
-        name="src",
-        staggerloc=esmpy.StaggerLoc.CENTER,
-        ndbounds=ndbounds
-    )
-    dst_field = esmpy.Field(
-        dst,
-        name="dst",
-        meshloc=esmpy.MeshLoc.ELEMENT,
-        ndbounds=ndbounds,
-    )
-    # ===============================================
-    regrid = esmpy.Regrid(
-        src_field,
-        dst_field,
-        regrid_method=ESMF_METHODS[method],
-        norm_type=ESMF_NORM_OPTIONS[norm_opt],
-        extrap_method=ESMF_EXTRAP_METHODS[extrap_method],
-        unmapped_action=esmpy.UnmappedAction.IGNORE,
-        ignore_degenerate=True,
-    )
-    # ===============================================
-    return {"src_field": src_field, "dst_field": dst_field, "regrid": regrid}
-
-
 class ESMFRegridder:
     """ESMF regridder supporting all major ESMF methods."""
 
@@ -282,7 +327,7 @@ class ESMFRegridder:
         ndbounds: tuple[int, ...] | None = None,
         extrap: bool = True,
         extrap_method: str = "none",
-        conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
+        conserve_opt: dict[str, Any] = {"norm_opt": "fracarea"},
         precompute_weights: bool = True,
     ):
         self.src = src
@@ -306,24 +351,74 @@ class ESMFRegridder:
         return self.regrid(src_data)
 
     def _setup_state(self) -> dict[str, Any]:
-        if self.method in ESMF_CONSERVATIVE_METHODS:
-            self._state = regridder_setup_conservative_method(
-                src=self.src,
-                dst=self.dst,
-                method=self.method,
-                norm_opt=self.conserve_opt["norm_opt"],
-                extrap_method=self.extrap_method,
+        # =======================================================
+        # src
+        if isinstance(self.src, esmpy.Grid):
+            src_field = esmpy.Field(
+                self.src,
+                name="src",
+                staggerloc=esmpy.StaggerLoc.CENTER,
                 ndbounds=self.ndbounds,
             )
-            return self._state
-
-        self._state = regridder_setup_point_method(
-            src=self.src,
-            dst=self.dst,
-            method=self.method,
-            extrap_method=self.extrap_method,
-            ndbounds=self.ndbounds,
-        )
+        elif isinstance(self.src, esmpy.Mesh):
+            src_field = esmpy.Field(
+                self.src,
+                name="src",
+                meshloc=esmpy.MeshLoc.ELEMENT,
+                ndbounds=self.ndbounds,
+            )
+        elif isinstance(self.src, esmpy.LocStream):
+            src_field = esmpy.Field(
+                self.src,
+                name="src",
+                ndbounds=self.ndbounds,
+            )
+        else:
+            raise ValueError(f"Unsupported ESMF object type: {type(self.src)}")
+        # =======================================================
+        # dst
+        if isinstance(self.dst, esmpy.Grid):
+            dst_field = esmpy.Field(
+                self.dst,
+                name="dst",
+                staggerloc=esmpy.StaggerLoc.CENTER,
+                ndbounds=self.ndbounds,
+            )
+        elif isinstance(self.dst, esmpy.Mesh):
+            dst_field = esmpy.Field(
+                self.dst,
+                name="dst",
+                meshloc=esmpy.MeshLoc.ELEMENT,
+                ndbounds=self.ndbounds,
+            )
+        elif isinstance(self.dst, esmpy.LocStream):
+            dst_field = esmpy.Field(
+                self.dst,
+                name="dst",
+                ndbounds=self.ndbounds,
+            )
+        else:
+            raise ValueError(f"Unsupported ESMF object type: {type(self.dst)}")
+        # =======================================================
+        if self.method in ESMF_CONSERVATIVE_METHODS:
+            regrid = esmpy.Regrid(
+                src_field,
+                dst_field,
+                regrid_method=ESMF_METHODS[self.method],
+                norm_type=ESMF_NORM_OPTIONS[self.conserve_opt["norm_opt"]],
+                extrap_method=ESMF_EXTRAP_METHODS[self.extrap_method],
+                unmapped_action=esmpy.UnmappedAction.IGNORE,
+                ignore_degenerate=True,
+            )
+        else:
+            regrid = esmpy.Regrid(
+                src_field,
+                dst_field,
+                regrid_method=ESMF_METHODS[self.method],
+                extrap_method=ESMF_EXTRAP_METHODS[self.extrap_method],
+                unmapped_action=esmpy.UnmappedAction.IGNORE,
+            )
+        self._state = {"src_field": src_field, "dst_field": dst_field, "regrid": regrid}
         return self._state
 
     def _get_spatial_rank(self, obj: ESMF_OBJECTS) -> int:
@@ -379,12 +474,20 @@ class ESMFRegridder:
         if self.method in ESMF_CONSERVATIVE_METHODS and not self.extrap:
             out = np.where(np.isfinite(out), out, np.nan)
 
-        # Transpose back to JAX expected shape
+        # Transpose back to TerraFlow's spatial convention:
+        # Grid data is (nlat, nlon), mesh/locstream data is (npoints,).
+        dst_spatial_rank = self._get_spatial_rank(self.dst)
         if ndbounds is None:
-            out = out.reshape(-1)
+            if dst_spatial_rank == 2:
+                out = np.transpose(out, (1, 0))
+            else:
+                out = out.reshape(-1)
         else:
             nlev = ndbounds[0]
-            out = out.reshape(-1, nlev).T
+            if dst_spatial_rank == 2:
+                out = np.transpose(out, (2, 1, 0))
+            else:
+                out = out.reshape(-1, nlev).T
         # ========================================================
         return jnp.asarray(out)
 
@@ -393,9 +496,9 @@ class ESMFRegridder:
         return create_latlon_grid(lon=lon, lat=lat)
 
     @staticmethod
-    def create_scvt_mesh(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.Mesh:
-        return create_scvt_mesh(mesh=mesh, loc=loc, entity=entity)
+    def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
+        return create_scvt_mesh(coord=coord, loc=loc)
 
     @staticmethod
-    def create_locstream(mesh: SCVT_MESH, loc: str, entity: str) -> esmpy.LocStream:
-        return create_locstream(mesh=mesh, loc=loc, entity=entity)
+    def create_locstream(coord: CoordSys, loc: str) -> esmpy.LocStream:
+        return create_locstream(coord=coord, loc=loc)

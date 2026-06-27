@@ -35,9 +35,8 @@ def prepare_bkg(
         lat=reader.lat
     )
     dst_at_cell = Regridder.create_scvt_info(
-        mesh=block.coord.mesh,
+        coord=block.coord,
         loc="cell",
-        entity="primal"
     )
     log.logger.info("Build regridder for background data at cell center.")
     regridder_at_cell = Regridder(

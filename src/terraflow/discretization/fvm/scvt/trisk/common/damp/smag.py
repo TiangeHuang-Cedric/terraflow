@@ -303,19 +303,22 @@ class SmagorinskyDamp(DynOperator):
     def config2dict(self) -> Dict[str, Any]:
         self._cfg.update(
             {
+                "use_smag_damp": self.use_smag_damp,
                 "smag_damp_coef": self.smag_damp_coef,
+                "use_sponge_layer": self.use_sponge_layer,
+                "sponge_layer_k0": self.sponge_layer_k0,
+                "sponge_layer_coef": self.sponge_layer_coef,
             }
         )
         return self._cfg
 
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
-            if cfg.use_smag_damp:
-                self.smag_damp_coef = cfg.smag_damp_coef
+            self.use_smag_damp = cfg.use_smag_damp
+            self.smag_damp_coef = cfg.smag_damp_coef
             self.use_sponge_layer = cfg.use_sponge_layer
-            if cfg.use_sponge_layer:
-                self.sponge_layer_k0 = cfg.sponge_layer_k0
-                self.sponge_layer_coef = cfg.sponge_layer_coef
+            self.sponge_layer_k0 = cfg.sponge_layer_k0
+            self.sponge_layer_coef = cfg.sponge_layer_coef
             self._built = True
         return self
 

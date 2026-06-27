@@ -262,20 +262,20 @@ def default_adv_batch_meta(
     if mode.is_barotropic() or mode.is_advection2d():
         # For barotropic mode
         if batch_hori_loc == MeshEntity.Cell and batch_vert_loc == "":
-            loc0 = {"hori": MeshEntity.Cell, "vert": VertLoc.Cell}
+            loc0 = {"hori": MeshEntity.Cell, "vert": ""}
             dim0 = (NCELL,)
             coordinates0 = "lon_cell lat_cell"
-            locn = {"hori": MeshEntity.Edge, "vert": VertLoc.Cell}
+            locn = {"hori": MeshEntity.Edge, "vert": ""}
             dimn = (NEDGE,)
             coordinatesn = "lon_edge lat_edge"
             locz = {}
             dimz = ()
             coordinatesz = ""
         elif batch_hori_loc == MeshEntity.Vtx and batch_vert_loc == "":
-            loc0 = {"hori": MeshEntity.Vtx, "vert": VertLoc.Cell}
+            loc0 = {"hori": MeshEntity.Vtx, "vert": ""}
             dim0 = (NLEV, NVTX,)
             coordinates0 = "lon_vtx lat_vtx"
-            locn = {"hori": MeshEntity.Edge, "vert": VertLoc.Cell}
+            locn = {"hori": MeshEntity.Edge, "vert": ""}
             dimn = (NLEV, NEDGE,)
             coordinatesn = "lon_edge lat_edge"
             locz = {}

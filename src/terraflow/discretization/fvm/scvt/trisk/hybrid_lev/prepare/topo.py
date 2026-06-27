@@ -36,7 +36,7 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
             reader=reader,
             mesh=coord.mesh,
             loc="cell",
-            entity="primal"
+            layout="triskC"
         )
         gzs = res["gzs"]
         lnd = res["lnd"]
@@ -53,9 +53,8 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
             lat=reader.lat
         )
         dst = Regridder.create_scvt_info(
-            mesh=coord.mesh,
+            coord=coord,
             loc="cell",
-            entity="primal"
         )
         regridder = Regridder(
             src=src,

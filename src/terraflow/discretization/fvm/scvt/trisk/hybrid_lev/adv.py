@@ -19,6 +19,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.adv.term import (
     TendencyOfTracerDueToDivergenceOfTracerFlux,
     TendencyOfTracerDueToVerticalAdvection
 )
+from terraflow.discretization.fvm.scvt.trisk.common.damp.schemes import Damp
 from terraflow.discretization.fvm.scvt.trisk.parallel import tree_at
 from terraflow.dynamics.adv import types
 from terraflow.test_case import adv as test_case_adv
@@ -301,6 +302,7 @@ class ExSpaceOperators(
         mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
+        self.damp = Damp(disc=disc, method=method, mode=mode)
         self.set_bg_wind = SetWindForBackground(
             disc=disc, method=method, mode=mode
         )
@@ -378,6 +380,8 @@ class ExSpaceOperators(
         return block
 
     def config2dict(self) -> Dict[str, Any]:
+        cfg = self.damp.config2dict()
+        self._cfg.update(cfg=cfg)
         cfg = self.dmdt.config2dict()
         self._cfg.update(cfg=cfg)
         cfg = self.dqdt.config2dict()
@@ -395,6 +399,7 @@ class ExSpaceOperators(
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
             self.hvsplit_method()
+            self.damp.build_with_config(cfg=cfg)
             self.dmdt.build_with_config(cfg=cfg)
             self.dqdt.build_with_config(cfg=cfg)
             self.set_bg_wind.build_with_config(cfg=cfg)
@@ -406,6 +411,7 @@ class ExSpaceOperators(
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.damp.prepare_block(block)
         block = self.dmdt.prepare_block(block)
         block = self.dqdt.prepare_block(block)
         block = self.set_bg_wind.prepare_block(block)

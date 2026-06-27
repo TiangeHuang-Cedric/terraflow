@@ -20,6 +20,7 @@ class OneLayerVerticalCoordinateSetup(AbstractVertHistorySetup):
         self,
         file_path: str,
         vert: OneLayerVertCoordinate,
+        output_type: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
     ):
@@ -29,8 +30,9 @@ class OneLayerVerticalCoordinateSetup(AbstractVertHistorySetup):
             int_type=int_type
         )
         self.vert = vert
+        self.output_type = output_type
 
-    def setup(self):
+    def setup(self, **kwargs):
         if self.has_built():
             return
         self._built = True
@@ -42,6 +44,7 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
         self,
         file_path: str,
         vert: HybridVertCoordinate,
+        output_type: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
     ):
@@ -51,8 +54,19 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
             int_type=int_type
         )
         self.vert = vert
+        self.output_type = output_type
 
-    def setup(self):
+    def setup(self, **kwargs):
+        if self.has_built():
+            return
+        if self.output_type == "mlev":
+            self.mlev()
+        elif self.output_type == "plev":
+            self.plev(**kwargs)
+        else:
+            raise ValueError(f"Unsupported output_type: {self.output_type}")
+
+    def mlev(self) -> None:
         if self.has_built():
             return
         ds = nc4.Dataset(self.file_path, "a", format="NETCDF4")
@@ -73,5 +87,26 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
         ilev.long_name = "Half vertical level"
         ilev.units = "Pa"
         ilev.positive = "down"
+        ds.close()
+        self._built = True
+
+    def plev(self, lev: np.ndarray, lev_unit: str) -> None:
+        if self.has_built():
+            return
+        if lev_unit not in ["Pa", "hPa", "mb"]:
+            raise ValueError(f"Unsupported pressure level unit: {lev_unit}")
+        if lev_unit == "hPa" or lev_unit == "mb":
+            lev = lev * 100.0  # Convert to Pa
+        if lev[0] > lev[1]:
+            positive = "up"
+        else:
+            positive = "down"
+        ds = nc4.Dataset(self.file_path, "a", format="NETCDF4")
+        ds.createDimension("lev", len(lev))
+        plev = ds.createVariable("lev", "f8", ("lev",))
+        plev[:] = lev
+        plev.long_name = "Pressure level"
+        plev.units = "Pa"
+        plev.positive = positive
         ds.close()
         self._built = True

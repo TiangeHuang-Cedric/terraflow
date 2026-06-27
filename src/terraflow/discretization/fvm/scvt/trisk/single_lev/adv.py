@@ -13,6 +13,7 @@ from terraflow.discretization.fvm.scvt.trisk.common.adv.term import (
     TendencyOfMassDueToDivergenceOfMassFlux,
     TendencyOfTracerDueToDivergenceOfTracerFlux
 )
+from terraflow.discretization.fvm.scvt.trisk.common.damp.schemes import Damp
 from terraflow.dynamics.adv import types
 
 if TYPE_CHECKING:
@@ -101,6 +102,7 @@ class ExSpaceOperators(
         mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
+        self.damp = Damp(disc=disc, method=method, mode=mode)
         self.set_bg_wind = SetWindForBackground(
             disc=disc, method=method, mode=mode
         )
@@ -159,7 +161,8 @@ class ExSpaceOperators(
         return block
 
     def config2dict(self) -> Dict[str, Any]:
-        cfg = self.dmdt.config2dict()
+        cfg = self.damp.config2dict()
+        cfg.update(self.dmdt.config2dict())
         cfg.update(self.dqdt.config2dict())
         cfg.update(self.set_bg_wind.config2dict())
         cfg.update(self.accum_wind.config2dict())
@@ -169,6 +172,7 @@ class ExSpaceOperators(
 
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
+            self.damp.build_with_config(cfg=cfg)
             self.dmdt.build_with_config(cfg=cfg)
             self.dqdt.build_with_config(cfg=cfg)
             self.set_bg_wind.build_with_config(cfg=cfg)
@@ -179,6 +183,7 @@ class ExSpaceOperators(
         return self
 
     def prepare_block(self, block: Block) -> Block:
+        block = self.damp.prepare_block(block)
         block = self.dmdt.prepare_block(block)
         block = self.dqdt.prepare_block(block)
         block = self.set_bg_wind.prepare_block(block)

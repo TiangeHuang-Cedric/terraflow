@@ -181,6 +181,8 @@ class DiagnosticsTools(
         block = vars.Block(
             elapsed_seconds=jnp.array(0),
             mode=self.equation.mode,
+            dt_dyn=self.solver.dt_dyn.total_seconds(),
+            dt_adv=self.solver.dt_adv.total_seconds(),
             _coord=coord,
             para=para,
             old=jnp.array(0),

@@ -9,6 +9,7 @@ from terraflow.discretization.abstract import (
     AbstractPrepareSpaceOperators,
     AbstractDynamicalEquationOperator
 )
+from terraflow.discretization.fvm.scvt.trisk.common.damp.schemes import Damp
 from terraflow.dynamics.shallow_water import types
 from ..parallel import tree_at
 
@@ -435,6 +436,7 @@ class ExSpaceOperators(
         mode: EquationMode
     ):
         super().__init__(disc=disc, method=method, mode=mode)
+        self.damp = Damp(disc=disc, method=method, mode=mode)
 
     def __call__(
         self,
@@ -566,6 +568,11 @@ class ExSpaceOperators(
             new_un = new_un.at[kds:kde+1, ids:ide+1].set(
                 old_un[kds:kde+1, ids:ide+1] + dundt[kds:kde+1, ids:ide+1] * dt
             )
+            if self.damp.use_smag_damp:
+                dundt_damp = block.equaux.damp.smag.dundt_damp
+                new_un = new_un.at[kds:kde+1, ids:ide+1].set(
+                    new_un[kds:kde+1, ids:ide+1] + dundt_damp[kds:kde+1, ids:ide+1] * dt
+                )
             # ==================================================
             return tree_at(
                 coord=block.coord,
@@ -612,6 +619,7 @@ class ExSpaceOperators(
         return block
 
     def config2dict(self) -> Dict[str, Any]:
+        self._cfg.update(self.damp.config2dict())
         self._cfg.update(self.dgzdt.config2dict())
         self._cfg.update(self.dundt.config2dict())
         self._cfg.update(self.prepare.config2dict())
@@ -619,6 +627,7 @@ class ExSpaceOperators(
 
     def build_with_config(self, cfg: ModelConfig) -> Self:
         if not self.has_built():
+            self.damp.build_with_config(cfg)
             self.dgzdt.build_with_config(cfg)
             self.dundt.build_with_config(cfg)
             self.prepare.build_with_config(cfg)
@@ -626,6 +635,7 @@ class ExSpaceOperators(
         return self
 
     def prepare_block(self, block: BLOCK) -> BLOCK:
+        block = self.damp.prepare_block(block)
         block = self.dgzdt.prepare_block(block)
         block = self.dundt.prepare_block(block)
         block = self.prepare.prepare_block(block)

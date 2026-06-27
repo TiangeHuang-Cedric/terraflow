@@ -1951,6 +1951,25 @@ class AbstractBlock(
             )
         return self
 
+    def get_plev(self) -> tuple[Field | None, Field | None]:
+        """Get the pressure levels from the static data."""
+        if hasattr(self.state, "ph") and hasattr(self.state, "ph_lev"):
+            ph = getattr(self.state, "ph")
+            ph_lev = getattr(self.state, "ph_lev")
+            if ph.is_empty():
+                ph = None
+            else:
+                ph = ph
+            if ph_lev.is_empty():
+                ph_lev = None
+            else:
+                ph_lev = ph_lev
+            return ph, ph_lev
+        else:
+            raise AttributeError(
+                "The state does not have 'ph' and 'ph_lev' attributes."
+            )
+
 
 class AbstractDiagnosticTools(Generic[HM, VM, HLO, VLO, DM, ES, FMT], ABC):
 

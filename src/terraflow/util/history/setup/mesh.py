@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 import netCDF4 as nc4
 import jax.numpy as jnp
 import numpy as np
-import uxarray as ux
 
 from terraflow.util.history.setup.base import AbstractHistorySetup
 
@@ -272,48 +271,23 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
 
     def structured(
         self,
-        remap_to: str = "faces",
-        lon_west: float = -180.0,
-        lon_east: float = 180.0,
-        lat_south: float = -90.0,
-        lat_north: float = 90.0,
-        east_west_resolution: float = 1.0,
-        south_north_resolution: float = 1.0,
+        dst_lon: np.ndarray,
+        dst_lat: np.ndarray,
     ):
         if self.has_built():
             return
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
-        to_lat = np.arange(lat_south, lat_north, south_north_resolution)
-        to_lon = np.arange(lon_west, lon_east, east_west_resolution)
-        dst_grid = ux.Grid.from_structured(lon=to_lon, lat=to_lat)
         # Create dimensions
-        if remap_to == "faces":
-            lon_name, lat_name = "face_lon", "face_lat"
-        elif remap_to == "nodes":
-            lon_name, lat_name = "node_lon", "node_lat"
-        elif remap_to == "edges":
-            lon_name, lat_name = "edge_lon", "edge_lat"
-        else:
-            raise ValueError(
-                f"Unsupported remap_to value: {remap_to}. "
-                "Supported values are 'faces', 'nodes', and 'edges'."
-            )
-        lon_data = np.asarray(
-            dst_grid[f"{lon_name}"].data
-        ).reshape(len(to_lat), len(to_lon))
-        lat_data = np.asarray(
-            dst_grid[f"{lat_name}"].data
-        ).reshape(len(to_lat), len(to_lon))
-        ds.createDimension("lon", lon_data.shape[1])
-        ds.createDimension("lat", lat_data.shape[0])
+        ds.createDimension("lon", dst_lon.shape[0])
+        ds.createDimension("lat", dst_lat.shape[0])
         # Create variables
         float_type = "f8"
         lon = ds.createVariable("lon", float_type, ("lon",))
         lat = ds.createVariable("lat", float_type, ("lat",))
-        lon[:] = lon_data[1, :]
+        lon[:] = dst_lon
         lon.long_name = "Longitude"
         lon.units = "degrees_east"
-        lat[:] = lat_data[:, 0]
+        lat[:] = dst_lat
         lat.long_name = "Latitude"
         lat.units = "degrees_north"
         ds.close()

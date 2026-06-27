@@ -51,12 +51,14 @@ class OneLayerVertCoordinate(AbstractVertCoordinate[OneLayerVerticalCoordinateSe
     def history_builder(
         self,
         file_path: str,
+        output_type: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
     ) -> OneLayerVerticalCoordinateSetup:
         return OneLayerVerticalCoordinateSetup(
             file_path=file_path,
             vert=self,
+            output_type=output_type,
             float_type=float_type,
             int_type=int_type
         )

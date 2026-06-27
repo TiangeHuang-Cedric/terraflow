@@ -22,7 +22,7 @@ def fill_grid(
     reader: AbstractTopographyReader,
     mesh: SphericalCentroidVoronoiTessellations,
     loc: str,
-    entity: str,
+    layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     """
     Map regular lat-lon topography points to SCVT primal cells with KDTree.
@@ -38,14 +38,14 @@ def fill_grid(
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity
+                layout=layout
             )
         elif backend == "scipy":
             return FillGridWithScipyBackend()(
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity
+                layout=layout
             )
         else:
             raise ValueError(
@@ -64,7 +64,7 @@ class FillGridWithJaxKDBackend:
         reader: AbstractTopographyReader,
         mesh: SphericalCentroidVoronoiTessellations,
         loc: str,
-        entity: str,
+        layout: str,
     ) -> dict[str, Float[Array, "npoints"]]:
         cfg = reader.cfg
         if cfg.fill_split_with_chunks:
@@ -72,14 +72,14 @@ class FillGridWithJaxKDBackend:
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity,
+                layout=layout,
             )
         else:
             return _jaxkd_fill_grid_on_earth(
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity
+                layout=layout
             )
 
 
@@ -90,7 +90,7 @@ class FillGridWithScipyBackend:
         reader: AbstractTopographyReader,
         mesh: SphericalCentroidVoronoiTessellations,
         loc: str,
-        entity: str,
+        layout: str,
     ) -> dict[str, Float[Array, "npoints"]]:
         cfg = reader.cfg
         if cfg.fill_split_with_chunks:
@@ -98,14 +98,14 @@ class FillGridWithScipyBackend:
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity,
+                layout=layout,
             )
         else:
             return _scipy_fill_grid_on_earth(
                 reader=reader,
                 mesh=mesh,
                 loc=loc,
-                entity=entity
+                layout=layout
             )
 
 
@@ -113,7 +113,7 @@ def _jaxkd_fill_grid_on_earth(
     reader: AbstractTopographyReader,
     mesh: SphericalCentroidVoronoiTessellations,
     loc: str,
-    entity: str
+    layout: str
 ) -> dict[str, Float[Array, "npoints"]]:
     radius = reader._para.radius.unwrap()
     topo_lon = jnp.deg2rad(reader.lon)
@@ -124,7 +124,7 @@ def _jaxkd_fill_grid_on_earth(
     int_type = mesh.dev.int_type
     float_type = mesh.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, entity=entity)
+    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -199,7 +199,7 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
     reader: AbstractTopographyReader,
     mesh: SphericalCentroidVoronoiTessellations,
     loc: str,
-    entity: str,
+    layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     lon_chunk_size = reader.cfg.fill_lon_chunk_size
     lat_chunk_size = reader.cfg.fill_lat_chunk_size
@@ -212,7 +212,7 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
     int_type = mesh.dev.int_type
     float_type = mesh.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, entity=entity)
+    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -389,7 +389,7 @@ def _scipy_fill_grid_on_earth(
     reader: AbstractTopographyReader,
     mesh: SphericalCentroidVoronoiTessellations,
     loc: str,
-    entity,
+    layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     radius = reader._para.radius.unwrap()
     topo_lon = np.deg2rad(reader.lon)
@@ -399,7 +399,7 @@ def _scipy_fill_grid_on_earth(
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
     float_type = mesh.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, entity=entity)
+    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -491,7 +491,7 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
     reader: AbstractTopographyReader,
     mesh: SphericalCentroidVoronoiTessellations,
     loc: str,
-    entity: str,
+    layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     lon_chunk_size = reader.cfg.fill_lon_chunk_size
     lat_chunk_size = reader.cfg.fill_lat_chunk_size
@@ -503,7 +503,7 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
     float_type = mesh.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, entity=entity)
+    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers

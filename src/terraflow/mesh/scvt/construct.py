@@ -2038,11 +2038,11 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
 
     def get_layout(
         self,
-        layout: str = "trisk"
+        layout: str = "triskC"
     ) -> TriSKBasedCGridStaggeringLayout:
         """Return the layout object for this mesh type."""
         import terraflow.layout.scvt as scvt_layout
-        if layout == "trisk":
+        if layout == "triskC":
             return scvt_layout.TriSKBasedCGridStaggeringLayout()
         else:
             raise ValueError(f"Unsupported layout: {layout}")
@@ -2327,36 +2327,18 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
     def get_coord_info(
         self,
         loc: str,
-        entity: str,
+        layout: str,
     ) -> dict[str, Float[Array, "npoints"]]:
-        if entity == "primal":
+        if layout == "triskC":
             if loc == "cell":
                 return {
                     "lon": self.primal.cell.centroid.lon,
                     "lat": self.primal.cell.centroid.lat
                 }
-            elif loc == "node":
+            elif loc == "vtx":
                 return {
                     "lon": self.primal.node.coordinate.lon,
                     "lat": self.primal.node.coordinate.lat
-                }
-            elif loc == "edge":
-                return {
-                    "lon": self.primal.edge.midpoint.lon,
-                    "lat": self.primal.edge.midpoint.lat
-                }
-            else:
-                raise ValueError(f"Invalid loc for primal: {loc}")
-        elif entity == "dual":
-            if loc == "cell":
-                return {
-                    "lon": self.dual.cell.centroid.lon,
-                    "lat": self.dual.cell.centroid.lat
-                }
-            elif loc == "node":
-                return {
-                    "lon": self.dual.node.coordinate.lon,
-                    "lat": self.dual.node.coordinate.lat
                 }
             elif loc == "edge":
                 return {
@@ -2364,9 +2346,9 @@ class SphericalCentroidVoronoiTessellations(AbstractUnstructuredMesh):
                     "lat": self.dual.edge.midpoint.lat
                 }
             else:
-                raise ValueError(f"Invalid loc for dual: {loc}")
+                raise ValueError(f"Invalid loc for {layout}: {loc}")
         else:
-            raise ValueError(f"Invalid entity: {entity}")
+            raise ValueError(f"Invalid layout: {layout}")
 
     def get_idx(
         self,

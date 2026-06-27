@@ -110,7 +110,7 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     vert_interp_backend: str = "jax"
 
     # "grist" or "native"
-    vert_interp_type: str = "grist"
+    vert_interp_type: str = "native"
 
     def __print__(self):
         print("================ Background Reader Config ==================")

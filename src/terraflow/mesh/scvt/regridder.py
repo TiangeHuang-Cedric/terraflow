@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, TypeVar, Any, Union
 import numpy as np
 
 from terraflow.mesh.scvt._native_regridder import NativeRegridder
@@ -9,9 +9,18 @@ from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations 
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
+    from terraflow.vert_coord.abstract import AbstractVertCoordinate
+    from .construct import SphericalCentroidVoronoiTessellations as SCVT_MESH
 
     Float = typing.Float
     Array = typing.Array
+
+    VM = TypeVar("VM", bound=AbstractVertCoordinate)
+    HLO = TypeVar("HLO", bound=AbstractLayout)
+    VLO = TypeVar("VLO", bound=AbstractLayout)
+
+    CoordSys = CoordinateSystem[SCVT_MESH, VM, HLO, VLO]
 
     GRID = Union["LatlonRegridInfo", "SCVTRegridInfo"]
 
@@ -24,12 +33,14 @@ class LatlonRegridInfo:
 
 @dataclass(frozen=True)
 class SCVTRegridInfo:
-    mesh: SCVT_MESH
+    coord: CoordSys
     loc: str
-    entity: str
 
     def get_coord(self) -> dict[str, Float[Array, "npoints"]]:
-        return self.mesh.get_coord_info(loc=self.loc, entity=self.entity)
+        return self.coord.mesh.get_coord_info(
+            loc=self.loc,
+            layout=self.coord.hori_layout.alias_names()
+        )
 
 
 class Regridder:
@@ -50,7 +61,7 @@ class Regridder:
         method: str = "bilinear",
         extrap: bool = True,
         esmf_extrap_method: str = "none",
-        esmf_conserve_opt: dict[str, Any] = {"norm_opt": "destarea"},
+        esmf_conserve_opt: dict[str, Any] = {"norm_opt": "fracarea"},
         precompute_weights: bool = True,
     ):
         if isinstance(src, LatlonRegridInfo) and isinstance(dst, LatlonRegridInfo):
@@ -82,9 +93,8 @@ class Regridder:
                 )
             src_info = self.create_latlon_info(lon=src.lon, lat=src.lat)
             dst_info = self.create_scvt_info(
-                mesh=dst.mesh,
+                coord=dst.coord,
                 loc=dst.loc,
-                entity=dst.entity
             )
             dst_coord = dst_info.get_coord()
             self._impl = NativeRegridder(
@@ -97,63 +107,36 @@ class Regridder:
                 precompute_weights=precompute_weights,
             )
         elif self.backend == "esmf":
-            conservative_methods = {"conserve_1st", "conserve_2nd"}
             # ================================================================
-            # src (latlon) -> dst (scvt)
+            # src (latlon)
             if isinstance(src, LatlonRegridInfo):
                 esmf_src = ESMFRegridder.create_latlon_grid(
                     lon=np.array(src.lon),
                     lat=np.array(src.lat)
                 )
+            # src (scvt)
             elif isinstance(src, SCVTRegridInfo):
-                if src.loc == "cell" or src.loc == "node":
-                    esmf_src = ESMFRegridder.create_scvt_mesh(
-                        mesh=src.mesh,
-                        loc=src.loc,
-                        entity=src.entity
-                    )
-                elif src.loc == "edge":
-                    esmf_src = ESMFRegridder.create_locstream(
-                        mesh=src.mesh,
-                        loc=src.loc,
-                        entity=src.entity
-                    )
-                else:
-                    raise ValueError(
-                        f"Invalid loc for ESMF backend: {src.loc}"
-                    )
+                esmf_src = ESMFRegridder.create_scvt_mesh(
+                    coord=src.coord,
+                    loc=src.loc,
+                )
             else:
                 raise ValueError(
                     f"Unsupported src grid type for ESMF backend: {type(src)}"
                 )
             # ================================================================
-            # src (scvt) -> dst (latlon)
+            # dst (latlon)
             if isinstance(dst, LatlonRegridInfo):
                 esmf_dst = ESMFRegridder.create_latlon_grid(
                     lon=np.array(dst.lon),
                     lat=np.array(dst.lat)
                 )
+            # dst (scvt)
             elif isinstance(dst, SCVTRegridInfo):
-                if dst.loc == "cell" or dst.loc == "node":
-                    esmf_dst = ESMFRegridder.create_scvt_mesh(
-                        mesh=dst.mesh,
-                        loc=dst.loc,
-                        entity=dst.entity
-                    )
-                elif dst.loc == "edge":
-                    if self.method in conservative_methods:
-                        raise ValueError(
-                            f"Conservative methods are not supported for edge -> latlon regridding"
-                        )
-                    esmf_dst = ESMFRegridder.create_locstream(
-                        mesh=dst.mesh,
-                        loc=dst.loc,
-                        entity=dst.entity
-                    )
-                else:
-                    raise ValueError(
-                        f"Invalid loc for ESMF backend: {dst.loc}"
-                    )
+                esmf_dst = ESMFRegridder.create_scvt_mesh(
+                    coord=dst.coord,
+                    loc=dst.loc,
+                )
             else:
                 raise ValueError(
                     f"Unsupported dst grid type for ESMF backend: {type(dst)}"
@@ -191,5 +174,5 @@ class Regridder:
         return LatlonRegridInfo(lon=lon, lat=lat)
 
     @staticmethod
-    def create_scvt_info(mesh: SCVT_MESH, loc: str, entity: str) -> SCVTRegridInfo:
-        return SCVTRegridInfo(mesh=mesh, loc=loc, entity=entity)
+    def create_scvt_info(coord: CoordSys, loc: str) -> SCVTRegridInfo:
+        return SCVTRegridInfo(coord=coord, loc=loc)
