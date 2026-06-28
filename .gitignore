@@ -38,3 +38,6 @@ src/terraflow.egg-info/
 
 # __pycache__ folders
 **/__pycache__/
+
+# netCDF files
+*.nc
