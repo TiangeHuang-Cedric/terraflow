@@ -92,8 +92,8 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     # "nearest", "bilinear", "conserve_1st", "conserve_2nd", "patch"
     hori_interp_method: str = "conserve_1st"
 
-    # "nearest", "bilinear", "patch"
-    hori_interp_method_at_edge: str = "patch"
+    # True or False
+    interp_at_midpoint: bool = False
 
     # "none", "nearest_stod", "nearest_idavg", "creep_fill"
     esmf_extrap_method: str = "none"
@@ -104,7 +104,7 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     )
 
     # True or False
-    prepare_regrid_gz: bool = True
+    prepare_regrid_gz: bool = False
 
     # "jax" or "native"
     vert_interp_backend: str = "jax"
@@ -116,8 +116,9 @@ class BackgroundReaderConfig(AbstractReaderConfig):
         print("================ Background Reader Config ==================")
         print(f"  hori_interp_backend        = {self.hori_interp_backend}")
         print(f"  hori_interp_method         = {self.hori_interp_method}")
-        print(f"  hori_interp_method_at_edge = {self.hori_interp_method_at_edge}")
-        print(f"  hori_conserve_opt          = {self.esmf_conserve_opt}")
+        print(f"  interp_at_midpoint         = {self.interp_at_midpoint}")
+        print(f"  esmf_extrap_method         = {self.esmf_extrap_method}")
+        print(f"  esmf_conserve_opt          = {self.esmf_conserve_opt}")
         print(f"  prepare_regrid_gz          = {self.prepare_regrid_gz}")
         print(f"  vert_interp_backend        = {self.vert_interp_backend}")
         print(f"  vert_interp_type           = {self.vert_interp_type}")

@@ -50,6 +50,25 @@ def prepare_bkg(
         esmf_conserve_opt=reader.cfg.esmf_conserve_opt,
         precompute_weights=True,
     )
+    if reader.cfg.interp_at_midpoint:
+        regridder_uv = regridder_at_cell
+    else:
+        dst_at_edge = Regridder.create_scvt_info(
+            coord=block.coord,
+            loc="edge",
+        )
+        regridder_uv = Regridder(
+            src=src,
+            dst=dst_at_edge,
+            backend=reader.cfg.hori_interp_backend,
+            ndbounds=(reader.lev.shape[0],),
+            method=reader.cfg.hori_interp_method,
+            extrap=True,
+            esmf_extrap_method=reader.cfg.esmf_extrap_method,
+            esmf_conserve_opt=reader.cfg.esmf_conserve_opt,
+            precompute_weights=True,
+        )
+
     if reader.cfg.vert_interp_type == "native":
         allow_extrap = True
     elif reader.cfg.vert_interp_type == "grist":
@@ -127,7 +146,7 @@ def prepare_bkg(
         block = regrid_un_from_uv(
             block=block,
             reader=reader,
-            regridder=regridder_at_cell,
+            regridder=regridder_uv,
             vert_interp_linear=vert_linear_interp,
         )
         if reader.cfg.prepare_regrid_gz:
@@ -205,7 +224,7 @@ def prepare_bkg(
         block = regrid_un_from_uv(
             block=block,
             reader=reader,
-            regridder=regridder_at_cell,
+            regridder=regridder_uv,
             vert_interp_linear=vert_linear_interp
         )
         block = regrid_t(

@@ -17,7 +17,9 @@ Float = typing.Float
 Array = typing.Array
 
 PTOP = 2.194e2
+
 LOCAL_PTOP = 0.0
+
 HYBRID_COORD_P0 = 1.0e5
 
 
@@ -36,6 +38,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
     half_kme: IntType = eqx.field(static=True)
     p0: Float[Array, "1"]
     ptop: Float[Array, "1"]
+    local_ptop: Float[Array, "1"]
     hyai: Float[Array, "nlev+1"]
     hybi: Float[Array, "nlev+1"]
     hyam: Float[Array, "nlev"]
@@ -58,6 +61,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         half_kme: IntType,
         p0: Float[Array, "1"],
         ptop: Float[Array, "1"],
+        local_ptop: Float[Array, "1"],
         hyai: Float[Array, "nlev+1"],
         hybi: Float[Array, "nlev+1"],
         hyam: Float[Array, "nlev"],
@@ -76,6 +80,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         self.half_kme = half_kme
         self.p0 = p0
         self.ptop = ptop
+        self.local_ptop = local_ptop
         self.hyai = hyai
         self.hybi = hybi
         self.hyam = hyam
@@ -126,6 +131,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         cls,
         p0: Float[Array, "1"],
         ptop: Float[Array, "1"],
+        local_ptop: Float[Array, "1"],
         hyai: Float[Array, "nlev+1"],
         hybi: Float[Array, "nlev+1"],
         hyam: Float[Array, "nlev"],
@@ -146,6 +152,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
             half_kme=hyai.shape[0] - 1,
             p0=p0,
             ptop=ptop,
+            local_ptop=local_ptop,
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -208,7 +215,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         hybm = self.hybm[ks:ke+1, None]
         mgs = mgs[None, ...]
         p0 = self.p0
-        ptop = LOCAL_PTOP
+        ptop = self.local_ptop
         return hyam * (p0 - ptop) + hybm * (mgs - ptop) + ptop
 
     def calc_mg_lev(
@@ -221,7 +228,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         hybi = self.hybi[ks:ke+1, None]
         mgs = mgs[None, ...]
         p0 = self.p0
-        ptop = LOCAL_PTOP
+        ptop = self.local_ptop
         return hyai * (p0 - ptop) + hybi * (mgs - ptop) + ptop
 
     def calc_dmgdt(
@@ -279,6 +286,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -309,6 +317,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -339,6 +348,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -369,6 +379,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -406,6 +417,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -437,6 +449,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -468,6 +481,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -496,6 +510,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
             ptop=jnp.array(PTOP, dtype=dev.float_type),
+            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -524,6 +539,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
             ptop=jnp.array(PTOP, dtype=dev.float_type),
+            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -552,6 +568,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
             ptop=jnp.array(PTOP, dtype=dev.float_type),
+            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -580,6 +597,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
             ptop=jnp.array(PTOP, dtype=dev.float_type),
+            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -612,6 +630,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
@@ -644,6 +663,7 @@ class HybridVertCoordinate(AbstractLorenzCoordinate):
         return cls.init_global(
             p0=jnp.array(p0, dtype=dev.float_type),
             ptop=jnp.array(ptop, dtype=dev.float_type),
+            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,

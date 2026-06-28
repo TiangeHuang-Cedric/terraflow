@@ -68,7 +68,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
     cfg=tf.readers.BackgroundReaderConfig(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
-        hori_interp_method_at_edge="patch",
+        interp_at_midpoint=True,
         vert_interp_backend="jax",
         vert_interp_type="native",
     )
