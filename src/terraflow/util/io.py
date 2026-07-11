@@ -1,8 +1,13 @@
-import xarray as xr
-from parso.python.tree import Number
-from terraflow.util import typing
+from __future__ import annotations
+from typing import TYPE_CHECKING
 
-Array = typing.Array
+import xarray as xr
+
+if TYPE_CHECKING:
+    import numpy as np
+    from terraflow.util import typing
+
+    Number = typing.Numeric
 
 
 def load_netcdf(file_path: str) -> xr.Dataset:
@@ -20,7 +25,7 @@ def get_scalar(dataset: xr.Dataset, var_name: str) -> Number:
     return dataset[var_name].item()
 
 
-def get_array(dataset: xr.Dataset, var_name: str) -> Array:
+def get_array(dataset: xr.Dataset, var_name: str) -> np.ndarray:
     """Get a variable from the xarray Dataset."""
     return dataset[var_name].values
 

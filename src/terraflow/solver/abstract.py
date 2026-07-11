@@ -320,7 +320,7 @@ class AbstractSolver(Generic[ODE], ABC):
         def diagnose_fn(block: AbstractBlock) -> AbstractBlock:
             block = self.diagnose_fn()(
                 block,
-                itime_str="new"
+                itime_str="old"
             )
             return block
 
@@ -383,7 +383,7 @@ class AbstractSolver(Generic[ODE], ABC):
         *,
         start_with_input: bool = False,
         post_process_fn: Callable = (
-            lambda x: trajectory_post_process(x, x.new)
+            lambda x: trajectory_post_process(x, x.old)
         ),
         outer_scan_fn=jax.lax.scan,
         inner_scan_fn=jax.lax.scan,
@@ -528,7 +528,7 @@ def io_callback_in_scan(
     diagnose_fn: Callable,
     history: AbstractHistoryset,
     *,
-    post_process_fn: Callable = lambda x: x.get_state(x.new),
+    post_process_fn: Callable = lambda x: x.get_state(x.old),
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[AbstractBlock], AbstractBlock]:
@@ -554,7 +554,7 @@ def trajectory_in_scan(
     *,
     start_with_input: bool = False,
     post_process_fn: Callable = (
-        lambda x: trajectory_post_process(x, x.new)
+        lambda x: trajectory_post_process(x, x.old)
     ),
     outer_scan_fn: Callable = jax.lax.scan,
     inner_scan_fn: Callable = jax.lax.scan,
@@ -631,7 +631,7 @@ def integrate_in_scan(
 
     def return_fn(block: AbstractBlock) -> AbstractBlock:
         block = wrap_fn(block)
-        state = trajectory_post_process(block, itime=block.new)
+        state = trajectory_post_process(block, itime=block.old)
         return eqx.tree_at(
             lambda b: b.state,
             block,
@@ -649,7 +649,7 @@ def output(
 ) -> None:
     history.output(
         block=block,
-        itime_str="new",
+        itime_str="old",
         save_idx=save_idx,
         first_call=first_call
     )
@@ -704,7 +704,6 @@ def wrap_fn_for_split_scan(
                 block = op_first_call_fn(block, with_diag=True)
             else:
                 block = op_first_call_fn(block, with_diag=False)
-            block = run_fn(block)
             block, trajectory = outer_scan_fn(
                 outer_step_fn,
                 block,
@@ -724,7 +723,6 @@ def wrap_fn_for_split_scan(
                 save_idx=0,
                 first_call=True
             )
-            block = run_fn(block)
             carry = (block, 1)
             final_carry, _ = outer_scan_fn(
                 outer_step_fn,
@@ -760,7 +758,6 @@ def wrap_fn_for_scan(
 
     def return_fn(block: AbstractBlock) -> AbstractBlock:
         block = op_first_call_fn(block, with_diag=False)
-        block = run_fn(block)
         block = wrap_fn(block)
         return block
 

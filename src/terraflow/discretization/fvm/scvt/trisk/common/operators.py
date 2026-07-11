@@ -397,7 +397,7 @@ class InterpPotentialVorticityUpwind:
         # ==========================================================
         un_slice = un[kds:kde+1, ids:ide+1]
         ut_slice = ut[kds:kde+1, ids:ide+1]
-        b = jnp.abs(un_slice) / jnp.sqrt(
+        b = jnp.abs(ut_slice) / jnp.sqrt(
             un_slice ** 2 + ut_slice ** 2 + 1.0
         )
         flux1 = self.central_difference_scheme(

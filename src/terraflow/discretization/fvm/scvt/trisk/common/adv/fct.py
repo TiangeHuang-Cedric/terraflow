@@ -568,8 +568,8 @@ def fct_vert_limiter_at_cell_on_single_tracer(
     ad_flux = jnp.pad(ad_flux, ((1, 1), (0, 0)))
     # ========================================================
     # Calculate the updated low order solution
-    tmp = (qmfz_lo[kds+1:kde+2, ids:ide+1] - qmfz_lo[kds:kde+1, ids:ide+1])
-    q_td = mq_old_ - dt * tmp / dmg_new_  # (nlev, ncell)
+    tmp = qmfz_lo[kds+1:kde+2, ids:ide+1] - qmfz_lo[kds:kde+1, ids:ide+1]
+    q_td = (mq_old_ - dt * tmp) / dmg_new_  # (nlev, ncell)
     # ========================================================
     # Calculate limiter R values
     # =============================================
