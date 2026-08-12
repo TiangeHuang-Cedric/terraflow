@@ -61,8 +61,8 @@ def interp_hybrid2pressure(
             x,
             mlev,
             plev,
-            left="extrapolate",
-            right="extrapolate"
+            backend="jax",
+            allow_extrap=True,
         ),
         in_axes=(0, 0),
         out_axes=0
