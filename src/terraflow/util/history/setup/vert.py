@@ -5,8 +5,8 @@ import netCDF4 as nc4
 from terraflow.util.history.setup.base import AbstractHistorySetup
 
 if TYPE_CHECKING:
-    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
+    from terraflow.vert_coord.gtc.onelayer import OneLayerVertCoordinate
+    from terraflow.vert_coord.gtc.hybrid_coord import HybridVertCoordinate
     import numpy as np
 
 
@@ -35,7 +35,26 @@ class OneLayerVerticalCoordinateSetup(AbstractVertHistorySetup):
     def setup(self, **kwargs):
         if self.has_built():
             return
-        self._built = True
+        ds = nc4.Dataset(self.file_path, "a", format="NETCDF4")
+        # Create dimensions
+        ds.createDimension("lev", self.vert.full_nlev)
+        ds.createDimension("ilev", self.vert.half_nlev)
+        # Create variables
+        ds.createVariable("lev", "f8", ("lev",))
+        ds.createVariable("ilev", "f8", ("ilev",))
+        # Assign data
+        lev = ds.variables["lev"]
+        lev[:] = self.vert.full_lev
+        lev.long_name = "Full vertical level"
+        lev.units = "Pa"
+        lev.positive = "down"
+        ilev = ds.variables["ilev"]
+        ilev[:] = self.vert.half_lev
+        ilev.long_name = "Half vertical level"
+        ilev.units = "Pa"
+        ilev.positive = "down"
+        ds.close()
+        self._built = True        
 
 
 class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
@@ -71,19 +90,19 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
             return
         ds = nc4.Dataset(self.file_path, "a", format="NETCDF4")
         # Create dimensions
-        ds.createDimension("lev", self.vert.nlev)
-        ds.createDimension("ilev", self.vert.nlev + 1)
+        ds.createDimension("lev", self.vert.full_nlev)
+        ds.createDimension("ilev", self.vert.half_nlev)
         # Create variables
         ds.createVariable("lev", "f8", ("lev",))
         ds.createVariable("ilev", "f8", ("ilev",))
         # Assign data
         lev = ds.variables["lev"]
-        lev[:] = self.vert.get_full_lev()
+        lev[:] = self.vert.full_lev
         lev.long_name = "Full vertical level"
         lev.units = "Pa"
         lev.positive = "down"
         ilev = ds.variables["ilev"]
-        ilev[:] = self.vert.get_half_lev()
+        ilev[:] = self.vert.half_lev
         ilev.long_name = "Half vertical level"
         ilev.units = "Pa"
         ilev.positive = "down"

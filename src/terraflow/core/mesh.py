@@ -3,15 +3,15 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
 
 _LAZY_CLASS = {
-    "SphericalCentroidVoronoiTessellations": "terraflow.mesh.scvt.construct.SphericalCentroidVoronoiTessellations",
+    "SCVTMesh": "terraflow.mesh.scvt.mesh_type.SCVTMesh",
 }
 
 __all__ = [
-    "SphericalCentroidVoronoiTessellations",
+    "SCVTMesh",
 ]
 
 

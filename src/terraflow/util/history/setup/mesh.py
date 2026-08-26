@@ -7,7 +7,7 @@ import numpy as np
 from terraflow.util.history.setup.base import AbstractHistorySetup
 
 if TYPE_CHECKING:
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
 
 class AbstractMeshHistorySetup(AbstractHistorySetup):
@@ -16,12 +16,12 @@ class AbstractMeshHistorySetup(AbstractHistorySetup):
 
 class SCVTHistorySetup(AbstractMeshHistorySetup):
     file_path: str
-    mesh: SphericalCentroidVoronoiTessellations
+    mesh: SCVTMesh
 
     def __init__(
         self,
         file_path: str,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         output_type: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
@@ -62,28 +62,44 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
         if self.has_built():
             return
         if use_dual:
-            entity = self.mesh.dual
             mesh_name = "dual"
         else:
-            entity = self.mesh.primal
             mesh_name = "primal"
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
+        # =======================================
         # Create dimensions
-        ds.createDimension("n_face", int(entity.cell.shape[0]))
-        ds.createDimension("n_node", int(entity.node.shape[0]))
-        ds.createDimension("n_edge", int(entity.edge.shape[0]))
-        ds.createDimension(
-            "n_max_face_nodes",
-            int(entity.cell.adjacency.shape[1])
-        )
-        ds.createDimension(
-            "n_max_face_edges",
-            int(entity.cell.adjacency.shape[1])
-        )
-        ds.createDimension(
-            "n_max_face_faces",
-            int(entity.cell.adjacency.shape[1])
-        )
+        if use_dual:
+            ds.createDimension("n_face", int(self.mesh.n_vtx))
+            ds.createDimension("n_node", int(self.mesh.n_cell))
+            ds.createDimension("n_edge", int(self.mesh.n_edge))
+            ds.createDimension(
+                "n_max_face_nodes",
+                int(self.mesh.maxnnb_vtx)
+            )
+            ds.createDimension(
+                "n_max_face_edges",
+                int(self.mesh.maxnnb_vtx)
+            )
+            ds.createDimension(
+                "n_max_face_faces",
+                int(self.mesh.maxnnb_vtx)
+            )
+        else:
+            ds.createDimension("n_face", int(self.mesh.n_cell))
+            ds.createDimension("n_node", int(self.mesh.n_vtx))
+            ds.createDimension("n_edge", int(self.mesh.n_edge))
+            ds.createDimension(
+                "n_max_face_nodes",
+                int(self.mesh.maxnnb_cell)
+            )
+            ds.createDimension(
+                "n_max_face_edges",
+                int(self.mesh.maxnnb_cell)
+            )
+            ds.createDimension(
+                "n_max_face_faces",
+                int(self.mesh.maxnnb_cell)
+            )            
         ds.createDimension("two", int(2))
         # Create variables
         int_type = "i4"
@@ -154,68 +170,132 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
         mesh.face_node_connectivity = "face_node_connectivity"
         mesh.face_edge_connectivity = "face_edge_connectivity"
         mesh.face_face_connectivity = "face_face_connectivity"
-        face_lon[:] = entity.cell.centroid.lon
-        face_lon.long_name = "Face Longitude"
-        face_lon.units = "radians_east"
-        face_lat[:] = entity.cell.centroid.lat
-        face_lat.long_name = "Face Latitude"
-        face_lat.units = "radians_north"
-        node_lon[:] = entity.node.coordinate.lon
-        node_lon.long_name = "Node Longitude"
-        node_lon.units = "radians_east"
-        node_lat[:] = entity.node.coordinate.lat
-        node_lat.long_name = "Node Latitude"
-        node_lat.units = "radians_north"
-        edge_lon[:] = entity.edge.midpoint.lon
-        edge_lon.long_name = "Edge Longitude"
-        edge_lon.units = "radians_east"
-        edge_lat[:] = entity.edge.midpoint.lat
-        edge_lat.long_name = "Edge Latitude"
-        edge_lat.units = "radians_north"
-        face_x[:] = entity.cell.centroid.x
-        face_x.long_name = "Face X Coordinate"
-        face_x.units = "m"
-        face_y[:] = entity.cell.centroid.y
-        face_y.long_name = "Face Y Coordinate"
-        face_y.units = "m"
-        face_z[:] = entity.cell.centroid.z
-        face_z.long_name = "Face Z Coordinate"
-        face_z.units = "m"
-        node_x[:] = entity.node.coordinate.x
-        node_x.long_name = "Node X Coordinate"
-        node_x.units = "m"
-        node_y[:] = entity.node.coordinate.y
-        node_y.long_name = "Node Y Coordinate"
-        node_y.units = "m"
-        node_z[:] = entity.node.coordinate.z
-        node_z.long_name = "Node Z Coordinate"
-        node_z.units = "m"
-        edge_x[:] = entity.edge.midpoint.x
-        edge_x.long_name = "Edge X Coordinate"
-        edge_x.units = "m"
-        edge_y[:] = entity.edge.midpoint.y
-        edge_y.long_name = "Edge Y Coordinate"
-        edge_y.units = "m"
-        edge_z[:] = entity.edge.midpoint.z
-        edge_z.long_name = "Edge Z Coordinate"
-        edge_z.units = "m"
-        n_nodes_per_face[:] = entity.cell.n_adjacency
-        n_nodes_per_face.long_name = "Number of Nodes per Face"
-        face_node_connectivity[:, :] = entity.cell.nodes
-        face_node_connectivity.long_name = "Face-Node Connectivity"
-        face_node_connectivity.start_index = 0
-        face_edge_connectivity[:, :] = entity.cell.edges
-        face_edge_connectivity.long_name = "Face-Edge Connectivity"
-        face_edge_connectivity.start_index = 0
-        face_face_connectivity[:, :] = entity.cell.adjacency
-        face_face_connectivity.long_name = "Face-Face Connectivity"
-        face_face_connectivity.start_index = 0
-        edge_node_connectivity[:, :] = entity.edge.endpoints
-        edge_node_connectivity.long_name = "Edge-Node Connectivity"
-        edge_node_connectivity.start_index = 0
-        edge_face_connectivity[:, :] = entity.edge.dual_cells
-        edge_face_connectivity.long_name = "Edge-Face Connectivity"
-        edge_face_connectivity.start_index = 0
+        if use_dual:
+            face_lon[:] = mesh.vtx_lon
+            face_lon.long_name = "Face Longitude"
+            face_lon.units = "radians_east"
+            face_lat[:] = mesh.vtx_lat
+            face_lat.long_name = "Face Latitude"
+            face_lat.units = "radians_north"
+            node_lon[:] = mesh.cell_lon
+            node_lon.long_name = "Node Longitude"
+            node_lon.units = "radians_east"
+            node_lat[:] = mesh.cell_lat 
+            node_lat.long_name = "Node Latitude"
+            node_lat.units = "radians_north"
+            edge_lon[:] = mesh.dual_edge_lon
+            edge_lon.long_name = "Edge Longitude"
+            edge_lon.units = "radians_east"
+            edge_lat[:] = mesh.dual_edge_lat
+            edge_lat.long_name = "Edge Latitude"
+            edge_lat.units = "radians_north"
+            face_x[:] = mesh.vtx_xyz[:,0]
+            face_x.long_name = "Face X Coordinate"
+            face_x.units = "m"
+            face_y[:] = mesh.vtx_xyz[:,1]
+            face_y.long_name = "Face Y Coordinate"
+            face_y.units = "m"
+            face_z[:] = mesh.vtx_xyz[:,2]
+            face_z.long_name = "Face Z Coordinate"
+            face_z.units = "m"
+            node_x[:] = mesh.cell_xyz[:,0]
+            node_x.long_name = "Node X Coordinate"
+            node_x.units = "m"
+            node_y[:] = mesh.cell_xyz[:,1]
+            node_y.long_name = "Node Y Coordinate"
+            node_y.units = "m"
+            node_z[:] = mesh.cell_xyz[:,2]
+            node_z.long_name = "Node Z Coordinate"
+            node_z.units = "m"
+            edge_x[:] = mesh.dual_edge_xyz[:,0]
+            edge_x.long_name = "Edge X Coordinate"
+            edge_x.units = "m"
+            edge_y[:] = mesh.dual_edge_xyz[:,1]
+            edge_y.long_name = "Edge Y Coordinate"
+            edge_y.units = "m"
+            edge_z[:] = mesh.dual_edge_xyz[:,2]
+            edge_z.long_name = "Edge Z Coordinate"
+            edge_z.units = "m"
+            n_nodes_per_face[:] = mesh.vtx_nnb
+            n_nodes_per_face.long_name = "Number of Nodes per Face"
+            face_node_connectivity[:, :] = mesh.cell_of_vtx
+            face_node_connectivity.long_name = "Face-Node Connectivity"
+            face_node_connectivity.start_index = 0
+            face_edge_connectivity[:, :] = mesh.vtx_ed
+            face_edge_connectivity.long_name = "Face-Edge Connectivity"
+            face_edge_connectivity.start_index = 0
+            face_face_connectivity[:, :] = mesh.vtx_nb
+            face_face_connectivity.long_name = "Face-Face Connectivity"
+            face_face_connectivity.start_index = 0
+            edge_node_connectivity[:, :] = mesh.cell_of_edge
+            edge_node_connectivity.long_name = "Edge-Node Connectivity"
+            edge_node_connectivity.start_index = 0
+            edge_face_connectivity[:, :] = mesh.vtx_of_edge
+            edge_face_connectivity.long_name = "Edge-Face Connectivity"
+            edge_face_connectivity.start_index = 0
+        else:
+            face_lon[:] = mesh.cell_lon
+            face_lon.long_name = "Face Longitude"
+            face_lon.units = "radians_east"
+            face_lat[:] = mesh.cell_lat
+            face_lat.long_name = "Face Latitude"
+            face_lat.units = "radians_north"
+            node_lon[:] = mesh.vtx_lon
+            node_lon.long_name = "Node Longitude"
+            node_lon.units = "radians_east"
+            node_lat[:] = mesh.vtx_lat 
+            node_lat.long_name = "Node Latitude"
+            node_lat.units = "radians_north"
+            edge_lon[:] = mesh.dual_edge_lon
+            edge_lon.long_name = "Edge Longitude"
+            edge_lon.units = "radians_east"
+            edge_lat[:] = mesh.dual_edge_lat
+            edge_lat.long_name = "Edge Latitude"
+            edge_lat.units = "radians_north"
+            face_x[:] = mesh.cell_xyz[:,0]
+            face_x.long_name = "Face X Coordinate"
+            face_x.units = "m"
+            face_y[:] = mesh.cell_xyz[:,1]
+            face_y.long_name = "Face Y Coordinate"
+            face_y.units = "m"
+            face_z[:] = mesh.cell_xyz[:,2]
+            face_z.long_name = "Face Z Coordinate"
+            face_z.units = "m"
+            node_x[:] = mesh.vtx_xyz[:,0]
+            node_x.long_name = "Node X Coordinate"
+            node_x.units = "m"
+            node_y[:] = mesh.vtx_xyz[:,1]
+            node_y.long_name = "Node Y Coordinate"
+            node_y.units = "m"
+            node_z[:] = mesh.vtx_xyz[:,2]
+            node_z.long_name = "Node Z Coordinate"
+            node_z.units = "m"
+            edge_x[:] = mesh.dual_edge_xyz[:,0]
+            edge_x.long_name = "Edge X Coordinate"
+            edge_x.units = "m"
+            edge_y[:] = mesh.dual_edge_xyz[:,1]
+            edge_y.long_name = "Edge Y Coordinate"
+            edge_y.units = "m"
+            edge_z[:] = mesh.dual_edge_xyz[:,2]
+            edge_z.long_name = "Edge Z Coordinate"
+            edge_z.units = "m"
+            n_nodes_per_face[:] = mesh.cell_nnb
+            n_nodes_per_face.long_name = "Number of Nodes per Face"
+            face_node_connectivity[:, :] = mesh.vtx_of_cell
+            face_node_connectivity.long_name = "Face-Node Connectivity"
+            face_node_connectivity.start_index = 0
+            face_edge_connectivity[:, :] = mesh.cell_ed
+            face_edge_connectivity.long_name = "Face-Edge Connectivity"
+            face_edge_connectivity.start_index = 0
+            face_face_connectivity[:, :] = mesh.cell_nb
+            face_face_connectivity.long_name = "Face-Face Connectivity"
+            face_face_connectivity.start_index = 0
+            edge_node_connectivity[:, :] = mesh.vtx_of_edge
+            edge_node_connectivity.long_name = "Edge-Node Connectivity"
+            edge_node_connectivity.start_index = 0
+            edge_face_connectivity[:, :] = mesh.cell_of_edge
+            edge_face_connectivity.long_name = "Edge-Face Connectivity"
+            edge_face_connectivity.start_index = 0            
         ds.close()
         self._built = True
 
@@ -224,48 +304,48 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
             return
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         # Create dimensions
-        ds.createDimension("cell", int(self.mesh.primal.cell.shape[0]))
+        ds.createDimension("cell", int(self.mesh.n_cell))
         if with_vtx:
-            ds.createDimension("vtx", int(self.mesh.dual.cell.shape[0]))
+            ds.createDimension("vtx", int(self.mesh.n_vtx))
         if with_edge:
-            ds.createDimension("edge", int(self.mesh.primal.edge.shape[0]))
+            ds.createDimension("edge", int(self.mesh.n_edge))
         # Create variables
         float_type = "f8"
-        ds.createVariable("lon_cell", float_type, ("cell",))
-        ds.createVariable("lat_cell", float_type, ("cell",))
+        ds.createVariable("cell_lon", float_type, ("cell",))
+        ds.createVariable("cell_lat", float_type, ("cell",))
         if with_vtx:
-            ds.createVariable("lon_vtx", float_type, ("vtx",))
-            ds.createVariable("lat_vtx", float_type, ("vtx",))
+            ds.createVariable("vtx_lon", float_type, ("vtx",))
+            ds.createVariable("vtx_lat", float_type, ("vtx",))
         if with_edge:
-            ds.createVariable("lon_edge", float_type, ("edge",))
-            ds.createVariable("lat_edge", float_type, ("edge",))
+            ds.createVariable("edge_lon", float_type, ("edge",))
+            ds.createVariable("edge_lat", float_type, ("edge",))
         # Fill in coordinate variables
-        lon_cell = ds.variables["lon_cell"]
-        lon_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lon)
-        lon_cell.long_name = "Longitude at cells"
-        lon_cell.units = "degrees_east"
-        lat_cell = ds.variables["lat_cell"]
-        lat_cell[:] = jnp.rad2deg(self.mesh.primal.cell.centroid.lat)
-        lat_cell.long_name = "Latitude at cells"
-        lat_cell.units = "degrees_north"
+        cell_lon = ds.variables["cell_lon"]
+        cell_lon[:] = jnp.rad2deg(self.mesh.cell_lon)
+        cell_lon.long_name = "Longitude at cells"
+        cell_lon.units = "degrees_east"
+        cell_lat = ds.variables["cell_lat"]
+        cell_lat[:] = jnp.rad2deg(self.mesh.cell_lat)
+        cell_lat.long_name = "Latitude at cells"
+        cell_lat.units = "degrees_north"
         if with_vtx:
-            lon_vtx = ds.variables["lon_vtx"]
-            lon_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lon)
-            lon_vtx.long_name = "Longitude at vertices"
-            lon_vtx.units = "degrees_east"
-            lat_vtx = ds.variables["lat_vtx"]
-            lat_vtx[:] = jnp.rad2deg(self.mesh.dual.cell.centroid.lat)
-            lat_vtx.long_name = "Latitude at vertices"
-            lat_vtx.units = "degrees_north"
+            vtx_lon = ds.variables["vtx_lon"]
+            vtx_lon[:] = jnp.rad2deg(self.mesh.vtx_lon)
+            vtx_lon.long_name = "Longitude at vertices"
+            vtx_lon.units = "degrees_east"
+            vtx_lat = ds.variables["vtx_lat"]
+            vtx_lat[:] = jnp.rad2deg(self.mesh.vtx_lat)
+            vtx_lat.long_name = "Latitude at vertices"
+            vtx_lat.units = "degrees_north"
         if with_edge:
-            lon_edge = ds.variables["lon_edge"]
-            lon_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lon)
-            lon_edge.long_name = "Longitude at edges"
-            lon_edge.units = "degrees_east"
-            lat_edge = ds.variables["lat_edge"]
-            lat_edge[:] = jnp.rad2deg(self.mesh.primal.edge.midpoint.lat)
-            lat_edge.long_name = "Latitude at edges"
-            lat_edge.units = "degrees_north"
+            edge_lon = ds.variables["edge_lon"]
+            edge_lon[:] = jnp.rad2deg(self.mesh.dual_edge_lon)
+            edge_lon.long_name = "Longitude at edges"
+            edge_lon.units = "degrees_east"
+            edge_lat = ds.variables["edge_lat"]
+            edge_lat[:] = jnp.rad2deg(self.mesh.dual_edge_lat)
+            edge_lat.long_name = "Latitude at edges"
+            edge_lat.units = "degrees_north"
         ds.close()
         self._built = True
 

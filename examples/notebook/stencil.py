@@ -15,8 +15,9 @@
 # ---
 
 # %%
-from terraflow.discretization.fvm.scvt.trisk.common.adv.flux_reconstruct import (
-    tr_stencil_member_list_4th_order_mbs
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.upwind import (
+    UpwindStencilInfoAtVtx,
+    calc_tri_4th_stencil_2
 )
 import cartopy.crs as ccrs
 import holoviews as hv
@@ -35,26 +36,23 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file, grist_2d_file, n_dual=3, dev=dev
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    hori_hw=3,
+    lev_hw=3,
+    dev=dev
 )
-
-vert = tf.vert_coord.OneLayerVertCoordinate()
-
-coord = tf.layout.CoordinateSystem(
-    hori=mesh,
-    vert=vert,
-    hori_layout=mesh.get_layout(),
-    vert_layout=vert.get_layout()
-)
-
-method = tf.operator.FiniteVolumeMethod()
 # %%
-# matplotlib backend so we can use cartopy projections
+# %matplotlib inline
+
 hv.extension("matplotlib")
 cell = 800  # face index to inspect
 uxgrid = mesh.to_ugrid(use_dual=True).to_uxgrid()
-_, stencil_idxes = tr_stencil_member_list_4th_order_mbs(mesh.dual)
+
+stencil = UpwindStencilInfoAtVtx(polynomial_order=4, tri_stencil_type=2)
+_, stencil_idxes = calc_tri_4th_stencil_2(mesh, stencil.max_member)
 
 member_faces = stencil_idxes[cell, :]
 member_faces = member_faces[member_faces >= 0]  # ignore padded entries

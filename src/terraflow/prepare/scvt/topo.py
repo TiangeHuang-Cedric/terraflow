@@ -6,13 +6,13 @@ import jax.numpy as jnp
 import jaxkd as jk
 import numpy as np
 
-from terraflow.util import math
+from terraflow.util import sphere_geometry
 
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.prepare.readers.topo import AbstractTopographyReader
     from terraflow.planet import PlanetParameterSet
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     Float = typing.Float
     Array = typing.Array
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 def fill_grid(
     reader: AbstractTopographyReader,
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     loc: str,
     layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
@@ -31,7 +31,7 @@ def fill_grid(
     Stage-2: strict spherical in-cell check (optional, enabled by default).
     """
     backend = reader.cfg.fill_backend
-    para = reader._para
+    para = reader.para
     if para.planet == "earth":
         if backend == "jaxkd":
             return FillGridWithJaxKDBackend()(
@@ -62,7 +62,7 @@ class FillGridWithJaxKDBackend:
     def __call__(
         self,
         reader: AbstractTopographyReader,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         loc: str,
         layout: str,
     ) -> dict[str, Float[Array, "npoints"]]:
@@ -88,7 +88,7 @@ class FillGridWithScipyBackend:
     def __call__(
         self,
         reader: AbstractTopographyReader,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         loc: str,
         layout: str,
     ) -> dict[str, Float[Array, "npoints"]]:
@@ -111,24 +111,24 @@ class FillGridWithScipyBackend:
 
 def _jaxkd_fill_grid_on_earth(
     reader: AbstractTopographyReader,
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     loc: str,
     layout: str
 ) -> dict[str, Float[Array, "npoints"]]:
-    radius = reader._para.radius.unwrap()
+    radius = reader.para.radius.unwrap()
     topo_lon = jnp.deg2rad(reader.lon)
     topo_lat = jnp.deg2rad(reader.lat)
     topo_gzs = jnp.asarray(reader.gzs)
     topo_mask = getattr(reader, "mask", None)
     topo_mask = None if topo_mask is None else jnp.asarray(topo_mask)
-    int_type = mesh.dev.int_type
-    float_type = mesh.dev.float_type
+    int_type = reader.dev.int_type
+    float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
-    dst_xyz = math.lonlat2xyz(
+    dst_xyz = sphere_geometry.lonlat2xyz(
         lon=dst_lon,
         lat=dst_lat,
         radius=radius,
@@ -136,7 +136,7 @@ def _jaxkd_fill_grid_on_earth(
     ncell = int(dst_xyz.shape[0])
     kd_tree = jk.build_tree(dst_xyz)
 
-    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader._para))
+    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader.para))
     max_kdtree_distance = float(jnp.sqrt(max_kdtree_distance2))
     # =======================================================
     # Convert topo grid to 1D for KDTree querying
@@ -152,7 +152,7 @@ def _jaxkd_fill_grid_on_earth(
     topo_gzs = topo_gzs.reshape(-1)
     topo_mask = topo_mask.reshape(-1) if topo_mask is not None else None
 
-    src_xyz = math.lonlat2xyz(
+    src_xyz = sphere_geometry.lonlat2xyz(
         lon=topo_lon,
         lat=topo_lat,
         radius=radius,
@@ -197,26 +197,26 @@ def _jaxkd_fill_grid_on_earth(
 
 def _jaxkd_fill_grid_on_earth_with_split_chunks(
     reader: AbstractTopographyReader,
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     loc: str,
     layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     lon_chunk_size = reader.cfg.fill_lon_chunk_size
     lat_chunk_size = reader.cfg.fill_lat_chunk_size
-    radius = reader._para.radius.unwrap()
+    radius = reader.para.radius.unwrap()
     topo_lon = jnp.deg2rad(reader.lon)
     topo_lat = jnp.deg2rad(reader.lat)
     topo_gzs = jnp.asarray(reader.gzs)
     topo_mask = getattr(reader, "mask", None)
     topo_mask = None if topo_mask is None else jnp.asarray(topo_mask)
-    int_type = mesh.dev.int_type
-    float_type = mesh.dev.float_type
+    int_type = reader.dev.int_type
+    float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
-    dst_xyz = math.lonlat2xyz(
+    dst_xyz = sphere_geometry.lonlat2xyz(
         lon=dst_lon,
         lat=dst_lat,
         radius=radius,
@@ -224,7 +224,7 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
     ncell = int(dst_xyz.shape[0])
     kd_tree = jk.build_tree(dst_xyz)
 
-    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader._para))
+    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader.para))
     max_kdtree_distance = float(jnp.sqrt(max_kdtree_distance2))
     # =======================================================
     # Split topo points into chunks for memory efficiency
@@ -303,7 +303,7 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
         else:
             mask_chunk_flat = None
 
-        src_xyz = math.lonlat2xyz(
+        src_xyz = sphere_geometry.lonlat2xyz(
             lon=lon_chunk_flat,
             lat=lat_chunk_flat,
             radius=radius,
@@ -387,24 +387,24 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
 
 def _scipy_fill_grid_on_earth(
     reader: AbstractTopographyReader,
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     loc: str,
     layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
-    radius = reader._para.radius.unwrap()
+    radius = reader.para.radius.unwrap()
     topo_lon = np.deg2rad(reader.lon)
     topo_lat = np.deg2rad(reader.lat)
     topo_gzs = np.asarray(reader.gzs).copy()
     topo_mask = getattr(reader, "mask", None)
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
-    float_type = mesh.dev.float_type
+    float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
     dst_xyz = np.asarray(
-        math.lonlat2xyz(
+        sphere_geometry.lonlat2xyz(
             lon=dst_lon,
             lat=dst_lat,
             radius=radius,
@@ -413,7 +413,7 @@ def _scipy_fill_grid_on_earth(
     ncell = int(dst_xyz.shape[0])
     kd_tree = sp.KDTree(dst_xyz)
 
-    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader._para))
+    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader.para))
     max_kdtree_distance = float(np.sqrt(max_kdtree_distance2))
     # =======================================================
     # Convert topo grid to 1D for KDTree querying
@@ -429,7 +429,7 @@ def _scipy_fill_grid_on_earth(
     topo_gzs = topo_gzs.reshape(-1)
     topo_mask = topo_mask.reshape(-1) if topo_mask is not None else None
 
-    src_xyz = math.lonlat2xyz(
+    src_xyz = sphere_geometry.lonlat2xyz(
         lon=jnp.asarray(topo_lon),
         lat=jnp.asarray(topo_lat),
         radius=radius,
@@ -489,26 +489,26 @@ def _scipy_fill_grid_on_earth(
 
 def _scipy_fill_grid_on_earth_with_split_chunks(
     reader: AbstractTopographyReader,
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     loc: str,
     layout: str,
 ) -> dict[str, Float[Array, "npoints"]]:
     lon_chunk_size = reader.cfg.fill_lon_chunk_size
     lat_chunk_size = reader.cfg.fill_lat_chunk_size
-    radius = reader._para.radius.unwrap()
+    radius = reader.para.radius.unwrap()
     topo_lon = np.deg2rad(reader.lon)
     topo_lat = np.deg2rad(reader.lat)
     topo_gzs = np.asarray(reader.gzs).copy()
     topo_mask = getattr(reader, "mask", None)
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
-    float_type = mesh.dev.float_type
+    float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coord_info(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
     dst_xyz = np.asarray(
-        math.lonlat2xyz(
+        sphere_geometry.lonlat2xyz(
             lon=dst_lon,
             lat=dst_lat,
             radius=radius,
@@ -517,7 +517,7 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
     ncell = int(dst_xyz.shape[0])
     kd_tree = sp.KDTree(dst_xyz)
 
-    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader._para))
+    max_kdtree_distance2 = float(calc_max_kdtree_distance2(mesh, reader.para))
     max_kdtree_distance = float(np.sqrt(max_kdtree_distance2))
     # =======================================================
     # Split topo points into chunks for memory efficiency
@@ -561,7 +561,7 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
             else:
                 mask_chunk_flat = None
 
-            src_xyz = math.lonlat2xyz(
+            src_xyz = sphere_geometry.lonlat2xyz(
                 lon=jnp.asarray(lon_chunk_flat),
                 lat=jnp.asarray(lat_chunk_flat),
                 radius=radius,
@@ -623,8 +623,8 @@ def sphere_distance(
     lat1: Float[Array, "..."],
     lon1: Float[Array, "..."],
     lat2: Float[Array, "..."],
-    lon2: Float[Array, "..."],
-    radius: Float[Array, ""]
+    lon2: Float[Array, "..."] | float,
+    radius: float
 ) -> Float[Array, "..."]:
     """MPAS-consistent great-circle distance."""
     arg1 = jnp.sqrt(
@@ -635,7 +635,7 @@ def sphere_distance(
 
 
 def calc_max_kdtree_distance2(
-    mesh: SphericalCentroidVoronoiTessellations,
+    mesh: SCVTMesh,
     para: PlanetParameterSet
 ) -> Float[Array, ""]:
     """
@@ -643,20 +643,18 @@ def calc_max_kdtree_distance2(
     max_kdtree_distance2 = 2 * max_diameter**2
     """
     radius = para.radius.unwrap()
-    cell = mesh.primal.cell
-    dual = mesh.dual.cell
 
-    vertices = cell.nodes   # (ncell, maxnnb), invalid = -1
-    nnb = cell.n_adjacency  # (ncell,)
-    maxnnb = vertices.shape[1]
+    vtx_of_cell = mesh.vtx_of_cell   # (ncell, maxnnb), invalid = -1
+    cell_nnb = mesh.cell_nnb  # (ncell,)
+    maxnnb_cell = mesh.maxnnb_cell
 
-    cell_lat = cell.centroid.lat     # (ncell,)
-    cell_lon = cell.centroid.lon     # (ncell,)
-    vtx_lat_all = dual.centroid.lat  # (ndual,)
-    vtx_lon_all = dual.centroid.lon  # (ndual,)
+    cell_lat = mesh.cell_lat     # (ncell,)
+    cell_lon = mesh.cell_lon     # (ncell,)
+    vtx_lat_all = mesh.vtx_lat  # (ndual,)
+    vtx_lon_all = mesh.vtx_lon  # (ndual,)
     # ==========================================
-    valid = (jnp.arange(maxnnb)[None, :] < nnb[:, None]) & (vertices >= 0)
-    vid = jnp.clip(vertices, 0, vtx_lat_all.shape[0] - 1)
+    valid = (jnp.arange(maxnnb_cell)[None, :] < cell_nnb[:, None]) & (vtx_of_cell >= 0)
+    vid = jnp.clip(vtx_of_cell, 0, vtx_lat_all.shape[0] - 1)
 
     vtx_lat = vtx_lat_all[vid]  # (ncell, maxnnb)
     vtx_lon = vtx_lon_all[vid]  # (ncell, maxnnb)

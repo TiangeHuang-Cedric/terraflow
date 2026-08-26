@@ -1,25 +1,19 @@
 from __future__ import annotations
-from typing import Any, TypeVar, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 import numpy as np
 import jax.numpy as jnp
 import esmpy
 
-import terraflow.util.math as tfmath
+from terraflow.util import sphere_geometry
 
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
-    from terraflow.vert_coord.abstract import AbstractVertCoordinate
-    from .construct import SphericalCentroidVoronoiTessellations as SCVT_MESH
+    from terraflow.planet import PlanetParameterSet
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     Float = typing.Float
     Array = typing.Array
 
-    VM = TypeVar("VM", bound=AbstractVertCoordinate)
-    HLO = TypeVar("HLO", bound=AbstractLayout)
-    VLO = TypeVar("VLO", bound=AbstractLayout)
-
-    CoordSys = CoordinateSystem[SCVT_MESH, VM, HLO, VLO]
 
 ESMF_OBJECTS = esmpy.Grid | esmpy.Mesh | esmpy.LocStream
 
@@ -50,6 +44,9 @@ LOC_REMAP_SCVT2ESMF = {
     "cell": "cell",
     "vtx": "node",
     "edge": "edge",
+    "lev": "cell",
+    "lev_vtx": "node",
+    "lev_edge": "edge",
 }
 
 
@@ -136,96 +133,104 @@ def create_latlon_grid(lon: np.ndarray, lat: np.ndarray) -> esmpy.Grid:
     return grid
 
 
-def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
-    mesh = coord.mesh
-    layout = coord.hori_layout.alias_name()
+def create_scvt_mesh(para: PlanetParameterSet, mesh: SCVTMesh, loc: str, layout: str) -> esmpy.Mesh:
     # ===================================================
     if LOC_REMAP_SCVT2ESMF[loc] == "edge":
-        if layout == "triskC":
-            cells = mesh.primal.cell
-            nodes = mesh.primal.node
-            edges = mesh.primal.edge
-            dual_edges = mesh.dual.edge
+        if layout == "triskc":
+            node_lon = np.asarray(mesh.vtx_lon )
+            node_lat = np.asarray(mesh.vtx_lat )
+            cell_lon = np.asarray(mesh.cell_lon)
+            cell_lat = np.asarray(mesh.cell_lat)
+            node_xyz = np.asarray(mesh.vtx_xyz)
+            cell_xyz = np.asarray(mesh.cell_xyz)
+            vtx_of_edge  = np.asarray(mesh.vtx_of_edge)
+            cell_of_edge = np.asarray(mesh.cell_of_edge)
+            if np.any(vtx_of_edge < 0) or np.any(cell_of_edge < 0):
+                raise ValueError(
+                    "Cannot build an ESMF edge auxiliary mesh with missing edge "
+                    "endpoints or adjacent cells."
+                )
+
+            aux_lon = np.concatenate([node_lon, cell_lon])
+            aux_lat = np.concatenate([node_lat, cell_lat])
+            aux_xyz = np.concatenate([node_xyz, cell_xyz], axis=0)
+            num_node = aux_lon.shape[0]
+            num_elem = vtx_of_edge.shape[0]
+            cell_offset = node_lon.shape[0]
+            # ===========================================
+            elemConn = np.column_stack(
+                [
+                    vtx_of_edge[:, 0],
+                    cell_of_edge[:, 0] + cell_offset,
+                    vtx_of_edge[:, 1],
+                    cell_of_edge[:, 1] + cell_offset,
+                ]
+            ).astype(np.int32)
+            elemConn = _sort_conn_counterclockwise_on_sphere(
+                elem_conn=elemConn,
+                node_cart=aux_xyz,
+                elem_center_cart=np.asarray(mesh.dual_edge_xyz),
+            )
+            elemType = np.full(num_elem, 4, dtype=np.int32)
+
+            p0 = aux_xyz[elemConn[:, 0], :]
+            p1 = aux_xyz[elemConn[:, 1], :]
+            p2 = aux_xyz[elemConn[:, 2], :]
+            p3 = aux_xyz[elemConn[:, 3], :]
+            elemArea = np.asarray(
+                np.abs(
+                    sphere_geometry.spherical_triangle_area(
+                        para.radius.unwrap(),
+                        jnp.array(p0),
+                        jnp.array(p1),
+                        jnp.array(p2)
+                    )
+                )
+                + np.abs(
+                    sphere_geometry.spherical_triangle_area(
+                        para.radius.unwrap(),
+                        jnp.array(p0),
+                        jnp.array(p2),
+                        jnp.array(p3)
+                    )
+                ),
+                dtype=np.float64,
+            ) / float(para.radius.unwrap())**2
+            nodeCoord = np.stack(
+                [np.rad2deg(aux_lon), np.rad2deg(aux_lat)],
+                axis=1,
+            ).ravel()
+            elemCoord = np.stack(
+                [
+                    np.rad2deg(mesh.dual_edge_lon),
+                    np.rad2deg(mesh.dual_edge_lat),
+                ],
+                axis=1,
+            ).ravel()            
         else:
             raise ValueError(f"Invalid layout: {layout} for scvt mesh")
-
-        endpoints = np.asarray(edges.endpoints, dtype=np.int32)
-        adjacent_cells = np.asarray(edges.dual_cells, dtype=np.int32)
-        if np.any(endpoints < 0) or np.any(adjacent_cells < 0):
-            raise ValueError(
-                "Cannot build an ESMF edge auxiliary mesh with missing edge "
-                "endpoints or adjacent cells."
-            )
-
-        node_lon = np.asarray(nodes.coordinate.lon)
-        node_lat = np.asarray(nodes.coordinate.lat)
-        cell_lon = np.asarray(cells.centroid.lon)
-        cell_lat = np.asarray(cells.centroid.lat)
-        node_cart = np.asarray(nodes.coordinate.cartesian)
-        cell_cart = np.asarray(cells.centroid.cartesian)
-
-        aux_lon = np.concatenate([node_lon, cell_lon])
-        aux_lat = np.concatenate([node_lat, cell_lat])
-        aux_cart = np.concatenate([node_cart, cell_cart], axis=0)
-        num_node = aux_lon.shape[0]
-        num_elem = endpoints.shape[0]
-        cell_offset = node_lon.shape[0]
-
-        elemConn = np.column_stack(
-            [
-                endpoints[:, 0],
-                adjacent_cells[:, 0] + cell_offset,
-                endpoints[:, 1],
-                adjacent_cells[:, 1] + cell_offset,
-            ]
-        ).astype(np.int32)
-        elemConn = _sort_conn_counterclockwise_on_sphere(
-            elem_conn=elemConn,
-            node_cart=aux_cart,
-            elem_center_cart=np.asarray(dual_edges.midpoint.cartesian),
-        )
-        elemType = np.full(num_elem, 4, dtype=np.int32)
-
-        p0 = aux_cart[elemConn[:, 0], :]
-        p1 = aux_cart[elemConn[:, 1], :]
-        p2 = aux_cart[elemConn[:, 2], :]
-        p3 = aux_cart[elemConn[:, 3], :]
-        elemArea = np.asarray(
-            np.abs(
-                tfmath.spherical_triangle_area(
-                    jnp.array(p0),
-                    jnp.array(p1),
-                    jnp.array(p2)
-                )
-            )
-            + np.abs(
-                tfmath.spherical_triangle_area(
-                    jnp.array(p0),
-                    jnp.array(p2),
-                    jnp.array(p3)
-                )
-            ),
-            dtype=np.float64,
-        )
-        nodeCoord = np.stack(
-            [np.rad2deg(aux_lon), np.rad2deg(aux_lat)],
-            axis=1,
-        ).ravel()
-        elemCoord = np.stack(
-            [
-                np.rad2deg(dual_edges.midpoint.lon),
-                np.rad2deg(dual_edges.midpoint.lat),
-            ],
-            axis=1,
-        ).ravel()
     else:
-        if layout == "triskC":
+        if layout == "triskc":
             if LOC_REMAP_SCVT2ESMF[loc] == "cell":
-                elements = mesh.primal.cell
-                nodes = mesh.primal.node
+                num_node   = mesh.vtx_ime  - mesh.vtx_ims  + 1
+                num_elem   = mesh.cell_ime - mesh.cell_ims + 1
+                node_lon   = mesh.vtx_lon
+                node_lat   = mesh.vtx_lat
+                elem_lon   = mesh.cell_lon
+                elem_lat   = mesh.cell_lat
+                elem_nnb   = mesh.cell_nnb
+                elem_nodes = mesh.vtx_of_cell
+                elem_area  = mesh.area_cell
             elif LOC_REMAP_SCVT2ESMF[loc] == "node":
-                elements = mesh.dual.cell
-                nodes = mesh.dual.node
+                num_node   = mesh.cell_ime - mesh.cell_ims + 1
+                num_elem   = mesh.vtx_ime  - mesh.vtx_ims  + 1
+                node_lon   = mesh.cell_lon
+                node_lat   = mesh.cell_lat
+                elem_lon   = mesh.vtx_lon
+                elem_lat   = mesh.vtx_lat
+                elem_nnb   = mesh.vtx_nnb
+                elem_nodes = mesh.cell_of_vtx
+                elem_area  = mesh.area_vtx
             else:
                 raise ValueError(
                     f"Invalid loc: {loc} for {layout} layout on scvt mesh"
@@ -233,26 +238,24 @@ def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
         else:
             raise ValueError(f"Invalid layout: {layout} for scvt mesh")
 
-        num_node = nodes.shape[0]
-        num_elem = elements.shape[0]
         nodeCoord = np.stack(
             [
-                np.rad2deg(nodes.coordinate.lon),
-                np.rad2deg(nodes.coordinate.lat)
+                np.rad2deg(node_lon),
+                np.rad2deg(node_lat)
             ],
             axis=1
         ).ravel()
-        elemType = np.array(elements.n_adjacency, dtype=np.int32)
+        elemType = np.array(elem_nnb, dtype=np.int32)
         # ESMF uses local indexing for element connectivity, not nodeId
         elemConn = np.array(
-            elements.nodes[elements.nodes >= 0],
+            elem_nodes[elem_nodes >= 0],
             dtype=np.int32
         )
-        elemArea = np.array(elements.area)
+        elemArea = np.array(elem_area) / float(para.radius.unwrap())**2
         elemCoord = np.stack(
             [
-                np.rad2deg(elements.centroid.lon),
-                np.rad2deg(elements.centroid.lat)
+                np.rad2deg(elem_lon),
+                np.rad2deg(elem_lat)
             ],
             axis=1
         ).ravel()
@@ -286,13 +289,11 @@ def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
     return esmf_mesh
 
 
-def create_locstream(coord: CoordSys, loc: str) -> esmpy.LocStream:
-    mesh = coord.mesh
-    layout = coord.hori_layout.alias_names()
-    if layout == "triskC":
+def create_locstream(mesh: SCVTMesh, loc: str, layout: str) -> esmpy.LocStream:
+    if layout == "triskc":
         if LOC_REMAP_SCVT2ESMF[loc] == "edge":
-            lon = mesh.dual.edge.midpoint.lon
-            lat = mesh.dual.edge.midpoint.lat
+            lon = mesh.dual_edge_lon
+            lat = mesh.dual_edge_lat
         else:
             raise ValueError(
                 f"Invalid loc: {loc} for {layout} layout on scvt mesh"
@@ -496,9 +497,9 @@ class ESMFRegridder:
         return create_latlon_grid(lon=lon, lat=lat)
 
     @staticmethod
-    def create_scvt_mesh(coord: CoordSys, loc: str) -> esmpy.Mesh:
-        return create_scvt_mesh(coord=coord, loc=loc)
+    def create_scvt_mesh(para: PlanetParameterSet, mesh: SCVTMesh, loc: str, layout: str) -> esmpy.Mesh:
+        return create_scvt_mesh(para=para, mesh=mesh, loc=loc, layout=layout)
 
     @staticmethod
-    def create_locstream(coord: CoordSys, loc: str) -> esmpy.LocStream:
-        return create_locstream(coord=coord, loc=loc)
+    def create_locstream(mesh: SCVTMesh, loc: str, layout: str) -> esmpy.LocStream:
+        return create_locstream(mesh=mesh, loc=loc, layout=layout)

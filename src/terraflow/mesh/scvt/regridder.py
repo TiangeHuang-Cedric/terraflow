@@ -5,22 +5,18 @@ import numpy as np
 
 from terraflow.mesh.scvt._native_regridder import NativeRegridder
 from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
-from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations as SCVT_MESH
+
 
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.layout.abstract import CoordinateSystem, AbstractLayout
+    from terraflow.planet import PlanetParameterSet
     from terraflow.vert_coord.abstract import AbstractVertCoordinate
-    from .construct import SphericalCentroidVoronoiTessellations as SCVT_MESH
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     Float = typing.Float
     Array = typing.Array
 
     VM = TypeVar("VM", bound=AbstractVertCoordinate)
-    HLO = TypeVar("HLO", bound=AbstractLayout)
-    VLO = TypeVar("VLO", bound=AbstractLayout)
-
-    CoordSys = CoordinateSystem[SCVT_MESH, VM, HLO, VLO]
 
     GRID = Union["LatlonRegridInfo", "SCVTRegridInfo"]
 
@@ -33,13 +29,14 @@ class LatlonRegridInfo:
 
 @dataclass(frozen=True)
 class SCVTRegridInfo:
-    coord: CoordSys
+    para: PlanetParameterSet
+    mesh: SCVTMesh
     loc: str
 
-    def get_coord(self) -> dict[str, Float[Array, "npoints"]]:
-        return self.coord.mesh.get_coord_info(
+    def get_coord(self, layout: str) -> dict[str, Float[Array, "npoints"]]:
+        return self.mesh.get_coords(
             loc=self.loc,
-            layout=self.coord.hori_layout.alias_names()
+            layout=layout,
         )
 
 
@@ -56,6 +53,7 @@ class Regridder:
         src: GRID,
         dst: GRID,
         *,
+        layout: str,
         backend: str = "native",
         ndbounds: tuple[int, ...] | None = None,
         method: str = "bilinear",
@@ -91,15 +89,10 @@ class Regridder:
                     f"Native backend only supports latlon -> scvt regridding currently, got "
                     f"{src_type} -> {dst_type}"
                 )
-            src_info = self.create_latlon_info(lon=src.lon, lat=src.lat)
-            dst_info = self.create_scvt_info(
-                coord=dst.coord,
-                loc=dst.loc,
-            )
-            dst_coord = dst_info.get_coord()
+            dst_coord = dst.get_coord(layout=layout)
             self._impl = NativeRegridder(
-                src_lon=src_info.lon,
-                src_lat=src_info.lat,
+                src_lon=src.lon,
+                src_lat=src.lat,
                 dst_lon=dst_coord["lon"],
                 dst_lat=dst_coord["lat"],
                 method=method,
@@ -117,8 +110,10 @@ class Regridder:
             # src (scvt)
             elif isinstance(src, SCVTRegridInfo):
                 esmf_src = ESMFRegridder.create_scvt_mesh(
-                    coord=src.coord,
+                    para=src.para,
+                    mesh=src.mesh,
                     loc=src.loc,
+                    layout=layout
                 )
             else:
                 raise ValueError(
@@ -134,8 +129,10 @@ class Regridder:
             # dst (scvt)
             elif isinstance(dst, SCVTRegridInfo):
                 esmf_dst = ESMFRegridder.create_scvt_mesh(
-                    coord=dst.coord,
+                    para=dst.para,
+                    mesh=dst.mesh,
                     loc=dst.loc,
+                    layout=layout
                 )
             else:
                 raise ValueError(
@@ -174,5 +171,5 @@ class Regridder:
         return LatlonRegridInfo(lon=lon, lat=lat)
 
     @staticmethod
-    def create_scvt_info(coord: CoordSys, loc: str) -> SCVTRegridInfo:
-        return SCVTRegridInfo(coord=coord, loc=loc)
+    def create_scvt_info(para: PlanetParameterSet, mesh: SCVTMesh, loc: str) -> SCVTRegridInfo:
+        return SCVTRegridInfo(para=para, mesh=mesh, loc=loc)

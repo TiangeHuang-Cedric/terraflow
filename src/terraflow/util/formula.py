@@ -78,9 +78,9 @@ def potential_temperature(
 
 
 def modified_potential_temperature(
-    t: Float[Array, "..."],
-    p: Float[Array, "..."],
-    qv: Float[Array, "..."],
+    t: Float[Array, "..."] | float,
+    p: Float[Array, "..."] | float,
+    qv: Float[Array, "..."] | float,
     para: PlanetParameterSet
 ) -> Float[Array, "..."]:
     """Calculate modified potential temperature.

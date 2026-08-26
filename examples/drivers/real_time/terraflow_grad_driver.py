@@ -14,45 +14,43 @@ grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
-dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(
+    float_type=jnp.float64, 
+    int_type=jnp.int64,
+    use_async_io=False, 
+    proc_io_stride=0
+)
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file=grist_0d_file,
-    grist_2d_file=grist_2d_file,
-    n_dual=3,
+vert_coord = tf.vert_coord.HybridVertCoordinate.cam_l30(dev=dev)
+
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    vert_coord=vert_coord,
+    hori_hw=3,
+    lev_hw=3,
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.cam_l30(dev=dev)
-
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
-
-method = tf.operator.FiniteVolumeMethod()
-
-config = tf.util.model_config.ModelConfig(
-    pv_adv_scheme="pure_upwind",
+config = tf.model.UserConfig(
+    pv_adv_scheme="upwind",
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
-    use_smag_damp=True,
-    use_sponge_layer=True,
+    use_smag_damp=False,
+    use_div_damp=True,
+    run_time="1 hours",
+    dt_dyn="300 seconds",
+    dt_adv="300 seconds",
+    save_interval="1 hours"
 )
 
-equation = tf.dynamics.HydrostaticEquation.build_with_config(
-    config=config,
-    coord=coord,
-    para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
-    ideal_dry_core=False,
-)
-
-static_reader = tf.readers.topo.ETOPO1Reader(
+topo_reader = tf.readers.topo.ETOPO1Reader(
     topo_file="../../../data/topo/ETOPO1_Ice_g_gmt4.grd",
     para=para,
     cfg=tf.readers.TopographyReaderConfig(
@@ -62,8 +60,9 @@ static_reader = tf.readers.topo.ETOPO1Reader(
         fill_lon_chunk_size=360,
         fill_lat_chunk_size=180,
         use_zs_grad_filter=True,
-        zs_grad_filter_type="laplacian2",
-    )
+        zs_grad_filter_type="laplacian1",
+    ),
+    dev=dev
 )
 
 bkg_reader = tf.readers.bkg.ERA5Reader(
@@ -72,49 +71,42 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
     cfg=tf.readers.BackgroundReaderConfig(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
-        interp_at_midpoint=True,
+        interp_at_midpoint=False,
         vert_interp_backend="jax",
         vert_interp_type="native",
-    )
+    ),
+    dev=dev
 )
 
-time_manager = tf.util.datetime.DateTimeManager.from_reader(
-    reader=bkg_reader,
-    run_time="1 hours",
-)
-
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
-    save_interval="6 hours",
-    dt_dyn="300 seconds",
-    dt_adv="600 seconds",
-    dev=dev,
-)
-
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_reader(
-    static_reader=static_reader,
-    bkg_reader=bkg_reader,
-    coord=coord,
+model = tf.model.build_hydrostatic_model(
+    config=config,
     para=para,
-    solver=solver,
+    mesh=mesh,
+    vert_coord=vert_coord,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    bkg_reader=bkg_reader,
+    topo_reader=topo_reader,
+    dev=dev,
+    ideal_dry_core=True,
+    restart=False
 )
 
-integrate_fn = solver.integrate()
+integrate_fn = model.integrate()
 
 
-def wrap_grad_fn(un, block):
-    block = eqx.tree_at(
-        where=lambda b: b.state.un.data,
-        pytree=block,
-        replace_fn=lambda data: data.at[block.old, :, :].set(un),
+def wrap_grad_fn(un, model):
+    old = model.block.old
+    model = eqx.tree_at(
+        where=lambda m: m.block.state.un.d,
+        pytree=model,
+        replace_fn=lambda data: data.at[old, :, :].set(un),
     )
-    final = integrate_fn(block)
+    final = integrate_fn(model)
     return jnp.sum(
         jnp.linalg.norm(
-            final.state.phs.data,
+            final.block.state.phs.d,
             axis=-1
         )
     )
@@ -123,8 +115,8 @@ def wrap_grad_fn(un, block):
 tf.util.datetime.perf_start("integration")
 
 final, grad = jax.value_and_grad(wrap_grad_fn)(
-    block.state.un.data[block.old, :, :],
-    block
+    model.block.state.un.d[model.block.old, :, :],
+    model
 )
 jax.block_until_ready(final)
 jax.block_until_ready(grad)

@@ -20,7 +20,6 @@ from matplotlib import pyplot as plt
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import numpy as np
-import jax
 import jax.numpy as jnp
 
 import terraflow.core as tf
@@ -37,75 +36,60 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file=grist_0d_file,
-    grist_2d_file=grist_2d_file,
-    n_dual=3,
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    hori_hw=3,
+    lev_hw=3,
     dev=dev
 )
-
-vert = tf.vert_coord.OneLayerVertCoordinate()
-
-coord = tf.layout.CoordinateSystem(
-    hori=mesh,
-    vert=vert,
-    hori_layout=mesh.get_layout(),
-    vert_layout=vert.get_layout()
-)
-
-method = tf.operator.FiniteVolumeMethod()
 # %%
-testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
+test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
 
 
 # %%
-equation = tf.dynamics.ShallowWaterEquation.from_model(
-    coord=coord,
-    para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
-)
-
-# %%
-equation.space_operators.prepare.pv.interp.pure_upwind(3)
-
-# %%
-equation.build_default()
-
-# %%
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-21T00:00:00",
-)
-
-# %%
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
+config = tf.model.UserConfig(
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+    run_time="20 days",
     dt_dyn="300 seconds",
+    save_interval="6 hours"
+)
+
+# %%
+model = tf.model.build_shallow_water_model(
+    config=config,
+    para=para,
+    mesh=mesh,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    test_case=test_case,
     dev=dev,
+    restart=False
 )
 
 # %%
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_testcase( 
-    coord=coord, para=para, solver=solver, case=testcase
+integrate_fn = tf.model.compiled_with_model(
+    model=model,
+    fun=model.integrate()
 )
 
 # %%
-integrate_fn = solver.integrate()
+model = integrate_fn(model)
 
-# %%
-final = integrate_fn(block)
+model = tf.model.block_until_ready(model)
 
-final = jax.block_until_ready(final)
+final = model.block
 
 # %%
 # %matplotlib inline
 
-_, da = final.state.gz.to_ugrid(coord=coord).to_structured_grid(
+_, da = final.state.gz.to_ugrid(
+    mesh=mesh,
+    dim0_idx=final.old
+).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -114,7 +98,7 @@ _, da = final.state.gz.to_ugrid(coord=coord).to_structured_grid(
 
 lon_np = da["face_lon"]
 lat_np = da["face_lat"]
-data = da.data
+data = da.squeeze(drop=True).data
 
 lon_np = np.asarray(lon_np)
 lat_np = np.asarray(lat_np)
@@ -153,7 +137,7 @@ plt.tight_layout()
 # %%
 # %matplotlib inline
 
-_, da = final.aux.u.to_ugrid(coord=coord).to_structured_grid(
+_, da = final.aux.u.to_ugrid(mesh=mesh).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="inverse_distance_weighted",
@@ -162,7 +146,7 @@ _, da = final.aux.u.to_ugrid(coord=coord).to_structured_grid(
 
 lon_np = da["face_lon"]
 lat_np = da["face_lat"]
-data = da.data
+data = da.squeeze(drop=True).data
 
 lon_np = np.asarray(lon_np)
 lat_np = np.asarray(lat_np)
@@ -218,13 +202,13 @@ plt.tight_layout()
 
 # %%
 # # %matplotlib inline
-_, u_da = final.aux.u.to_ugrid(coord=coord).to_structured_grid(
+_, u_da = final.aux.u.to_ugrid(mesh=mesh).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
     with_reshaped_da=True,
 )
-_, v_da = final.aux.v.to_ugrid(coord=coord).to_structured_grid(
+_, v_da = final.aux.v.to_ugrid(mesh=mesh).to_structured_grid(
     east_west_resolution=1.0,
     south_north_resolution=1.0,
     remap_method="nearest_neighbor",
@@ -233,8 +217,8 @@ _, v_da = final.aux.v.to_ugrid(coord=coord).to_structured_grid(
 
 lon = u_da["face_lon"]
 lat = u_da["face_lat"]
-u = u_da.data
-v = v_da.data
+u = u_da.squeeze(drop=True).data
+v = v_da.squeeze(drop=True).data
 speed = np.sqrt(u**2 + v**2)
 
 fig = plt.figure(figsize=(10, 5))
@@ -299,7 +283,7 @@ plt.tight_layout()
 plt.show()
 
 # %%
-final.tend.dundt.to_ugrid(coord=coord).to_uxarray().plot(
+final.tend.dundt.to_ugrid(mesh=mesh).isel(lev=0).to_uxarray().plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

@@ -1,32 +1,30 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar, TYPE_CHECKING
+from typing import Generic, TypeVar, TYPE_CHECKING
 import equinox as eqx
 
+
+from terraflow.util import typing
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 
 
 if TYPE_CHECKING:
     import numpy as np
-    from terraflow.util.typing import Array
+    
+IntType = typing.IntType
+Float = typing.Float
+Array = typing.Array
 
 
 VMST = TypeVar("VMST", bound=AbstractVertHistorySetup)
 
 
 class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
-    """
-    AbstractVertCoordinate is the base class for vertical coordinate systems.
-    """
 
     @staticmethod
     @abstractmethod
     def alias_name() -> str:
         """Return the alias name of the vertical coordinate system."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_layout(self) -> Any:
         raise NotImplementedError
 
     @abstractmethod
@@ -40,31 +38,56 @@ class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
     ) -> VMST:
         raise NotImplementedError
 
-    def fill_halo(self, field: Array, is_index: bool = False, *args, **kwargs) -> Array:
-        """Fill the halo regions of the mesh."""
-        return field
 
-
-class AbstractMultiLayerVertCoordinate(AbstractVertCoordinate):
-    """
-    AbstractMultiLayerVertCoordinate represents a vertical coordinate system with multiple layers.
-    """
-    pass
-
-
-class AbstractLorenzCoordinate(AbstractMultiLayerVertCoordinate):
-    """
-    LorenzCoordinate represents a vertical coordinate system following the Lorenz staggering.
-    """
+class AbstractGeneralizedTerrainFollowingCoordinate(AbstractVertCoordinate):
+    full_nlev: int
+    half_nlev: int
+    full_lev: Float[Array, "nlev"]
+    half_lev: Float[Array, "nlev+1"]
+    full_dlev: Float[Array, "nlev"]
+    half_dlev: Float[Array, "nlev+1"]
+    
     @abstractmethod
-    def get_full_lev(self):
+    def calc_mg(
+        self,
+        mgs: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
         raise NotImplementedError
-
+    
     @abstractmethod
-    def get_half_lev(self):
+    def calc_mg_lev(
+        self,
+        mgs: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev+1 npoints ..."]:
         raise NotImplementedError
-
-    @staticmethod
-    def alias_name() -> str:
-        """Return the alias name of the Lorenz vertical coordinate system."""
-        return "lorenz"
+    
+    @abstractmethod
+    def calc_dmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def calc_dmgdt_lev(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev+1 npoints ..."]:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def calc_ddmgdt(
+        self,
+        dmgsdt: Float[Array, "npoints ..."],
+        ks: IntType,
+        ke: IntType,
+    ) -> Float[Array, "nlev npoints ..."]:
+        raise NotImplementedError

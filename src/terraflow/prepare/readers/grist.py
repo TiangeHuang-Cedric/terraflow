@@ -11,6 +11,7 @@ from terraflow.prepare.readers.abstract import (
     AbstractReaderConfig
 )
 if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
     from terraflow.planet import PlanetParameterSet
 
 Float = typing.Float
@@ -20,26 +21,26 @@ Array = typing.Array
 @dataclass
 class GRISTStaticDataReaderConfig(AbstractReaderConfig):
     # zs grad filter parameters
-    use_zs_grad_filter: bool = False
-    zs_grad_filter_type: str = "laplacian2"  # "laplacian1" or "laplacian2"
-    zs_grad_filter_order: int = 2
-    zs_grad_filter_coef: float = 1.0e6
+    use_zs_grad_filter   : bool = False
+    zs_grad_filter_type  : str = "laplacian2"  # "laplacian1" or "laplacian2"
+    zs_grad_filter_order : int = 2
+    zs_grad_filter_coef  : float = 1.0e6
     zs_grad_filter_cycles: int = 100
-    topo_max_slope: float = 0.12
+    topo_max_slope       : float = 0.12
 
     def __print__(self):
         print("================ GRIST Static Data Reader Config ==================")
-        print(f"  use_zs_grad_filter         = {self.use_zs_grad_filter}")
+        print    (f"  use_zs_grad_filter         = {self.use_zs_grad_filter      }")
         if self.zs_grad_filter_type == "laplacian1":
-            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type}")
-            print(f"  zs_grad_filter_order       = {self.zs_grad_filter_order}")
-            print(f"  zs_grad_filter_coef        = {self.zs_grad_filter_coef}")
-            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
-            print(f"  topo_max_slope             = {self.topo_max_slope}")
+            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type     }")
+            print(f"  zs_grad_filter_order       = {self.zs_grad_filter_order    }")
+            print(f"  zs_grad_filter_coef        = {self.zs_grad_filter_coef     }")
+            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles   }")
+            print(f"  topo_max_slope             = {self.topo_max_slope          }")
         elif self.zs_grad_filter_type == "laplacian2":
-            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type}")
-            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles}")
-        print("============================================================")
+            print(f"  zs_grad_filter_type        = {self.zs_grad_filter_type     }")
+            print(f"  zs_grad_filter_cycles      = {self.zs_grad_filter_cycles   }")
+        print("===================================================================")
 
 
 @dataclass
@@ -54,7 +55,7 @@ class GRISTBackgroundReaderConfig(AbstractReaderConfig):
         print("================ GRIST Background Reader Config ==================")
         print(f"  vert_interp_backend        = {self.vert_interp_backend}")
         print(f"  vert_interp_type           = {self.vert_interp_type}")
-        print("============================================================")
+        print("==================================================================")
 
 
 class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
@@ -86,18 +87,20 @@ class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
         self,
         static_file: str,
         para: PlanetParameterSet,
+        dev: AbstractDevice,
         cfg: GRISTStaticDataReaderConfig = GRISTStaticDataReaderConfig()
     ):
         super().__init__(
             para=para,
-            cfg=cfg
+            cfg=cfg,
+            dev=dev
         )
         self.static_file = static_file
         log.logger.info(f"Use GRIST static file {static_file} as static data source.")
         self.extract_data()
 
     def extract_data(self):
-        float_type = self._para.dev.float_type
+        float_type = self.dev.float_type
         ds = xr.open_dataset(self.static_file, engine="netcdf4")
         self.lon = jnp.array(
             ds["lon"].values,
@@ -245,18 +248,20 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
         self,
         bkg_file: str,
         para: PlanetParameterSet,
+        dev: AbstractDevice,
         cfg: GRISTBackgroundReaderConfig = GRISTBackgroundReaderConfig(),
     ):
         super().__init__(
             para=para,
-            cfg=cfg
+            cfg=cfg,
+            dev=dev
         )
         self.bkg_file = bkg_file
         log.logger.info(f"Use GRIST background file {bkg_file} as background data source.")
         self.extract_data()
 
     def extract_data(self):
-        float_type = self._para.dev.float_type
+        float_type = self.dev.float_type
         ds = xr.open_dataset(self.bkg_file, engine="netcdf4")
         # ------------- Load data -------------
         self.lon = jnp.array(

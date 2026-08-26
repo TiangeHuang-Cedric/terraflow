@@ -22,7 +22,6 @@ from IPython.display import HTML
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import numpy as np
-import jax
 import jax.numpy as jnp
 
 import terraflow.core as tf
@@ -39,115 +38,63 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file=grist_0d_file,
-    grist_2d_file=grist_2d_file,
-    n_dual=3,
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    hori_hw=3,
+    lev_hw=3,
     dev=dev
 )
-
-vert = tf.vert_coord.OneLayerVertCoordinate()
-
-coord = tf.layout.CoordinateSystem(
-    hori=mesh,
-    vert=vert,
-    hori_layout=mesh.get_layout(),
-    vert_layout=vert.get_layout()
-)
-
-method = tf.operator.FiniteVolumeMethod()
 # %%
-testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
+test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
 
 
 # %%
-equation = tf.dynamics.ShallowWaterEquation.from_model(
-    coord=coord,
-    para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
-)
-
-# %%
-equation.space_operators.prepare.pv.interp.pure_upwind(3)
-
-# %%
-equation.build_default()
-
-# %%
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-21T00:00:00",
-)
-
-# %%
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
-    save_interval="6 hours",
+config = tf.model.UserConfig(
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+    run_time="20 days",
     dt_dyn="300 seconds",
+    save_interval="6 hours"
+)
+
+# %%
+model = tf.model.build_shallow_water_model(
+    config=config,
+    para=para,
+    mesh=mesh,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    test_case=test_case,
     dev=dev,
+    restart=False
 )
 
 # %%
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_testcase( 
-    coord=coord, para=para, solver=solver, case=testcase
-)
+integrate_fn = model.trajectory(start_with_input=True)
 
 # %%
-integrate_fn = solver.trajectory(start_with_input=True)
+final, trajectory = integrate_fn(model)
+
+final      = tf.model.block_until_ready(final)
+trajectory = tf.model.block_until_ready(trajectory)
 
 # %%
-final, trajectory = integrate_fn(block)
-
-final = jax.block_until_ready(final)
-trajectory = jax.block_until_ready(trajectory)
-
-# %%
-diag_tools = tf.discretization.DiagnosticTools.from_model(
-    solver=solver, 
-    coord=coord,
-    para=para,
-    jit=True
-)
-
-trajectory_tools = tf.discretization.DiagnosticTools.from_model(
-    solver=solver,
-    coord=coord,
-    para=para,
-    trajectory=True,
-    jit=True
-)
-
-# %%
-final = diag_tools.cast_state(final)
-
-diag_vars = diag_tools.compute(
-    coord=coord,
-    para=para,
-    state=final,
-    static=block.static,
-    equaux=block.equaux,
-    to_ugrid=True,
-    use_dual=True
+_, ds = final.to_ugrid(use_dual=False).to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="inverse_distance_weighted",
+    with_reshaped_ds=True  
 )
 
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["gz"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="inverse_distance_weighted",
-    with_reshaped_da=True
-)
-
-lon_np = da["face_lon"]
-lat_np = da["face_lat"]
-data = da.data
+lon_np = ds["face_lon"]
+lat_np = ds["face_lat"]
+data = ds["gz"].squeeze(drop=True)
 
 lon_np = np.asarray(lon_np)
 lat_np = np.asarray(lat_np)
@@ -178,24 +125,17 @@ contour = ax.contour(
 )
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title(f"Remapped {da.attrs['name']} on Lat-Lon Grid")
+ax.set_title(f"Remapped {data.attrs['name']} on Lat-Lon Grid")
 cbar = plt.colorbar(img, ax=ax, orientation="vertical", pad=0.04)
-cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
+cbar.set_label(f"{data.attrs['name']} at primal cell ({data.attrs['units']})")
 plt.tight_layout()
 
 # %%
 # %matplotlib inline
 
-_, da = diag_vars["u"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="inverse_distance_weighted",
-    with_reshaped_da=True
-)
-
-lon_np = da["face_lon"]
-lat_np = da["face_lat"]
-data = da.data
+lon_np = ds["face_lon"]
+lat_np = ds["face_lat"]
+data = ds["u"].squeeze(drop=True)
 
 lon_np = np.asarray(lon_np)
 lat_np = np.asarray(lat_np)
@@ -233,7 +173,7 @@ contour = ax.contour(
 )
 # ax.coastlines()
 # ax.add_feature(cfeature.BORDERS, linestyle=":")
-ax.set_title(f"Remapped {da.attrs['name']} on Lat-Lon Grid")
+ax.set_title(f"Remapped {data.attrs['name']} on Lat-Lon Grid")
 cbar = plt.colorbar(
     img,
     ax=ax,
@@ -245,20 +185,19 @@ cbar = plt.colorbar(
 )
 cbar.ax.tick_params(labelsize=10)
 cbar.set_label(
-    f"{da.attrs['name']} at primal cell ({da.attrs['units']})"
+    f"{data.attrs['name']} at primal cell ({data.attrs['units']})"
 )
 plt.tight_layout()
 
 # %%
-trajectory = trajectory_tools.cast_state(trajectory)
-
-trajectory_vars = trajectory_tools.compute_along_trajectory(
-    coord=coord,
-    para=para,
+_, ds = final.trajectory_diag_tools(
     trajectory=trajectory,
-    static=block.static,
-    equaux=block.equaux,
-    to_ugrid=True
+    use_dual=False
+).to_structured_grid(
+    east_west_resolution=1.0,
+    south_north_resolution=1.0,
+    remap_method="inverse_distance_weighted",
+    with_reshaped_ds=True  
 )
 
 # %%
@@ -266,7 +205,8 @@ trajectory_vars = trajectory_tools.compute_along_trajectory(
 plt.rcParams["animation.embed_limit"] = 200
 
 # Get number of time steps
-n_frames = trajectory_vars["gz"].data.shape[0]
+data = ds["gz"].squeeze(drop=True)
+n_frames = data.shape[0]
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.PlateCarree())
@@ -274,18 +214,12 @@ ax.set_global()
 ax.coastlines()
 ax.add_feature(cfeature.BORDERS, linestyle=":")
 
-_, da = trajectory_vars["gz"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="inverse_distance_weighted",
-    with_reshaped_da=True,
-)
-lon_np = np.asarray(da["face_lon"])
-lat_np = np.asarray(da["face_lat"])
+lon_np = np.asarray(ds["face_lon"])
+lat_np = np.asarray(ds["face_lat"])
 extent = [lon_np.min(), lon_np.max(), lat_np.min(), lat_np.max()]
 
 img = ax.imshow(
-    da.isel(time=0).data,
+    data.isel(time=0).data,
     origin="lower",
     extent=extent,
     transform=ccrs.PlateCarree(),
@@ -302,22 +236,13 @@ cbar = plt.colorbar(
     shrink=0.8,
     aspect=30
 )
-cbar.set_label(f"{da.attrs['name']} at primal cell ({da.attrs['units']})")
+cbar.set_label(f"{data.attrs['name']} at primal cell ({data.attrs['units']})")
 title = ax.set_title("Trajectory Step: 0")
 
 # Initial wind (quiver, updatable)
-_, u_da = trajectory_vars["u"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="nearest_neighbor",
-    with_reshaped_da=True,
-)
-_, v_da = trajectory_vars["v"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="nearest_neighbor",
-    with_reshaped_da=True,
-)
+
+u_da = ds["u"].squeeze(drop=True)
+v_da = ds["v"].squeeze(drop=True)
 u_0 = u_da.isel(time=0).data
 v_0 = v_da.isel(time=0).data
 
@@ -342,7 +267,7 @@ qv = ax.quiver(
 
 
 def update(frame):
-    img.set_data(da.isel(time=frame).data)
+    img.set_data(data.isel(time=frame).data)
     u = u_da.isel(time=frame).data[::stride, ::stride]
     v = v_da.isel(time=frame).data[::stride, ::stride]
     qv.set_UVC(u, v)
@@ -365,23 +290,10 @@ HTML(anim.to_jshtml())
 
 # %%
 # # %matplotlib inline
-_, u_da = diag_vars["u"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="nearest_neighbor",
-    with_reshaped_da=True,
-)
-_, v_da = diag_vars["v"].to_structured_grid(
-    east_west_resolution=1.0,
-    south_north_resolution=1.0,
-    remap_method="nearest_neighbor",
-    with_reshaped_da=True,
-)
-
 lon = u_da["face_lon"]
 lat = u_da["face_lat"]
-u = u_da.data
-v = v_da.data
+u = u_da.data[-1, ...]
+v = v_da.data[-1, ...]
 speed = np.sqrt(u**2 + v**2)
 
 fig = plt.figure(figsize=(10, 5))
@@ -446,7 +358,7 @@ plt.tight_layout()
 plt.show()
 
 # %%
-diag_vars["dundt"].to_uxarray().plot(
+final.block.static.gzs.to_uxarray(mesh=final.block.mesh).plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

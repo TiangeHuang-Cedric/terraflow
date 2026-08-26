@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import manager
     from . import discretization as discretization
-    from . import dynamics as dynamics
+    from . import model as model
     from . import layout as layout
     from . import mesh as mesh
     from . import operator as operator
@@ -28,8 +28,8 @@ _LAZY_SUBMODULES = {
     "operator": "terraflow.core.operator",
     "test_case": "terraflow.core.test_case",
     "readers": "terraflow.core.readers",
+    "model": "terraflow.core.model",
     "dynamics": "terraflow.core.dynamics",
-    "discretization": "terraflow.core.discretization",
     "solver": "terraflow.core.solver",
 }
 
@@ -43,7 +43,7 @@ __all__ = [
     "operator",
     "test_case",
     "readers",
-    "dynamics",
+    "model",
     "discretization",
     "solver",
 ]

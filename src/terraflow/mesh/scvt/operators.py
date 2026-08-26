@@ -1,16 +1,17 @@
 from __future__ import annotations
-from typing import TypeVar, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from jax import numpy as jnp
 import jax
 
+from terraflow.util.sphere_geometry import (
+    project_sphere2plane,
+    vector_convert_lonlat2xyz,
+    vector_convert_xyz2lonlat
+)
+
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.planet import PlanetParameterSet
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
-    from terraflow.vert_coord.onelayer_coord import OneLayerVertCoordinate
-    from terraflow.vert_coord.hybrid_coord import HybridVertCoordinate
-    from terraflow.layout.abstract import AbstractLayout
-    from terraflow.layout.abstract import CoordinateSystem
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     IntType = typing.IntType
     FloatType = typing.FloatType
@@ -18,352 +19,300 @@ if TYPE_CHECKING:
     Float = typing.Float
     Array = typing.Array
 
-    HLO = TypeVar("HLO", bound=AbstractLayout)
-    VLO = TypeVar("VLO", bound=AbstractLayout)
 
-    CoordSys_OneLayer = CoordinateSystem[
-        SphericalCentroidVoronoiTessellations,
-        OneLayerVertCoordinate,
-        HLO,
-        VLO,
-    ]
+def div_operator_1d(
+    mesh: SCVTMesh,
+    f: Float[Array, "nedge"],
+    div: Float[Array, "npoint"],
+    div_loc: str,
+    with_halo: bool = False
+) -> Array:
+    """Divergence operator"""
+    if div_loc == "cell":
+        i_s = mesh.cell_ids
+        i_e = mesh.cell_ihe[0] if with_halo else mesh.cell_ide
+        cell_ed = mesh.cell_ed[i_s:i_e+1, :]  # (ncell, maxnnb)
+        cell_nr = mesh.cell_nr[i_s:i_e+1, :]  # (ncell, maxnnb)
+        area_cell = mesh.area_cell[i_s:i_e+1]  # (ncell,)
+        le = mesh.le  # (nedge,)
+        # ==========================================================
+        ed_idx  = cell_ed  # (ncell, maxnnb)
+        le_tile = le[ed_idx]  # (ncell, maxnnb)
+        x_tile  = f[ed_idx]  # (ncell, maxnnb)
+        x_tile  = jnp.where(ed_idx < 0, 0.0, x_tile)
+        res = jnp.sum(
+            cell_nr * le_tile * x_tile,
+            axis=-1
+        ) / area_cell
+        # ==========================================================
+    else:
+        raise ValueError(f"div_operator_1d: unsupported location {div_loc}!")
+    return div.at[i_s:i_e+1].set(res)
 
-    CoordSys_Hybrid = CoordinateSystem[
-        SphericalCentroidVoronoiTessellations,
-        HybridVertCoordinate,
-        HLO,
-        VLO,
-    ]
 
-    CoordSys = CoordSys_OneLayer | CoordSys_Hybrid
-
-
-def div_at_primal_cell(
-    *,
-    x_at_primal_edge: Float[Array, "nlev nEdge"],
-    coord: CoordSys,
-    para: PlanetParameterSet,
-    x_at_primal_cell: Float[Array, "nlev nPrimal_cell"] | None = None,
-    hori_end_at: str = "domain",
-    vert_entity: str = "full",
+def div_operator_2d(
+    mesh: SCVTMesh,
+    f: Float[Array, "nlev nedge"],
+    div: Float[Array, "nlev npoint"],
+    div_loc: str,
+    with_halo: bool = False
 ) -> Float[Array, "nlev nPolg"]:
-    """Divergence operator at primal cell center."""
-    mesh = coord.mesh
-    vert = coord.vert
-    i_s, i_e = mesh.get_idx(
-        entity="polg",
-        start_at="domain",
-        end_at=hori_end_at
-    )
-    k_s, k_e = vert.get_idx(entity=vert_entity, domain="domain")
-    plg_ed = mesh.primal.cell.edges[i_s:i_e+1, :]  # (nplg, maxnnb)
-    plg_nr = mesh.primal.cell.orient[i_s:i_e+1, :]  # (nplg, maxnnb)
-    plg_area = mesh.primal.cell.area[i_s:i_e+1]  # (nplg,)
-    edp_length = mesh.primal.edge.length  # (nedg,)
-    radius = para.radius.unwrap()
-    # ==========================================================
+    """Divergence operator"""
+    k_s = mesh.full_kds if div_loc != "lev" else mesh.half_kds
+    k_e = mesh.full_kde if div_loc != "lev" else mesh.half_kde
+    if div_loc == "cell" or div_loc == "lev":
+        i_s = mesh.cell_ids
+        i_e = mesh.cell_ihe[0] if with_halo else mesh.cell_ide
+        cell_ed = mesh.cell_ed[i_s:i_e+1, :]  # (ncell, maxnnb)
+        cell_nr = mesh.cell_nr[i_s:i_e+1, :]  # (ncell, maxnnb)
+        area_cell = mesh.area_cell[i_s:i_e+1]  # (ncell,)
+        le = mesh.le  # (nedge,)
+        # ======================================================
+        def _wrap(f_1d: Float[Array, "nedge"]) -> Float[Array, "ncell"]:
+            ed_idx = cell_ed  # (ncell, maxnnb)
+            leng_tile = le[ed_idx]  # (ncell, maxnnb)
+            x_tile = f_1d[ed_idx]  # (ncell, maxnnb)
+            x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
+            return jnp.sum(
+                cell_nr * leng_tile * x_tile,
+                axis=-1
+            ) / area_cell
 
-    def _wrap(
-        x_at_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nPolg_cmpt"]:
-        ed_idx = plg_ed  # (nplg, maxnnb)
-        leng_tile = edp_length[ed_idx]  # (nplg, maxnnb)
-        x_tile = x_at_edge[ed_idx]  # (nplg, maxnnb)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(
-            plg_nr * leng_tile * x_tile,
-            axis=-1
-        ) / (plg_area * radius)
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_primal_edge[k_s:k_e+1, :])
-
-    # ==========================================================
-    if x_at_primal_cell is None:
-        return res
+        res = jax.vmap(
+            _wrap,
+            in_axes=0,
+            out_axes=0
+        )(f[k_s:k_e+1, :])
     else:
-        return x_at_primal_cell.at[k_s:k_e+1, i_s:i_e+1].set(res)
+        raise ValueError(f"div_operator_2d: unsupported location {div_loc}!")
+    # ==========================================================
+    return div.at[k_s:k_e+1, i_s:i_e+1].set(res)
 
 
-def grad_at_dual_edge(
-    *,
-    x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
-    coord: CoordSys,
-    para: PlanetParameterSet,
-    x_at_dual_edge: Float[Array, "nlev nEdge"] | None = None,
-    hori_end_at: str = "domain",
-    vert_entity: str = "full",
+def curl_operator_1d(
+    mesh: SCVTMesh,
+    f: Float[Array, "nedge"],
+    curl: Float[Array, "npoint"],
+    curl_loc: str,
+    with_halo: bool = False
+) -> Float[Array, "nlev npoint"]:
+    """Curl operator"""
+    if curl_loc == "vtx":
+        i_s = mesh.vtx_ids
+        i_e = mesh.vtx_ihe[0] if with_halo else mesh.vtx_ide
+        vtx_ed = mesh.vtx_ed[i_s:i_e+1, :]  # (nvtx, maxnnb)
+        vtx_nr = mesh.vtx_nr[i_s:i_e+1, :]  # (nvtx, maxnnb)
+        area_vtx = mesh.area_vtx[i_s:i_e+1]  # (nvtx,)
+        de = mesh.de  # (nedge,)
+        edptg_eddnr = mesh.edptg_eddnr  # (nedge,)
+        # ==========================================================
+        ed_idx = vtx_ed  # (nvtx, maxnnb)
+        f_tile = f[ed_idx]  # (nvtx, maxnnb)
+        f_tile = jnp.where(ed_idx < 0, 0.0, f_tile)
+        de_tile = de[ed_idx]  # (nvtx, maxnnb)
+        edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
+        res = jnp.sum(
+            f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
+            axis=-1
+        ) / area_vtx
+    else:
+        raise ValueError(f"curl_operator_1d: unsupported location {curl_loc}!")
+    # ==========================================================
+    return curl.at[i_s:i_e+1].set(res)
+
+
+def curl_operator_2d(
+    mesh: SCVTMesh,
+    f: Float[Array, "nlev nedge"],
+    curl: Float[Array, "nlev npoint"],
+    curl_loc: str,
+    with_halo: bool = False
+) -> Float[Array, "nlev npoint"]:
+    """Curl operator"""
+    k_s = mesh.full_kds if curl_loc != "lev" else mesh.half_kds
+    k_e = mesh.full_kde if curl_loc != "lev" else mesh.half_kde
+    if curl_loc == "vtx" or curl_loc == "lev_vtx":
+        i_s = mesh.vtx_ids
+        i_e = mesh.vtx_ihe[0] if with_halo else mesh.vtx_ide
+        vtx_ed = mesh.vtx_ed[i_s:i_e+1, :]  # (nvtx, maxnnb)
+        vtx_nr = mesh.vtx_nr[i_s:i_e+1, :]  # (nvtx, maxnnb)
+        area_vtx = mesh.area_vtx[i_s:i_e+1]  # (nvtx,)
+        de = mesh.de  # (nedge,)
+        edptg_eddnr = mesh.edptg_eddnr  # (nedge,)
+        # ==========================================================
+
+        def _wrap(f_1d: Float[Array, "nedge"]) -> Float[Array, "nvtx"]:
+            ed_idx = vtx_ed  # (nvtx, maxnnb)
+            f_tile = f_1d[ed_idx]  # (nvtx, maxnnb)
+            f_tile = jnp.where(ed_idx < 0, 0.0, f_tile)
+            de_tile = de[ed_idx]  # (nvtx, maxnnb)
+            edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
+            return jnp.sum(
+                f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
+                axis=-1
+            ) / area_vtx
+
+        res = jax.vmap(
+            _wrap,
+            in_axes=0,
+            out_axes=0
+        )(f[k_s:k_e+1, :])
+    else:
+        raise ValueError(f"curl_operator_2d: unsupported location {curl_loc}!")
+    # ==========================================================
+    return curl.at[k_s:k_e+1, i_s:i_e+1].set(res)
+
+
+def grad_operator_1d(
+    mesh: SCVTMesh,
+    f: Float[Array, "npoint"],
+    grad: Float[Array, "nedge"],
+    f_loc: str,
+    with_halo: bool = False
 ) -> Float[Array, "nlev nEdge"]:
-    """Gradient operator at edge."""
-    mesh = coord.mesh
-    vert = coord.vert
-    i_s, i_e = mesh.get_idx(
-        entity="edge",
-        start_at="domain",
-        end_at=hori_end_at
-    )
-    k_s, k_e = vert.get_idx(entity=vert_entity, domain="domain")
-    edd_v = mesh.dual.edge.endpoints[i_s:i_e+1, :]  # (nedg, 2)
-    edd_length = mesh.dual.edge.length[i_s:i_e+1]  # (nedg,)
-    edpnr_eddtg = mesh.aux.edpnr_eddtg[i_s:i_e+1]  # (nedg,)
-    radius = para.radius.unwrap()
+    """Gradient operator"""
+    if f_loc == "cell":
+        i_s = mesh.edge_ids
+        i_e = mesh.edge_ihe[0] if with_halo else mesh.edge_ide
+        cell_of_edge = mesh.cell_of_edge[i_s:i_e+1, :]  # (nedge, 2)
+        de = mesh.de[i_s:i_e+1]  # (nedge,)
+        edpnr_eddtg = mesh.edpnr_eddtg[i_s:i_e+1]  # (nedge,)
+        # ======================================================
+        q0 = f[cell_of_edge[:, 0]]
+        q1 = f[cell_of_edge[:, 1]]
+        res = (q1 - q0) * edpnr_eddtg / de
+    else:
+        raise ValueError(f"grad_operator_1d: unsupported location {f_loc}!")
     # ==========================================================
+    return grad.at[i_s:i_e+1].set(res)
+    
 
-    def _wrap(
-        x_at_primal_cell: Float[Array, "nPrimal_cell"]
-    ) -> Float[Array, "nEdge"]:
-        x_at_vertex = x_at_primal_cell[edd_v]  # (nedg, 2)
-        q0 = x_at_vertex[:, 0]
-        q1 = x_at_vertex[:, 1]
-        return (q1 - q0) * edpnr_eddtg / (radius * edd_length)
+def grad_operator_2d(
+    mesh: SCVTMesh,
+    f: Float[Array, "nlev npoint"],
+    grad: Float[Array, "nlev nedge"],
+    f_loc: str,
+    with_halo: bool = False
+) -> Float[Array, "nlev nEdge"]:
+    """Gradient operator"""
+    k_s = mesh.full_kds if f_loc != "lev" else mesh.half_kds
+    k_e = mesh.full_kde if f_loc != "lev" else mesh.half_kde
+    if f_loc == "cell":
+        i_s = mesh.edge_ids
+        i_e = mesh.edge_ihe[0] if with_halo else mesh.edge_ide
+        cell_of_edge = mesh.cell_of_edge[i_s:i_e+1, :]  # (nedge, 2)
+        de = mesh.de[i_s:i_e+1]  # (nedge,)
+        edpnr_eddtg = mesh.edpnr_eddtg[i_s:i_e+1]  # (nedge,)
+        # ======================================================
+        def _wrap(f_1d: Float[Array, "npoint"]) -> Float[Array, "nEdge"]:
+            q0 = f_1d[cell_of_edge[:, 0]]
+            q1 = f_1d[cell_of_edge[:, 1]]
+            return (q1 - q0) * edpnr_eddtg / de
 
-    res = jax.vmap(
-        _wrap,
+        res = jax.vmap(
+            _wrap,
+            in_axes=0,
+            out_axes=0
+        )(f[k_s:k_e+1, :])
+    else:
+        raise ValueError(f"grad_operator_2d: unsupported location {f_loc} !")
+    # ==========================================================
+    return grad.at[k_s:k_e+1, i_s:i_e+1].set(res)
+
+
+def wind_c2a_operator(
+    R: FloatType,
+    mesh: SCVTMesh,
+    un: Float[Array, "nlev nedge"],
+    u: Float[Array, "nlev ncell"],
+    v: Float[Array, "nlev, ncell"]
+) -> tuple[Float[Array, "nlev, ncell"], Float[Array, "nlev, ncell"]]:
+    kds, kde      = mesh.full_kds, mesh.full_kde
+    ids, ide      = mesh.cell_ids, mesh.cell_ide
+    cell_xyz      = mesh.cell_xyz  [ids:ide+1, :]   # (ncell, 3)
+    cell_ed       = mesh.cell_ed    [ids:ide+1, :]  # (ncell, maxnnb)
+    cell_nnb      = mesh.cell_nnb  [ids:ide+1]      # (ncell,)
+    area_cell     = mesh.area_cell[ids:ide+1]       # (ncell,)
+    dual_edge_xyz = mesh.dual_edge_xyz              # (nedge, 3)
+    edge_nr       = mesh.edge_nr                    # (nedge, 3)
+    le            = mesh.le                         # (nedge,)
+
+    eps = jnp.finfo(cell_xyz.dtype).eps
+
+    def _wrap_at_single_lev(un: Float[Array, "nedge"]) -> dict[str, Float[Array, "ncell"]]:
+
+        # Vectorized computation over all cells
+        # Gather edge data for all cells at once: (ncell, maxnnb, ...)
+        OPi = dual_edge_xyz[cell_ed]  # (ncell, maxnnb, 3)
+        nei = edge_nr[cell_ed] * R  # (ncell, maxnnb, 3)
+        wind = un[cell_ed]  # (ncell, maxnnb)
+        leng = le[cell_ed]  # (ncell, maxnnb)
+
+        # Create mask for valid neighbors: (ncell, maxnnb)
+        # Use shape inference to get maxnnb instead of accessing it as a field
+        maxnnb = cell_ed.shape[1]
+        pos = jnp.arange(maxnnb)[None, :]  # (1, maxnnb)
+        mask = pos < cell_nnb[:, None]  # (ncell, maxnnb)
+
+        # Project edge midpoints onto tangent plane at cell centroids
+        # OPc: (ncell, 3) -> (ncell, 1, 3) for broadcasting
+        OPc = cell_xyz[:, None, :]  # (ncell, 1, 3)
+        rei = jax.vmap(
+            lambda R, opc, opi: project_sphere2plane(R, opc[0], opi),
+            in_axes=(None, 0, 0)
+        )(R, OPc, OPi)  # (ncell, maxnnb, 3)
+
+        # Compute norms and normalize
+        rei_norm = jnp.linalg.norm(rei, axis=-1)  # (ncell, maxnnb)
+        rei_norm = jnp.maximum(rei_norm, eps * 100)
+        rei_unit = rei / rei_norm[:, :, None]  # (ncell, maxnnb, 3)
+
+        # Dot product: nei . rei_unit
+        dot_val = jnp.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
+
+        # Contribution per neighbor: rei * wind * dot_val * leng
+        # (ncell, maxnnb, 3)
+        contrib = rei * (wind * dot_val * leng)[:, :, None]
+
+        # Apply mask to zero out invalid neighbors
+        contrib = contrib * mask[:, :, None]  # (ncell, maxnnb, 3)
+
+        # Sum contributions across neighbors
+        vector_xyz = jnp.sum(contrib, axis=1)  # (ncell, 3)
+
+        # Divide by cell area
+        area = jnp.maximum(area_cell, eps * 100)  # (ncell,)
+        vector_xyz = vector_xyz / area[:, None]  # (ncell, 3)
+
+        # Convert to lat-lon coordinates
+        result = vector_convert_xyz2lonlat(R, vector_xyz, cell_xyz)  # returns dict with 'u', 'v'
+        return result
+
+    res =  jax.vmap(
+        _wrap_at_single_lev,
         in_axes=0,
         out_axes=0
-    )(x_at_primal_cell[k_s:k_e+1, :])
-
-    # ==========================================================
-
-    if x_at_dual_edge is None:
-        return res
-    else:
-        return x_at_dual_edge.at[k_s:k_e+1, i_s:i_e+1].set(res)
+    )(un[kds:kde+1, :])
+    
+    u = u.at[kds:kde+1, ids:ide+1].set(res["u"])
+    v = v.at[kds:kde+1, ids:ide+1].set(res["v"])
+    
+    return u, v
 
 
-def curl_at_dual_cell(
-    *,
-    x_at_dual_edge: Float[Array, "nlev nEdge"],
-    coord: CoordSys,
-    para: PlanetParameterSet,
-    x_at_dual_cell: Float[Array, "nlev nDual_cell"] | None = None,
-    hori_end_at: str = "domain",
-    vert_entity: str = "full",
-) -> Float[Array, "nlev nDual_cell"]:
-    """Curl operator at dual cell center."""
-    mesh = coord.mesh
-    vert = coord.vert
-    i_s, i_e = mesh.get_idx(
-        entity="dual",
-        start_at="domain",
-        end_at=hori_end_at
-    )
-    k_s, k_e = vert.get_idx(entity=vert_entity, domain="domain")
-    dua_ed = mesh.dual.cell.edges[i_s:i_e+1, :]  # (ndua, maxnnb)
-    dua_nr = mesh.dual.cell.orient[i_s:i_e+1, :]  # (ndua, maxnnb)
-    dua_area = mesh.dual.cell.area[i_s:i_e+1]  # (ndua,)
-    edd_length = mesh.dual.edge.length  # (nedg,)
-    edptg_eddnr = mesh.aux.edptg_eddnr  # (nedg,)
-    radius = para.radius.unwrap()
-    # ==========================================================
-
-    def _wrap(
-        x_at_dual_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nDual_cell"]:
-        ed_idx = dua_ed  # (nDual_cell, maxnnb)
-        x_tile = x_at_dual_edge[ed_idx]  # (nDual_cell, maxnnb)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        leng_tile = edd_length[ed_idx]  # (nDual_cell, maxnnb)
-        edpTg_eddNr_tile = edptg_eddnr[ed_idx]  # (nDual_cell, maxnnb)
-        return jnp.sum(
-            x_tile * edpTg_eddNr_tile * dua_nr * leng_tile,
-            axis=-1
-        ) / (dua_area * radius)
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_dual_edge[k_s:k_e+1, :])
-
-    # ==========================================================
-
-    if x_at_dual_cell is None:
-        return res
-    else:
-        return x_at_dual_cell.at[k_s:k_e+1, i_s:i_e+1].set(res)
-
-
-def interp_weighted_add_edp2plg(
-    *,
-    x_at_primal_edge: Float[Array, "nlev nEdge"],
-    coord: CoordSys,
-    field_fn: Callable = lambda x: x,
-    x_at_primal_cell: Float[Array, "nlev nPrimal_cell"] | None = None,
-) -> Float[Array, "nlev nPrimal_cell"]:
-    """Interpolation from primal edge to primal cell."""
-    mesh = coord.mesh
-    vert = coord.vert
-    ids, ide = mesh.polg_ids, mesh.polg_ide
-    kds, kde = vert.full_kds, vert.full_kde
-    plg_ed = mesh.primal.cell.edges[ids:ide+1, :]  # (nplg, maxnnb)
-    plg_area = mesh.primal.cell.area[ids:ide+1]  # (nplg,)
-    edp_length = mesh.primal.edge.length  # (nedg,)
-    edd_length = mesh.dual.edge.length  # (nedg,)
-    ed_idx = plg_ed  # (nplg, maxnnb)
-    # ==========================================================
-
-    def _wrap(
-        x_at_primal_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nPrimal_cell"]:
-        Ae = edp_length[ed_idx] * edd_length[ed_idx] / 4.0
-        x_tile = jnp.array(
-            field_fn(x_at_primal_edge[ed_idx]),
-            dtype=x_at_primal_edge.dtype
-        )  # (nplg, maxnnb)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(
-            Ae * x_tile,
-            axis=-1
-        ) / plg_area
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_primal_edge[kds:kde+1, :])
-
-    # ==========================================================
-    if x_at_primal_cell is None:
-        return res
-    else:
-        return x_at_primal_cell.at[kds:kde+1, ids:ide+1].set(res)
-
-
-def interp_weighted_add_edd2dua(
-    *,
-    x_at_dual_edge: Float[Array, "nlev nEdge"],
-    coord: CoordSys,
-    field_fn: Callable = lambda x: x,
-    x_at_dual_cell: Float[Array, "nlev nDual_cell"] | None = None,
-) -> Float[Array, "nlev nDual_cell"]:
-    """Interpolation from dual edge to dual cell."""
-    mesh = coord.mesh
-    vert = coord.vert
-    ids, ide = mesh.dual_ids, mesh.dual_ide
-    kds, kde = vert.full_kds, vert.full_kde
-    dua_ed = mesh.dual.cell.edges[ids:ide+1, :]  # (ndual, maxnnb)
-    dua_area = mesh.dual.cell.area[ids:ide+1]  # (ndual,)
-    edp_length = mesh.primal.edge.length  # (nedg,)
-    edd_length = mesh.dual.edge.length  # (nedg,)
-    ed_idx = dua_ed  # (ndual, maxnnb)
-    # ==========================================================
-
-    def _wrap(
-        x_at_dual_edge: Float[Array, "nEdge"],
-    ) -> Float[Array, "nDual_cell"]:
-        Ae = edd_length[ed_idx] * edp_length[ed_idx] / 4.0
-        x_tile = jnp.array(
-            field_fn(x_at_dual_edge[ed_idx]),
-            dtype=x_at_dual_edge.dtype
-        )  # (ndual, maxnnb)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(
-            Ae * x_tile,
-            axis=-1
-        ) / dua_area
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_dual_edge[kds:kde+1, :])
-
-    # ==========================================================
-    if x_at_dual_cell is None:
-        return res
-    else:
-        return x_at_dual_cell.at[kds:kde+1, ids:ide+1].set(res)
-
-
-def interp_weighted_add_plg2dua(
-    *,
-    x_at_primal_cell: Float[Array, "nlev nPrimal_cell"],
-    coord: CoordSys,
-    field_fn: Callable = lambda x: x,
-    x_at_dual_cell: Float[Array, "nlev nDual_cell"] | None = None,
-) -> Float[Array, "nlev nDual_cell"]:
-    """Interpolation from primal cell to dual cell."""
-    mesh = coord.mesh
-    vert = coord.vert
-    ids, ide = mesh.dual_ids, mesh.dual_ide
-    kds, kde = vert.full_kds, vert.full_kde
-    dua_v = mesh.dual.cell.nodes[ids:ide+1, :]  # (ndual, maxnnb)
-    dua_kite_area = mesh.dual.cell.kite_area[ids:ide+1, :]  # (ndual, maxnnb)
-    dua_area = mesh.dual.cell.area[ids:ide+1]  # (ndual,)
-    plg_idx = dua_v  # (ndual, maxnnb)
-    # ==========================================================
-
-    def _wrap(
-        x_at_primal_cell: Float[Array, "nPrimal_cell"],
-    ) -> Float[Array, "nDual_cell"]:
-        x_tile = jnp.array(
-            field_fn(x_at_primal_cell[plg_idx]),
-            dtype=x_at_primal_cell.dtype
-        )  # (ndual, maxnnb)
-        x_tile = jnp.where(plg_idx < 0, 0.0, x_tile)  # (ndual, maxnnb)
-        Adv = dua_kite_area
-        return jnp.sum(
-            Adv * x_tile,
-            axis=-1
-        ) / dua_area
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_primal_cell[kds:kde+1, :])
-
-    # ==========================================================
-    if x_at_dual_cell is None:
-        return res
-    else:
-        return x_at_dual_cell.at[kds:kde+1, ids:ide+1].set(res)
-
-
-def interp_weighted_add_dua2plg(
-    *,
-    x_at_dual_cell: Float[Array, "nlev nDual_cell"],
-    coord: CoordSys,
-    field_fn: Callable = lambda x: x,
-    x_at_primal_cell: Float[Array, "nlev nPrimal_cell"] | None = None,
-) -> Float[Array, "nlev nPrimal_cell"]:
-    """Interpolation from dual cell to primal cell."""
-    mesh = coord.mesh
-    vert = coord.vert
-    ids, ide = mesh.polg_ids, mesh.polg_ide
-    kds, kde = vert.full_kds, vert.full_kde
-    plg_v = mesh.primal.cell.nodes[ids:ide+1, :]  # (nplg, maxnnb)
-    plg_kite_area = mesh.primal.cell.kite_area[ids:ide+1, :]  # (nplg, maxnnb)
-    plg_area = mesh.primal.cell.area[ids:ide+1]  # (nplg,)
-    dua_idx = plg_v  # (nplg, maxnnb)
-    # ==========================================================
-
-    def _wrap(
-        x_at_dual_cell: Float[Array, "nDual_cell"],
-    ) -> Float[Array, "nPrimal_cell"]:
-        x_tile = jnp.array(
-            field_fn(x_at_dual_cell[dua_idx]),
-            dtype=x_at_dual_cell.dtype
-        )  # (nplg, maxnnb)
-        x_tile = jnp.where(dua_idx < 0, 0.0, x_tile)  # (nplg, maxnnb)
-        Adv = plg_kite_area
-        return jnp.sum(
-            Adv * x_tile,
-            axis=-1
-        ) / plg_area
-
-    res = jax.vmap(
-        _wrap,
-        in_axes=0,
-        out_axes=0
-    )(x_at_dual_cell[kds:kde+1, :])
-
-    # ==========================================================
-    if x_at_primal_cell is None:
-        return res
-    else:
-        return x_at_primal_cell.at[kds:kde+1, ids:ide+1].set(res)
+def wind_a2c_operator(
+    R: FloatType,
+    mesh: SCVTMesh,
+    u: Float[Array, "nlev ncell"],
+    v: Float[Array, "nlev ncell"],
+    un: Float[Array, "nlev nedge"]
+) -> Float[Array, "nlev nedge"]:
+    kds, kde = mesh.full_kds, mesh.full_kde
+    ids, ide = mesh.edge_ids, mesh.edge_ide
+    v1 = mesh.cell_of_edge[ids:ide+1, 0]
+    v2 = mesh.cell_of_edge[ids:ide+1, 1]
+    u_tmp = 0.5 * (u[kds:kde+1, v1] + u[kds:kde+1, v2])
+    v_tmp = 0.5 * (v[kds:kde+1, v1] + v[kds:kde+1, v2])
+    vec = vector_convert_lonlat2xyz(R, u_tmp, v_tmp, mesh.dual_edge_xyz[ids:ide+1, :])
+    tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+    return un.at[kds:kde+1, ids:ide+1].set(tmp)

@@ -40,69 +40,48 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file, grist_2d_file, n_dual=3, dev=dev
-)
-
-vert = tf.vert_coord.OneLayerVertCoordinate()
-
-coord = tf.layout.CoordinateSystem(
-    hori=mesh,
-    vert=vert,
-    hori_layout=mesh.get_layout(),
-    vert_layout=vert.get_layout()
-)
-
-method = tf.operator.FiniteVolumeMethod()
-
-# %%
-testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
-
-
-# %%
-equation = tf.dynamics.ShallowWaterEquation.from_model(
-    coord=coord,
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
     para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
+    hori_hw=3,
+    lev_hw=3,
+    dev=dev
 )
 
 # %%
-equation.space_operators.prepare.pv.interp.upwind(3)
+test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
+
 
 # %%
-equation.build_default()
-
-# %%
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-21T00:00:00",
-)
-
-# %%
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
-    dev=dev,
-    save_interval="6 hours",
+config = tf.model.UserConfig(
+    pv_adv_scheme="upwind",
+    upwind_order_pv=3,
+    run_time="30 days",
     dt_dyn="300 seconds",
+    save_interval="6 hours"
 )
 
 # %%
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_testcase( 
-    coord=coord, para=para, solver=solver, case=testcase
+model = tf.model.build_shallow_water_model(
+    config=config,
+    para=para,
+    mesh=mesh,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    test_case=test_case,
+    dev=dev,
+    restart=False
 )
 
 # %% [markdown]
 # ## Plot using easygems
 
 # %%
-gz = xr.DataArray(np.array(block.state.gz.unwrap()[0, :, :]).squeeze())
-from_lon = np.rad2deg(coord.mesh.primal.cell.centroid.lon)
-from_lat = np.rad2deg(coord.mesh.primal.cell.centroid.lat)
+gz = xr.DataArray(np.array(model.block.state.gz.unwrap()[0, :, :]).squeeze())
+from_lon = np.rad2deg(mesh.cell_lon)
+from_lat = np.rad2deg(mesh.cell_lat)
 
 remap_gz = tf.util.easygems.terraflow2healpix(
     gz, from_lon, from_lat, 10
@@ -119,7 +98,7 @@ display(img)
 # ### Convert data and mesh into UGRID Format and pack it into uxarray
 
 # %%
-ugrid_ds = block.state.to_ugrid(coord, use_dual=False, expand_idx=0)
+ugrid_ds = model.block.state.to_ugrid(mesh, use_dual=False, dim0_idx=0)
 
 ugrid_ds.uxds
 
@@ -147,13 +126,13 @@ ugrid_ds.uxgrid.plot(
 # #### Plot in 2d figure
 
 # %%
-ugrid_ds.uxds.gz.plot(height=500, width=1000)
+ugrid_ds.uxds["gz"].isel(lev=0).plot(height=500, width=1000)
 
 # %% [markdown]
 # #### Plot in 2d geomap
 
 # %%
-ugrid_ds.uxds["gz"].plot(
+ugrid_ds.uxds["gz"].isel(lev=0).plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -174,7 +153,7 @@ fig, ax = plt.subplots(
 
 ax.set_global()
 
-raster = ugrid_ds.uxds["gz"].to_raster(ax=ax, pixel_ratio=0.5,)
+raster = ugrid_ds.uxds["gz"].isel(lev=0).to_raster(ax=ax, pixel_ratio=0.5,)
 img = ax.imshow(
     raster, cmap="plasma", origin="lower", extent=ax.get_xlim() + ax.get_ylim()
 )
@@ -227,7 +206,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["gz"]
+data = dst["gz"].isel(lev=0)
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -257,7 +236,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["gz"]
+data = dst["gz"].isel(lev=0)
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -287,7 +266,7 @@ _, dst = ugrid_ds.to_structured_grid(
 
 lon_np = dst["face_lon"]
 lat_np = dst["face_lat"]
-data = dst["gz"]
+data = dst["gz"].isel(lev=0)
 
 fig = plt.figure(figsize=(10, 5))
 ax = plt.axes(projection=ccrs.Robinson())
@@ -348,12 +327,8 @@ display(fig)
 # ##### Plot UV Wind Vectors on Lat-Lon Grid
 
 # %%
-un = block.state.un.unwrap()[0, :, :]
-
-uv = coord.mesh.reconstruct_vector(un)
-
-u = uv["u"]
-v = uv["v"]
+u = model.block.aux.u.unwrap()
+v = model.block.aux.v.unwrap()
 
 ugrid_builder = UGRIDGrid.from_scvt_mesh(
     mesh,
@@ -497,7 +472,7 @@ dst = ugrid_ds.to_structured_grid(
 )
 
 
-dst["gz"].plot(
+dst["gz"].isel(lev=0).plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -516,7 +491,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["gz"].plot(
+dst["gz"].isel(lev=0).plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),
@@ -535,7 +510,7 @@ dst = ugrid_ds.to_structured_grid(
     with_reshaped_ds=False
 )
 
-dst["gz"].plot(
+dst["gz"].isel(lev=0).plot(
     height=500,
     width=1000,
     projection=ccrs.Robinson(),

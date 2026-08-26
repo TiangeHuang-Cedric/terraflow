@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 import equinox as eqx
 
-from terraflow.util import typing, device
+from terraflow.util import typing
 
 if TYPE_CHECKING:
     from terraflow.util import uxarray as tux
@@ -15,12 +15,6 @@ Array = typing.Array
 
 
 class AbstractMesh(eqx.Module, ABC):
-    _dev: device.AbstractDevice = eqx.field(static=True)
-
-    @property
-    def dev(self) -> device.AbstractDevice:
-        """Return the device associated with the mesh."""
-        return self._dev
 
     @staticmethod
     @abstractmethod
@@ -29,13 +23,8 @@ class AbstractMesh(eqx.Module, ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_layout(self) -> Any:
+    def get_coords(self, *args, **kwargs) -> Any:
         """Return the layout associated with the mesh."""
-        raise NotImplementedError
-
-    @abstractmethod
-    def to_ugrid(self, **kwargs) -> tux.UGRIDGrid:
-        """Convert the mesh to UGRID format Dataset."""
         raise NotImplementedError
 
     @abstractmethod
@@ -51,14 +40,17 @@ class AbstractMesh(eqx.Module, ABC):
         """Get history builder for the mesh."""
         raise NotImplementedError
 
-    def fill_halo(self, field: Array, *args, **kwargs) -> Array:
-        """Fill the halo regions of the mesh."""
-        return field
-
 
 class AbstractStructuredMesh(AbstractMesh):
     pass
 
 
 class AbstractUnstructuredMesh(AbstractMesh):
+    pass
+
+
+class AbstractRefMesh(eqx.Module, ABC):
+    pass
+
+class AbstractHalo(eqx.Module, ABC):
     pass

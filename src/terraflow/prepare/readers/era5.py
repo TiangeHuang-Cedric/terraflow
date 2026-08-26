@@ -9,6 +9,7 @@ from terraflow.util import typing, log, formula
 from terraflow.prepare.readers.abstract import AbstractBackgroundReader, BackgroundReaderConfig
 
 if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
     from terraflow.planet import PlanetParameterSet
 
 Float = typing.Float
@@ -41,19 +42,21 @@ class ERA5Reader(AbstractBackgroundReader):
         self,
         bkg_file: str,
         para: PlanetParameterSet,
+        dev: AbstractDevice,
         cfg: BackgroundReaderConfig = BackgroundReaderConfig()
     ):
         log.logger.info(f"Use ERA5 {bkg_file} as background.")
         super().__init__(
             bkg_file=bkg_file,
             para=para,
+            dev=dev,
             cfg=cfg
         )
 
     def extract_data(self):
         # ===================================================
         # Load data
-        float_type = self._para.dev.float_type
+        float_type = self.dev.float_type
         ds = xr.open_dataset(self.bkg_file, engine="netcdf4")
         if "level" in ds.keys():
             self.level_name = "level"
@@ -180,7 +183,7 @@ class ERA5Reader(AbstractBackgroundReader):
         )
         # ===================================================
         # Change units
-        g = self._para.gravity.unwrap()
+        g = self.para.gravity.unwrap()
         self.plev = self.plev * 100.0
         self.lev = self.lev * 100.0
         self.z = self.z / g
@@ -216,7 +219,7 @@ class ERA5Reader(AbstractBackgroundReader):
         self.tv = formula.virtual_temperature_from_wet_mixing_ratio(
             t=self.t,
             qv=self.qv,
-            para=self._para
+            para=self.para
         )
 
     def grist_post_process(

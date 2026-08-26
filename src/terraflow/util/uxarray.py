@@ -8,16 +8,15 @@ import datetime
 import uxarray as ux
 import xarray as xr
 import numpy as np
-import jax.numpy as jnp
 import unxt
 
 from terraflow.util.typing import Array
-from terraflow.util.math import convert_longitude_range_in_degrees
+from terraflow.util.sphere_geometry import convert_longitude_range_in_degrees
 
 if TYPE_CHECKING:
     from xarray.core.dataset_variables import DataVariables
     from xarray.core.types import ErrorOptionsWithWarn
-    from terraflow.mesh.scvt.construct import SphericalCentroidVoronoiTessellations
+    from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
 
 class SphericalCoordinates:
@@ -267,7 +266,7 @@ class NodeConvention(AbstractElementConvention):
     @classmethod
     def from_scvt_mesh(
         cls,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         use_dual: bool = False
     ) -> "NodeConvention":
         """
@@ -281,15 +280,24 @@ class NodeConvention(AbstractElementConvention):
             NodeConvention: The node convention for the specified mesh and use_dual flag.
         """
         header = "dual" if use_dual else "primal"
-        node = mesh.dual.node if use_dual else mesh.primal.node
-        node_x = node.coordinate.x
-        node_y = node.coordinate.y
-        node_z = node.coordinate.z
-        node_lon = jnp.rad2deg(node.coordinate.lon)
-        node_lat = jnp.rad2deg(node.coordinate.lat)
-        node_lon = convert_longitude_range_in_degrees(
-            node_lon, from_range=[0, 360], to_range=[-180, 180]
-        )
+        if use_dual:
+            node_x = mesh.cell_xyz[:,0]
+            node_y = mesh.cell_xyz[:,1]
+            node_z = mesh.cell_xyz[:,2]
+            node_lon = mesh.cell_lon_deg
+            node_lat = mesh.cell_lat_deg
+            node_lon = convert_longitude_range_in_degrees(
+                node_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
+        else:
+            node_x = mesh.vtx_xyz[:,0]
+            node_y = mesh.vtx_xyz[:,1]
+            node_z = mesh.vtx_xyz[:,2]
+            node_lon = mesh.vtx_lon_deg
+            node_lat = mesh.vtx_lat_deg
+            node_lon = convert_longitude_range_in_degrees(
+                node_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
         return NodeConvention(
             header=header,
             node_lon=node_lon,
@@ -297,7 +305,7 @@ class NodeConvention(AbstractElementConvention):
             node_x=node_x,
             node_y=node_y,
             node_z=node_z
-        )
+        )            
 
 
 class EdgeConvention(AbstractElementConvention):
@@ -387,7 +395,7 @@ class EdgeConvention(AbstractElementConvention):
     @classmethod
     def from_scvt_mesh(
         cls,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         use_dual: bool = False
     ) -> "EdgeConvention":
         """
@@ -402,19 +410,28 @@ class EdgeConvention(AbstractElementConvention):
         """
         header = "dual" if use_dual else "primal"
         is_edge_dimension_first: bool = True
-        edge = mesh.dual.edge if use_dual else mesh.primal.edge
-        edge_x = edge.midpoint.x
-        edge_y = edge.midpoint.y
-        edge_z = edge.midpoint.z
-        edge_lon = edge.midpoint.lon
-        edge_lat = edge.midpoint.lat
-        edge_lon = jnp.rad2deg(edge_lon)
-        edge_lat = jnp.rad2deg(edge_lat)
-        edge_lon = convert_longitude_range_in_degrees(
-            edge_lon, from_range=[0, 360], to_range=[-180, 180]
-        )
-        edge_node_connectivity = edge.endpoints
-        edge_face_connectivity = edge.dual_cells
+        if use_dual:
+            edge_x = mesh.dual_edge_xyz[:,0]
+            edge_y = mesh.dual_edge_xyz[:,0]
+            edge_z = mesh.dual_edge_xyz[:,0]
+            edge_lon = mesh.dual_edge_lon_deg
+            edge_lat = mesh.dual_edge_lat_deg
+            edge_lon = convert_longitude_range_in_degrees(
+                edge_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
+            edge_node_connectivity = mesh.cell_of_edge
+            edge_face_connectivity = mesh.vtx_of_edge
+        else:
+            edge_x = mesh.edge_xyz[:,0]
+            edge_y = mesh.edge_xyz[:,0]
+            edge_z = mesh.edge_xyz[:,0]
+            edge_lon = mesh.edge_lon_deg
+            edge_lat = mesh.edge_lat_deg
+            edge_lon = convert_longitude_range_in_degrees(
+                edge_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
+            edge_node_connectivity = mesh.vtx_of_edge
+            edge_face_connectivity = mesh.cell_of_edge
         return EdgeConvention(
             header=header,
             is_edge_dimension_first=is_edge_dimension_first,
@@ -426,7 +443,6 @@ class EdgeConvention(AbstractElementConvention):
             edge_node_connectivity=edge_node_connectivity,
             edge_face_connectivity=edge_face_connectivity
         )
-
 
 class FaceConvention(AbstractElementConvention):
     """Face element convention."""
@@ -549,7 +565,7 @@ class FaceConvention(AbstractElementConvention):
     @classmethod
     def from_scvt_mesh(
         cls,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         use_dual: bool = False
     ) -> "FaceConvention":
         """
@@ -563,22 +579,33 @@ class FaceConvention(AbstractElementConvention):
             FaceConvention: The face convention for the specified mesh and use_dual flag.
         """
         header = "dual" if use_dual else "primal"
-        face = mesh.dual.cell if use_dual else mesh.primal.cell
         is_face_dimension_first: bool = True
-        face_lon = face.centroid.lon
-        face_lat = face.centroid.lat
-        face_lon = jnp.rad2deg(face_lon)
-        face_lat = jnp.rad2deg(face_lat)
-        face_lon = convert_longitude_range_in_degrees(
-            face_lon, from_range=[0, 360], to_range=[-180, 180]
-        )
-        face_x = face.centroid.x
-        face_y = face.centroid.y
-        face_z = face.centroid.z
-        n_nodes_per_face = face.n_adjacency
-        face_node_connectivity = face.nodes
-        face_edge_connectivity = face.edges
-        face_face_connectivity = face.adjacency
+        if use_dual:
+            face_lon = mesh.vtx_lon_deg
+            face_lat = mesh.vtx_lat_deg
+            face_lon = convert_longitude_range_in_degrees(
+                face_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
+            face_x = mesh.vtx_xyz[:,0]
+            face_y = mesh.vtx_xyz[:,1]
+            face_z = mesh.vtx_xyz[:,2]
+            n_nodes_per_face = mesh.vtx_nnb
+            face_node_connectivity = mesh.cell_of_vtx
+            face_edge_connectivity = mesh.vtx_ed
+            face_face_connectivity = mesh.vtx_nb
+        else:
+            face_lon = mesh.cell_lon_deg
+            face_lat = mesh.cell_lat_deg
+            face_lon = convert_longitude_range_in_degrees(
+                face_lon, from_range=[0, 360], to_range=[-180, 180]
+            )
+            face_x = mesh.cell_xyz[:,0]
+            face_y = mesh.cell_xyz[:,1]
+            face_z = mesh.cell_xyz[:,2]
+            n_nodes_per_face = mesh.cell_nnb
+            face_node_connectivity = mesh.vtx_of_cell
+            face_edge_connectivity = mesh.cell_ed
+            face_face_connectivity = mesh.cell_nb
         return FaceConvention(
             header=header,
             is_face_dimension_first=is_face_dimension_first,
@@ -709,7 +736,7 @@ class MeshConvention:
     @classmethod
     def from_scvt_mesh(
         cls,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         use_dual: bool = False
     ) -> "MeshConvention":
         """
@@ -819,7 +846,7 @@ class UGRIDGrid:
     @classmethod
     def from_scvt_mesh(
         cls,
-        mesh: SphericalCentroidVoronoiTessellations,
+        mesh: SCVTMesh,
         attributes: Optional[AttributeConvention] = None,
         use_dual: bool = False,
         **kwargs
@@ -900,6 +927,40 @@ class UGRIDDataArray:
         """Get the data of the variables."""
         return self.variables.data
 
+    def _variables_with_spatial_coords(self) -> xr.DataArray:
+        """Attach UGRID spatial coordinates to variables for UXarray remapping."""
+        da = self.variables
+        coords: Dict[str, xr.DataArray] = {}
+        for dim in da.dims:
+            if dim == "n_face":
+                location = "face"
+            elif dim == "n_node":
+                location = "node"
+            elif dim == "n_edge":
+                location = "edge"
+            else:
+                continue
+            for coord_name in (f"{location}_lon", f"{location}_lat"):
+                coord = getattr(self.uxgrid, coord_name)
+                coord_data = np.asarray(coord)
+                if coord_data.shape[0] != da.sizes[dim]:
+                    continue
+                attrs = dict(getattr(coord, "attrs", {}))
+                if coord_name.endswith("_lon"):
+                    attrs.setdefault("standard_name", "longitude")
+                    attrs.setdefault("units", "degrees_east")
+                else:
+                    attrs.setdefault("standard_name", "latitude")
+                    attrs.setdefault("units", "degrees_north")
+                coords[coord_name] = xr.DataArray(
+                    data=coord_data,
+                    dims=(dim,),
+                    attrs=attrs,
+                )
+        if coords:
+            return da.assign_coords(coords)
+        return da
+
     def isel(
         self,
         indexers: Mapping[Any, Any] | None = None,
@@ -960,7 +1021,10 @@ class UGRIDDataArray:
 
     def to_uxarray(self) -> ux.UxDataArray:
         """Convert to uxarray UxDataset."""
-        return ux.UxDataArray.from_xarray(da=self.variables, uxgrid=self.uxgrid)
+        return ux.UxDataArray.from_xarray(
+            da=self._variables_with_spatial_coords(),
+            uxgrid=self.uxgrid
+        )
 
     @overload
     def to_structured_grid(
@@ -1145,6 +1209,40 @@ class UGRIDDataset:
         """Get the data variables of the dataset."""
         return self.variables.data_vars
 
+    def _variables_with_spatial_coords(self) -> xr.Dataset:
+        """Attach UGRID spatial coordinates to variables for UXarray remapping."""
+        ds = self.variables
+        coords: Dict[str, xr.DataArray] = {}
+        for dim in ds.dims:
+            if dim == "n_face":
+                location = "face"
+            elif dim == "n_node":
+                location = "node"
+            elif dim == "n_edge":
+                location = "edge"
+            else:
+                continue
+            for coord_name in (f"{location}_lon", f"{location}_lat"):
+                coord = getattr(self.uxgrid, coord_name)
+                coord_data = np.asarray(coord)
+                if coord_data.shape[0] != ds.sizes[dim]:
+                    continue
+                attrs = dict(getattr(coord, "attrs", {}))
+                if coord_name.endswith("_lon"):
+                    attrs.setdefault("standard_name", "longitude")
+                    attrs.setdefault("units", "degrees_east")
+                else:
+                    attrs.setdefault("standard_name", "latitude")
+                    attrs.setdefault("units", "degrees_north")
+                coords[coord_name] = xr.DataArray(
+                    data=coord_data,
+                    dims=(dim,),
+                    attrs=attrs,
+                )
+        if coords:
+            return ds.assign_coords(coords)
+        return ds
+
     def isel(
         self,
         indexers: Mapping[Any, Any] | None = None,
@@ -1198,13 +1296,7 @@ class UGRIDDataset:
         for var_name, var_data in ds.items():
             data = var_data.data
             dims = var_data.dims
-            long_name = var_data.attrs.get("long_name", "")
-            unit = var_data.attrs.get("units", "")
             location = var_data.attrs.get("location", "")
-            if unit == "" or long_name == "":
-                raise ValueError(
-                    f"Variable {var_name} must have 'long_name/units' attribute to be added to UGRIDDataset."
-                )
             if location == "" or data is None or dims == ():
                 raise ValueError(
                     f"Variable {var_name} must have 'location/data/dims' attribute to be added to UGRIDDataset."
@@ -1225,7 +1317,10 @@ class UGRIDDataset:
 
     def to_uxarray(self) -> ux.UxDataset:
         """Convert to uxarray UxDataset."""
-        return ux.UxDataset.from_xarray(ds=self.variables, uxgrid=self.uxgrid)
+        return ux.UxDataset.from_xarray(
+            ds=self._variables_with_spatial_coords(),
+            uxgrid=self.uxgrid
+        )
 
     @overload
     def to_structured_grid(
@@ -1396,122 +1491,3 @@ class UGRIDDataset:
             attrs=uxds.attrs
         )
         return cast(Tuple[ux.UxDataset, xr.Dataset], (uxds, ds))
-
-
-def format_terraflow2ugrid(
-    value: Array | unxt.AbstractQuantity,
-    meta: Dict[str, Any],
-    use_dual: bool = False,
-    expand_idx: Optional[int] = None
-):
-    """
-    Format a TerraFlow variable to UGRID xarray DataArray.
-
-    Args:
-        value (Array | unxt.AbstractQuantity): The variable value. 
-            Its dimension must follow the order (time, vertical, horizontal).
-        meta (Dict[str, Any]): The variable metadata.
-        use_dual (bool): Whether to use dual mesh or primal mesh.
-
-    Returns:
-        xr.DataArray: The formatted UGRID xarray DataArray.
-    """
-    if isinstance(value, unxt.AbstractQuantity):
-        var = np.array(value.value)
-        units = value.unit.to_string()
-    elif isinstance(value, Array):
-        var = np.array(value)
-        units = meta["units"]
-    else:
-        raise TypeError(f"Variable has unsupported type.")
-
-    if meta["is_expand_dims"] and expand_idx is not None:
-        var: np.ndarray = np.take(
-            var,
-            indices=expand_idx,
-            axis=meta["expand_axis"]
-        )
-
-    # Convert mesh_name and location
-    mesh_name = meta["mesh_name"]
-    if mesh_name not in ["primal", "dual"]:
-        raise ValueError(
-            f"mesh_name must be 'primal' or 'dual', got {mesh_name}."
-        )
-    location = meta["hori_location"]
-    if location not in ["cell", "edge", "vtx"]:
-        raise ValueError(
-            f"hori_location must be 'cell', 'edge' or 'vtx', got {location}."
-        )
-    if location == "cell":
-        location = "face"
-    elif location == "vtx":
-        location = "node"
-    else:
-        location = location
-
-    # Rename mesh and location if use_dual is True
-    if use_dual:
-        mesh_name = "dual" if mesh_name == "primal" else "primal"
-        if location == "face":
-            location = "node"
-        elif location == "node":
-            location = "face"
-        else:
-            location = location
-
-    # Determine dims and coordinates
-    if len(meta["dims"]) == 1:
-        dims = (f"n_{location}",)
-        if len(var.shape) >= 2:
-            if not meta["is_tracer"]:
-                # Only squeeze level dimension
-                # (nlevel, nlocation) -> (nlocation,)
-                var = var.squeeze(axis=0)
-            else:
-                # Only squeeze level dimension
-                # (ntracers, nlevel, nlocation) -> (ntracers, nlocation)
-                var = var.squeeze(axis=1)
-    elif len(meta["dims"]) == 2:
-        if meta["dims"][0] == "time" and len(var.shape) == 3 and not meta["is_tracer"]:
-            # Only squeeze level dimension
-            # (ntime, nlevel, nlocation) -> (ntime, nlocation)
-            var = var.squeeze(axis=1)
-        if meta["dims"][0] == "time" and len(var.shape) == 4 and meta["is_tracer"]:
-            # Only squeeze level dimension
-            # (ntime, ntracers, nlevel, nlocation) -> (ntime, ntracers, nlocation)
-            var = var.squeeze(axis=2)
-        dims = (meta["dims"][0], f"n_{location}")
-    elif len(meta["dims"]) == 3:
-        dims = (
-            meta["dims"][0],
-            meta["dims"][1],
-            f"n_{location}",
-        )
-    else:
-        raise ValueError(
-            f"Variable dims must be 1D, 2D or 3D, got {len(meta['dims'])}D."
-        )
-
-    if meta["is_tracer"]:
-        dims = ("ntracers",) + dims
-
-    coordinates = f"{location}_lon {location}_lat"
-
-    return xr.DataArray(
-        data=var,
-        dims=dims,
-        attrs={
-            "name": meta["name"],
-            "mesh": mesh_name,
-            "location": location,
-            "coordinates": coordinates,
-            "units": units,
-            "long_name": meta["long_name"],
-            "description": meta["description"],
-            "is_prognostic": meta["is_prognostic"],
-            "is_static": meta["is_static"],
-            "is_tracer": meta["is_tracer"],
-            "output": meta["output"],
-        }
-    )

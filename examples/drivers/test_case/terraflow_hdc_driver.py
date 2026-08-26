@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import jax
 import jax.numpy as jnp
 import terraflow.core as tf
 
@@ -10,81 +9,77 @@ grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
-dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(
+    float_type=jnp.float64, 
+    int_type=jnp.int64,
+    use_async_io=False, 
+    proc_io_stride=0
+)
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file=grist_0d_file,
-    grist_2d_file=grist_2d_file,
-    n_dual=3,
+vert_coord = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
+
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    vert_coord=vert_coord,
+    hori_hw=3,
+    lev_hw=3,
     dev=dev
 )
 
-vert = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
+test_case = tf.test_case.baroclinic.MountainWaveTestCase(para)
 
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
-
-method = tf.operator.FiniteVolumeMethod()
-
-testcase = tf.test_case.baroclinic.MountainWaveTestCase(para)
-
-config = tf.util.model_config.ModelConfig(
+config = tf.model.UserConfig(
     pv_adv_scheme="upwind",
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
-)
-
-equation = tf.dynamics.HydrostaticEquation.build_with_config(
-    config=config,
-    coord=coord,
-    para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
-    ideal_dry_core=True,
-)
-
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-31T00:00:00",
-)
-
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
-    save_interval="6 hours",
+    run_time="30 days",
     dt_dyn="300 seconds",
+    dt_adv="300 seconds",
+    save_interval="6 hours"
+)
+
+model = tf.model.build_hydrostatic_model(
+    config=config,
+    para=para,
+    mesh=mesh,
+    vert_coord=vert_coord,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    test_case=test_case,
     dev=dev,
+    ideal_dry_core=True,
+    restart=False
 )
 
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_testcase(
-    coord=coord, para=para, solver=solver, case=testcase
-)
-
-history = tf.util.history.UnstructuredHistoryset(
-    solver=solver,
-    coord=coord,
-    equation=equation,
-    case_name="terraflow" + "." + mesh.glevel,
+history = model.build_history(
+    mode="scvt",
+    case_name="terraflow.hdc" + ".g" + str(mesh.glevel),
     output_h1=False,
     output_h2=False,
-).setup(block)
+    h2_opt={
+        "hori_regrid_method": "conserve_1st",
+        "hori_regrid_backend": "esmf",
+        "vert_interp": False,
+    }
+)
 
-integrate_fn = tf.solver.compiled_with_block(
-    block=block,
-    fun=solver.io_callback(history=history),
+integrate_fn = tf.model.compiled_with_model(
+    model=model,
+    fun=model.io_callback(history=history),
 )
 
 tf.util.datetime.perf_start("integration")
 
-final = integrate_fn(block)
-jax.block_until_ready(final)
+final = integrate_fn(model)
+tf.model.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 

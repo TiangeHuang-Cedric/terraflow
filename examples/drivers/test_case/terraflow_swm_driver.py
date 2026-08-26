@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import jax
 import jax.numpy as jnp
 import terraflow.core as tf
 
@@ -10,78 +9,64 @@ grist_path = "../../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
-dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(
+    float_type=jnp.float64, 
+    int_type=jnp.int64,
+    use_async_io=False, 
+    proc_io_stride=0
+)
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
-mesh = tf.mesh.SphericalCentroidVoronoiTessellations.from_grist(
-    grist_0d_file=grist_0d_file,
-    grist_2d_file=grist_2d_file,
-    n_dual=3,
+mesh = tf.mesh.SCVTMesh.from_grist(
+    mesh_0d_file=grist_0d_file,
+    mesh_2d_file=grist_2d_file,
+    para=para,
+    hori_hw=3,
+    lev_hw=3,
     dev=dev
 )
 
-vert = tf.vert_coord.OneLayerVertCoordinate()
+test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
 
-coord = tf.layout.CoordinateSystem(hori=mesh, vert=vert)
-
-method = tf.operator.FiniteVolumeMethod()
-
-testcase = tf.test_case.swe.MountainZonalFlowTestCase(para)
-
-config = tf.util.model_config.ModelConfig(
+config = tf.model.UserConfig(
     pv_adv_scheme="upwind",
     upwind_order_pv=3,
-)
-
-equation = tf.dynamics.ShallowWaterEquation.build_with_config(
-    config=config,
-    coord=coord,
-    para=para,
-    method=method,
-    form="vector_invariant",
-    ode_kind="explicit",
-)
-
-time_manager = tf.util.datetime.DateTimeManager(
-    start_time="2000-01-01T00:00:00",
-    end_time="2000-01-21T00:00:00",
-)
-
-solver = tf.solver.ExRungeKutta3Solver(
-    equation=equation,
-    time_manager=time_manager,
-    save_interval="6 hours",
+    run_time="30 days",
     dt_dyn="300 seconds",
+    save_interval="6 hours"
+)
+
+model = tf.model.build_shallow_water_model(
+    config=config,
+    para=para,
+    mesh=mesh,
+    method="finite_volume_method",
+    form="vector_invariant",
+    staggered_kind="triskc",
+    test_case=test_case,
     dev=dev,
+    restart=False
 )
 
-block_cls = equation.build_block_cls(coord=coord)
-
-block = block_cls.from_testcase(
-    coord=coord, para=para, solver=solver, case=testcase
-)
-
-history = tf.util.history.UnstructuredHistoryset(
-    solver=solver,
-    coord=coord,
-    equation=equation,
-    case_name="terraflow.swm" + "." + mesh.glevel,
+history = model.build_history(
+    mode="scvt",
+    case_name="terraflow.swm" + ".g" + str(mesh.glevel),
     output_h1=False,
     output_h2=False,
-).setup(block)
+)
 
-integrate_fn = tf.solver.compiled_with_block(
-    block=block,
-    fun=solver.io_callback(history=history)
+integrate_fn = tf.model.compiled_with_model(
+    model=model,
+    fun=model.io_callback(history=history)
 )
 
 tf.util.datetime.perf_start("integration")
 
-final = integrate_fn(block)
-jax.block_until_ready(final)
+final = integrate_fn(model)
+tf.model.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 
@@ -89,7 +74,7 @@ tf.util.post_process.CDOPostProcesser.remap_history(
     history=history,
     res=1.0,
     remap=True,
-    use_weight=True,
+    use_weight=True
 )
 
 tf.util.datetime.perf_end("program")

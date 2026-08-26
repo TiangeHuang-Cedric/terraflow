@@ -4,8 +4,6 @@ import importlib
 
 
 if TYPE_CHECKING:
-    from terraflow.core.util import history as history
-    from terraflow.util import model_config as model_config
     from terraflow.util import datetime as datetime
     from terraflow.util import device as device
     from terraflow.util import easygems as easygems
@@ -15,25 +13,21 @@ if TYPE_CHECKING:
 
 
 _LAZY_SUBMODULES = {
-    "model_config": "terraflow.util.model_config",
     "datetime": "terraflow.util.datetime",
     "device": "terraflow.util.device",
     "easygems": "terraflow.util.easygems",
     "post_process": "terraflow.util.post_process",
     "uxarray": "terraflow.util.uxarray",
     "log": "terraflow.util.log",
-    "history": "terraflow.core.util.history",
 }
 
 
 __all__ = [
-    "model_config",
     "datetime",
     "device",
     "easygems",
     "post_process",
     "uxarray",
-    "history",
     "log",
 ]
 

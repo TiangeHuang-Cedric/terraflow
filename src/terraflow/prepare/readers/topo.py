@@ -8,6 +8,7 @@ from terraflow.util import typing, log
 from terraflow.prepare.readers.abstract import AbstractTopographyReader, TopographyReaderConfig
 
 if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
     from terraflow.planet import PlanetParameterSet
 
 Float = typing.Float
@@ -20,6 +21,7 @@ class ETOPO1Reader(AbstractTopographyReader):
         self,
         topo_file: str,
         para: PlanetParameterSet,
+        dev: AbstractDevice,
         cfg: TopographyReaderConfig = TopographyReaderConfig()
     ):
         if para.planet != "earth":
@@ -30,12 +32,13 @@ class ETOPO1Reader(AbstractTopographyReader):
         super().__init__(
             topo_file=topo_file,
             para=para,
-            cfg=cfg
+            cfg=cfg,
+            dev=dev
         )
 
     def extract_data(self):
-        float_type = self._para.dev.float_type
-        gravity = self._para.gravity.unwrap()
+        float_type = self.dev.float_type
+        gravity = self.para.gravity.unwrap()
         ds = xr.open_dataset(self.topo_file, engine="netcdf4")
         # Load data
         self.lon = jnp.array(
@@ -81,6 +84,7 @@ class GMETED2010Reader(AbstractTopographyReader):
         self,
         topo_file: str,
         para: PlanetParameterSet,
+        dev: AbstractDevice,
         cfg: TopographyReaderConfig = TopographyReaderConfig()
     ):
         if para.planet != "earth":
@@ -91,12 +95,13 @@ class GMETED2010Reader(AbstractTopographyReader):
         super().__init__(
             topo_file=topo_file,
             para=para,
+            dev=dev,
             cfg=cfg
         )
 
     def extract_data(self):
-        float_type = self._para.dev.float_type
-        gravity = self._para.gravity.unwrap()
+        float_type = self.dev.float_type
+        gravity = self.para.gravity.unwrap()
         ds = xr.open_dataset(self.topo_file, engine="netcdf4")
         self.lon = jnp.array(
             ds["lon"].values,
