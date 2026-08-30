@@ -13,6 +13,7 @@ import equinox as eqx
 
 from terraflow.util import typing, math, jax_tools, device
 from terraflow.util.sphere_geometry import _project_sphere2plane, project_sphere2plane
+from terraflow.mesh.scvt.parallel import fill_field2d_array_halo, fill_raw_array_halo
 from terraflow.dynamics.abstract import (
     AbstractEquationAuxiliaryData, 
     AbstractEquationAuxiliaryDataset
@@ -99,7 +100,11 @@ def upwind_calc_mass_hflx(
             mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
         else:
             raise ValueError(f"upwind_calc_tracer_hflx: unsupported upwind order {upwind_order}!")
-        return mfn
+        return fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=mfn,
+            meta=batch.mfn.meta
+        )
     else:
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
@@ -170,7 +175,11 @@ def upwind_calc_tracer_hflx(
             qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
         else:
             raise ValueError(f"upwind_calc_tracer_hflx: unsupported upwind order {upwind_order}!")
-        return qmfn
+        return fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=qmfn,
+            meta=batch.qmfn.meta
+        )
     else:
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
@@ -241,7 +250,7 @@ def upwind_calc_tracer_vflx(
             ) * mfz[kde-1, ids:ide+1]
             # =================================================
             # k = half_kde
-            bottom0 = jnp.zeros_like(q[kde-1, :])
+            bottom0 = jnp.zeros_like(q[kde-1, ids:ide+1])
             # =================================================
             qmfz = qmfz.at[kds        , ids:ide+1].set(top0   )
             qmfz = qmfz.at[kds+1      , ids:ide+1].set(top1   )
@@ -265,7 +274,7 @@ def upwind_calc_tracer_vflx(
             q_plus_1 = q[kds+3:kde-2, ids:ide+1]
             q_plus_2 = q[kds+4:kde-1, ids:ide+1]
             q_plus_3 = q[kds+5:kde, ids:ide+1]
-            mid_mfz = mfz[3:-3, ids:ide+1]
+            mid_mfz = mfz[kds+3:kde-2, ids:ide+1]
             direction = jnp.sign(mid_mfz)
             res = upwind5_vert(
                 direction=direction,
@@ -293,7 +302,11 @@ def upwind_calc_tracer_vflx(
             qmfz = qmfz.at[kde        , ids:ide+1].set(bottom0)
         else:
             raise ValueError(f"upwind_calc_tracer_vflx: unsupported upwind order {upwind_order}!")
-        return qmfz
+        return fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=qmfz,
+            meta=batch.qmfz.meta
+        )
     elif batch.loc == "lev":
         upwind_order = block.cfg.upwind_order
         upwind_wgt   = block.cfg.upwind_wgt        
@@ -388,7 +401,11 @@ def upwind_calc_tracer_vflx(
             qmfz = qmfz.at[kde-1:kde+1, ids:ide+1].set(bottom)
         else:
             raise ValueError(f"upwind_calc_tracer_vflx: unsupported upwind order {upwind_order}!")
-        return qmfz
+        return fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=qmfz,
+            meta=batch.qmfz.meta
+        )
     else:
         raise ValueError(f"upwind_calc_tracer_vflx: unsupported batch location {batch.loc}!")
 
@@ -1403,22 +1420,24 @@ def _calc_wgt_at_cell(
                     do_nothing,
                 )
 
-            _, recon_matrix = jax.lax.scan(
+            _, b_wgt = jax.lax.scan(
                 nb_body, init=None, xs=jnp.arange(maxnnb)
             )
-            recon_matrix = jnp.sum(recon_matrix, axis=0)  # (max_m,)
-            return None, recon_matrix
+            b_wgt = jnp.sum(b_wgt, axis=0)  # (max_m,)
+            return None, b_wgt
 
-        _, recon_matrix = jax.lax.scan(
+        _, b_wgt = jax.lax.scan(
             vtx_body, init=None, xs=jnp.arange(2)
         )  # (2, max_m,)
-        return None, recon_matrix
+        return None, b_wgt
 
-    _, recon_matrix = jax.lax.scan(
+    _, b_wgt = jax.lax.scan(
         edge_body, init=None, xs=jnp.arange(nedge)
     )  # (nedge, 2, max_m)
 
-    return stencil_idxes, recon_matrix
+    b_wgt = fill_raw_array_halo(mesh.halo, b_wgt, "edge")
+
+    return stencil_idxes, b_wgt
 
 
 @partial(jax.jit, static_argnames=("para"), backend="cpu")
@@ -1467,22 +1486,24 @@ def _calc_wgt_at_vtx(
                     do_nothing,
                 )
 
-            _, recon_matrix = jax.lax.scan(
+            _, b_wgt = jax.lax.scan(
                 nb_body, init=None, xs=jnp.arange(maxnnb)
             )
-            recon_matrix = jnp.sum(recon_matrix, axis=0)  # (max_m,)
-            return None, recon_matrix
+            b_wgt = jnp.sum(b_wgt, axis=0)  # (max_m,)
+            return None, b_wgt
 
-        _, recon_matrix = jax.lax.scan(
+        _, b_wgt = jax.lax.scan(
             vtx_body, init=None, xs=jnp.arange(2)
         )  # (2, max_m,)
-        return None, recon_matrix
+        return None, b_wgt
 
-    _, recon_matrix = jax.lax.scan(
+    _, b_wgt = jax.lax.scan(
         edge_body, init=None, xs=jnp.arange(nedge)
     )  # (nedge, 2, max_m)
 
-    return stencil_idxes, recon_matrix
+    b_wgt = fill_raw_array_halo(mesh.halo, b_wgt, "edge")
+
+    return stencil_idxes, b_wgt
 
 
 def init_upwind_cell_stencil(

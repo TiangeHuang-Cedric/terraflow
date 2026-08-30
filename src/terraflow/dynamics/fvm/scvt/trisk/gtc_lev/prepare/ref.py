@@ -12,9 +12,10 @@ if TYPE_CHECKING:
 
 
 def ref_calc_ps(block: BLOCK) -> BLOCK:
-    log.logger.info(
-        "Calculating reference surface pressure and its perturbation."
-    )
+    if block.dev.is_root(): 
+        log.logger.info(
+            "Calculating reference surface pressure and its perturbation."
+        )
     # ==================================================
     if block.para.planet == "earth":
         p0 = 1.0e5

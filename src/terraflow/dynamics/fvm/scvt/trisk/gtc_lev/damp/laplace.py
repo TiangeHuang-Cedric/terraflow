@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from terraflow.mesh.scvt import operators as mesh_ops
+from terraflow.mesh.scvt.parallel import fill_field1d_array_halo
 
 if TYPE_CHECKING:
     from terraflow.util import typing
@@ -36,6 +37,11 @@ def laplace_damp_1d(
             div=g,     # out
             div_loc=block.aux.df_1d.meta.loc
         )
+        g = fill_field1d_array_halo(
+            halo=mesh.halo,
+            f=g,
+            meta=block.aux.df_1d.meta
+        )
     fn = mesh_ops.grad_operator_1d(
         mesh=mesh,
         f=g,      # in
@@ -51,4 +57,9 @@ def laplace_damp_1d(
         div_loc=block.aux.df_1d.meta.loc
     )
     # =====================================
-    return block, f - df
+    f = fill_field1d_array_halo(
+        halo=mesh.halo,
+        f=f - df,
+        meta=block.aux.df_1d.meta
+    )
+    return block, f

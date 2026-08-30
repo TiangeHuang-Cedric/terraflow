@@ -45,6 +45,9 @@ class AbstractDevice:
     def __call__(self):
         """Return the JAX device architecture."""
         return self.backend()
+    
+    def is_root(self) -> bool:
+        return self.proc.is_root()
 
 
 class CPU(AbstractDevice):

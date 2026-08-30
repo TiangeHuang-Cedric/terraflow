@@ -12,6 +12,7 @@ from terraflow.mesh.scvt.field import (
     SCVTField2D, 
     SCVTFields
 )
+from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 
 
 if TYPE_CHECKING:
@@ -273,14 +274,24 @@ def tracer_catalog(tracer: Tracer) -> Tracer:
 
 def tracer_calc_qm(block: Block, itime_str) -> Block:
     if block.tracers.ntracers_water > 0:
+        mesh = block.mesh
+        ids, ide = mesh.cell_ids, mesh.cell_ide
         itime = block.adv_batches["moist"].get_time_idx(itime_str=itime_str)
         q = block.tracers.q.unwrap()[itime, :, :, :]
         idxs_water_tracers = block.tracers.idxs_water_tracers
-        qm = jnp.sum(q[idxs_water_tracers, :, :], axis=0)
+        qm = jnp.zeros_like(block.tracers.qm.unwrap())
+        qm = qm.at[:, ids:ide+1].set(
+            jnp.sum(q[idxs_water_tracers, :, ids:ide+1], axis=0)
+        )
+        qm = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=qm,
+            meta=block.tracers.qm.meta,
+        )
         return tree_at(
             where=lambda b: b.tracers.qm.d,
             pytree=block,
             replace=qm,
         )
     else:
-        return block    
+        return block

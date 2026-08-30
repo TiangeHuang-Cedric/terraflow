@@ -73,7 +73,6 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
         hori_interp_method="conserve_1st",
         interp_at_midpoint=False,
         vert_interp_backend="jax",
-        vert_interp_type="native",
     ),
     dev=dev
 )

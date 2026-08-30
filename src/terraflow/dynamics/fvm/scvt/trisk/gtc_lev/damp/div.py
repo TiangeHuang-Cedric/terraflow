@@ -6,6 +6,7 @@ import jax.numpy as jnp
 from terraflow.util.device import AbstractDevice, CPU
 from terraflow.util.math import exp_two_values
 from terraflow.util.pytree import tree_at
+from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryData
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import calc_div
 
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     FLT = typing.Float
     FloatType = typing.FloatType
     Array = typing.Array
-    
+
     
 class DivDampdata(AbstractEquationAuxiliaryData):
     cn: FLT[Array, "nlev nedge"]
@@ -31,7 +32,7 @@ class DivDampdata(AbstractEquationAuxiliaryData):
             initialized=False,
             cn=jnp.array([])
         )
-        
+
     @classmethod
     def initialize(
         cls,
@@ -59,7 +60,7 @@ class DivDampdata(AbstractEquationAuxiliaryData):
         ims, ime = mesh.edge_ims, mesh.edge_ime
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.edge_ids, mesh.edge_ide
-        
+
         cn = jnp.zeros(
             (kme-kms+1, ime-ims+1), 
             device=dev(), 
@@ -109,6 +110,11 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
             * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
         )
         un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=un,
+            meta=block.state.un.meta
+        )
     elif block.cfg.div_damp_order == 4:
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -120,6 +126,11 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
             * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
         )
         un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=un,
+            meta=block.state.un.meta
+        )
     
     return tree_at(
         where=lambda b: b.state.un.d,
@@ -128,4 +139,3 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
         at_dims=0,
         at_idxes=itime
     )
-        

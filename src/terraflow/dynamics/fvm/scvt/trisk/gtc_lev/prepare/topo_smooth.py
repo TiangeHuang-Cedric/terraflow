@@ -26,14 +26,14 @@ def topo_smooth(block: BLOCK, reader: TOPOREADER) -> BLOCK:
     g = block.para.gravity.unwrap()
     # ================================================
     tmp = jnp.max(block.static.gzs.unwrap() / g)
-    log.logger.info(f"Maximum zs is {tmp:.2f} m.")
+    if block.dev.is_root(): log.logger.info(f"Maximum zs is {tmp:.2f} m.")
     tmp = jnp.rad2deg(jnp.atan(jnp.max(block.static.dzsdn.unwrap())))
-    log.logger.info(f"Maximum topography slope angle before grad filter is {tmp:.2f} deg.")
+    if block.dev.is_root(): log.logger.info(f"Maximum topography slope angle before grad filter is {tmp:.2f} deg.")
     block = zs_grad_filter(block=block, reader=reader)
     tmp = jnp.rad2deg(jnp.atan(jnp.max(block.static.dzsdn.unwrap())))
-    log.logger.info(f"Maximum topography slope angle after grad filter is {tmp:.2f} deg.")
+    if block.dev.is_root(): log.logger.info(f"Maximum topography slope angle after grad filter is {tmp:.2f} deg.")
     tmp = jnp.max(block.static.gzs.unwrap() / g)
-    log.logger.info(f"Maximum zs is {tmp:.2f} m")
+    if block.dev.is_root(): log.logger.info(f"Maximum zs is {tmp:.2f} m")
     # ================================================
     return block
 

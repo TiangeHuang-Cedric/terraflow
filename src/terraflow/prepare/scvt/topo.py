@@ -124,7 +124,7 @@ def _jaxkd_fill_grid_on_earth(
     int_type = reader.dev.int_type
     float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coords(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout, with_halo=True)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -212,7 +212,7 @@ def _jaxkd_fill_grid_on_earth_with_split_chunks(
     int_type = reader.dev.int_type
     float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coords(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout, with_halo=True)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -399,7 +399,7 @@ def _scipy_fill_grid_on_earth(
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
     float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coords(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout, with_halo=True)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -503,7 +503,7 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
     topo_mask = None if topo_mask is None else np.asarray(topo_mask).copy()
     float_type = reader.dev.float_type
     # =======================================================
-    coord_info = mesh.get_coords(loc=loc, layout=layout)
+    coord_info = mesh.get_coords(loc=loc, layout=layout, with_halo=True)
     dst_lon = coord_info["lon"]
     dst_lat = coord_info["lat"]
     # KDTree over destination cell centers
@@ -581,31 +581,35 @@ def _scipy_fill_grid_on_earth_with_split_chunks(
             # =======================================================
             # (topo_npoints,)
             valid_src = (src_in_cells >= 0) & (src_in_cells < ncell)
-            # (topo_npoints,) boolean
-            is_land = (
-                mask_chunk_flat == 1
-                if mask_chunk_flat is not None
-                else gzs_chunk_flat > 0.0
-            )
 
             if np.any(valid_src):
+                id = src_in_cells[valid_src]
+                gzs_valid = gzs_chunk_flat[valid_src]
+                
+                if mask_chunk_flat is not None:
+                    is_land_valid = mask_chunk_flat[valid_src] == 1
+                else:
+                    is_land_valid = gzs_valid > 0.0
+                
                 np.add.at(
                     dst_gzs,
-                    src_in_cells,
-                    gzs_chunk_flat * (valid_src & is_land)
+                    id,
+                    gzs_valid * is_land_valid
                 )
                 np.add.at(
                     dst_lnd,
-                    src_in_cells,
-                    (gzs_chunk_flat * valid_src > 0.0).astype(topo_gzs.dtype),
+                    id,
+                    (gzs_valid > 0.0).astype(topo_gzs.dtype),
                 )
                 np.add.at(
                     cnt,
-                    src_in_cells,
-                    1 * valid_src
+                    id,
+                    1
                 )
 
-    if np.any(cnt == 0):
+    owned = np.zeros(ncell, dtype=bool)
+    owned[int(mesh.cell_ids):int(mesh.cell_ide) + 1] = True
+    if np.any((cnt == 0) & owned):
         raise ValueError(
             "No valid topography points found within KDTree search radius."
         )

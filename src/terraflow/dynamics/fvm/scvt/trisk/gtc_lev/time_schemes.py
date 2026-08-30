@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import Callable, TYPE_CHECKING
 
 from terraflow.util.pytree import tree_at
+from terraflow.mesh.scvt.parallel import fill_field1d_array_halo, fill_field2d_array_halo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     calc_mg,
     calc_dmg,
@@ -258,6 +259,11 @@ def update_mgs(
             new_mgs  = new_mgs.at[ids:ide+1].set(
                 old_mgs[ids:ide+1] + dt * dmgsdt[ids:ide+1]
             )
+            new_mgs = fill_field1d_array_halo(
+                halo=mesh.halo,
+                f=new_mgs,
+                meta=block.state.mgs.meta
+            )
             block = tree_at(
                 where=lambda b: b.state.mgs.d,
                 pytree=block,
@@ -307,6 +313,11 @@ def update_pt(
             new_pt = new_pt.at[kds:kde+1, ids:ide+1].set(
                 new_pt[kds:kde+1, ids:ide+1] / new_dmg[kds:kde+1, ids:ide+1]
             )
+            new_pt = fill_field2d_array_halo(
+                halo=mesh.halo,
+                f=new_pt,
+                meta=block.state.pt.meta
+            )
             block = tree_at(
                 where=lambda b: b.state.pt.d,
                 pytree=block,
@@ -340,6 +351,11 @@ def update_gz(
             ids, ide = mesh.cell_ids, mesh.cell_ide
             new_gz = new_gz.at[kds:kde+1, ids:ide+1].set(
                 old_gz[kds:kde+1, ids:ide+1] + dt * dgzdt[kds:kde+1, ids:ide+1]
+            )
+            new_gz = fill_field2d_array_halo(
+                halo=mesh.halo,
+                f=new_gz,
+                meta=block.state.gz.meta
             )
             block = tree_at(
                 where=lambda b: b.state.gz.d,
@@ -378,6 +394,11 @@ def update_un(
             new_un = new_un.at[kds:kde+1, ids:ide+1].set(
                 new_un[kds:kde+1, ids:ide+1] + dt * dundt_damp[kds:kde+1, ids:ide+1]
             )
+        new_un = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=new_un,
+            meta=block.state.un.meta
+        )
         # ================================================= 
         block = tree_at(
             where=lambda b: b.state.un.d,
@@ -401,4 +422,4 @@ def update_state(
     block = update_pt (block, old_idx, new_idx, dt, pass_tag, substep)
     block = update_gz (block, old_idx, new_idx, dt, pass_tag, substep)
     block = update_un (block, old_idx, new_idx, dt, pass_tag, substep)
-    return block 
+    return block

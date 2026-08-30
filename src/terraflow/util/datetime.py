@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, TypeVar, Self
+from typing import TYPE_CHECKING, TypeVar
 from typing import Optional
 import time
 import datetime
@@ -9,6 +9,7 @@ from terraflow.util import log
 
 
 if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
     from terraflow.prepare.readers.grist import GRISTBackgroundReader
 
@@ -33,19 +34,6 @@ def perf_start(name: str) -> None:
         time_last = time0
         time_curr = time0
         elapsed_secondes_in_real_world = 0.0
-        banner = [
-            "████████╗███████╗██████╗ ██████╗  █████╗ ███████╗██╗      ██████╗ ██╗    ██╗",
-            "╚══██╔══╝██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║",
-            "   ██║   █████╗  ██████╔╝██████╔╝███████║█████╗  ██║     ██║   ██║██║ █╗ ██║",
-            "   ██║   ██╔══╝  ██╔══██╗██╔══██╗██╔══██║██╔══╝  ██║     ██║   ██║██║███╗██║",
-            "   ██║   ███████╗██║  ██║██║  ██║██║  ██║██║     ███████╗╚██████╔╝╚███╔███╔╝",
-            "   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ ",
-        ]
-        log.logger.log("STAGE", "TERRAFLOW PROGRAM START...")
-        print("")
-        for line in banner:
-            print(line)
-        print("")
     elif name == "integration":
         time1 = time.perf_counter()
         elapsed_secondes_in_real_world += time1 - time_last
@@ -54,12 +42,10 @@ def perf_start(name: str) -> None:
         time_write_last = time1
         time_write_curr = time1
         elapsed_seconds_in_integration = 0.0
-        log.logger.log("STAGE", "INTEGRATION STAGE START... ")
     elif name != "":
         time_curr = time.perf_counter()
         elapsed_secondes_in_real_world += time_curr - time_last
         time_last = time_curr
-        log.logger.log("STAGE", f"{name.upper()} STAGE START... ")
     else:
         raise ValueError(f"Invalid name: {name}")
 
@@ -71,27 +57,15 @@ def perf_end(name: str) -> None:
         time_curr = time.perf_counter()
         elapsed_secondes_in_real_world += time_curr - time_last
         time_last = time_curr
-        log.logger.log(
-            "STAGE",
-            f"Total time cost {time_curr - time0} seconds."
-        )
     elif name == "integration":
         time_curr = time.perf_counter()
         elapsed_seconds_in_integration += time_curr - time_last
         time_last = time_curr
-        log.logger.log(
-            "STAGE",
-            f"Integration time cost {time_curr - time1} seconds."
-        )
     elif name != "":
         time_curr = time.perf_counter()
         elapsed_secondes_in_real_world += time_curr - time_last
         tmp = time_last
         time_last = time_curr
-        log.logger.log(
-            "STAGE",
-            f"{name.capitalize()} time cost {time_curr - tmp} seconds."
-        )
     else:
         raise ValueError(f"Invalid name: {name}")
 
@@ -141,6 +115,7 @@ class DateTimeManager:
         dt_adv: str,
         save_interval: str,
         log_every: str, 
+        dev: AbstractDevice,
         bkg_reader: Optional[BKGREADER] = None
     ):
         # ================================================
@@ -177,10 +152,11 @@ class DateTimeManager:
             self.end_time_str = end_time_.isoformat()
         else:
             if run_time == "":
-                log.logger.warning(
-                    "Both end_time_str and run_time are provided. "
-                    "end_time_str will be used."
-                )
+                if dev.is_root():
+                    log.logger.warning(
+                        "Both end_time_str and run_time are provided. "
+                        "end_time_str will be used."
+                    )
             self.end_time_str = end_time
         # =================================================
         # Diagnose time variables
@@ -193,14 +169,15 @@ class DateTimeManager:
             run_time_unit = "days"
         else:
             run_time_unit = "hours"
-        log.logger.info(
-            "Start time: {}, End time: {}, Run time: {} {}.".format(
-                self.start_time_str,
-                self.end_time_str,
-                self.run_time(unit=run_time_unit),
-                run_time_unit,
+        if dev.is_root():
+            log.logger.info(
+                "Start time: {}, End time: {}, Run time: {} {}.".format(
+                    self.start_time_str,
+                    self.end_time_str,
+                    self.run_time(unit=run_time_unit),
+                    run_time_unit,
+                )
             )
-        )
 
     @property
     def start_time(self) -> datetime.datetime:

@@ -104,7 +104,6 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             ks=half_kds,
             ke=half_kde
         ) / 100.0
-        mg_lev = p_lev * 100.0
         gz_lev = gz_lev.at[half_kds:half_kde+1, ids:ide+1].set(
             -rd * (
                 a * (p_lev - ps0)
@@ -113,6 +112,11 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         )
         # =========================================================
         # For full lev
+        mg_lev = vert_coord.calc_mg_lev(
+            mgs=ref_ps[ids:ihe+1],
+            ks=half_kds,
+            ke=half_kde
+        )
         p = vert_coord.calc_mg(
             mgs=ref_ps[ids:ihe+1],
             ks=full_kds,
@@ -132,7 +136,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         mpt = mpt.at[full_kds:full_kde+1, ids:ihe+1].set(
             formula.dry_potential_temperature(
                 t=t,
-                p=mg,
+                p=p * 100.0,
                 para=para
             ) * (mg_lev[1:, :] - mg_lev[:-1, :])
         )

@@ -138,7 +138,7 @@ class Block(
             tracers = Tracer()
         # ================================================
         return cls(
-            elapsed_seconds=0,
+            elapsed_seconds=0.0,
             mode=mode,
             const=const,
             cfg=cfg,

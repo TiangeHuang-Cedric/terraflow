@@ -1,9 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+import gc
 import numpy as np
 import jax
 import jax.numpy as jnp
 import xarray as xr
+
 
 from terraflow.util import typing, log, formula
 from terraflow.prepare.readers.abstract import AbstractBackgroundReader, BackgroundReaderConfig
@@ -24,7 +26,6 @@ class ERA5Reader(AbstractBackgroundReader):
     lat: Float[Array, "nlat"]
     lev: Float[Array, "nlev"]
     plev: Float[Array, "nlev"]
-    nlev_eff: Float[Array, "ncol"]
     u: Float[Array, "nlon nlat nlev"]
     v: Float[Array, "nlon nlat nlev"]
     t: Float[Array, "nlon nlat nlev"]
@@ -45,7 +46,7 @@ class ERA5Reader(AbstractBackgroundReader):
         dev: AbstractDevice,
         cfg: BackgroundReaderConfig = BackgroundReaderConfig()
     ):
-        log.logger.info(f"Use ERA5 {bkg_file} as background.")
+        if dev.is_root(): log.logger.info(f"Use ERA5 {bkg_file} as background.")
         super().__init__(
             bkg_file=bkg_file,
             para=para,
@@ -53,11 +54,77 @@ class ERA5Reader(AbstractBackgroundReader):
             cfg=cfg
         )
 
-    def extract_data(self):
+    @property
+    def reader_type(self) -> str:
+        return "era5"
+
+    @property
+    def lon_range(self) -> str:
+        return "0>360"
+
+    def load_data(
+        self,
+        min_lon: float = 0,
+        min_lat: float = -90.0,
+        max_lon: float = 360.0,
+        max_lat: float = 90
+    ):
         # ===================================================
         # Load data
         float_type = self.dev.float_type
-        ds = xr.open_dataset(self.bkg_file, engine="netcdf4")
+        ds0 = self.open_dataset()
+        lon_values = np.asarray(ds0["longitude"].values, dtype=np.float64)
+        lat_values = np.asarray(ds0["latitude"].values, dtype=np.float64)
+        lon_min = float(np.min(lon_values))
+        lon_max = float(np.max(lon_values))
+        lat_min = max(float(min_lat), -89.75, float(np.min(lat_values)))
+        lat_max = min(float(max_lat),  89.75, float(np.max(lat_values)))
+        lon0 = float(min_lon)
+        lon1 = float(max_lon)
+
+        if self.cfg.hori_interp_backend == "native":
+            dlon = float(np.min(np.abs(np.diff(np.sort(lon_values)))))
+            dlat = float(np.min(np.abs(np.diff(np.sort(lat_values)))))
+            lon0 -= dlon
+            lon1 += dlon
+            lat_min = max(lat_min - dlat, -89.75, float(np.min(lat_values)))
+            lat_max = min(lat_max + dlat,  89.75, float(np.max(lat_values)))
+
+        lon_width = lon1 - lon0 if lon1 >= lon0 else lon1 + 360.0 - lon0
+        if lon_width >= 360.0 - 1e-10:
+            ds = ds0.sel(
+                longitude=slice(lon_min, lon_max),
+                latitude=slice(lat_max, lat_min)
+            )
+        else:
+            lon0_norm = (lon0 - lon_min) % 360.0 + lon_min
+            lon1_norm = (lon1 - lon_min) % 360.0 + lon_min
+            if lon0_norm <= lon1_norm:
+                ds = ds0.sel(
+                    longitude=slice(lon0_norm, lon1_norm),
+                    latitude=slice(lat_max, lat_min)
+                )
+            else:
+                ds_west = ds0.sel(
+                    longitude=slice(lon0_norm, lon_max),
+                    latitude=slice(lat_max, lat_min)
+                )
+                ds_east = ds0.sel(
+                    longitude=slice(lon_min, lon1_norm),
+                    latitude=slice(lat_max, lat_min)
+                )
+                ds_east = ds_east.assign_coords(
+                    longitude=ds_east["longitude"] + 360.0
+                )
+                ds = xr.concat([ds_west, ds_east], dim="longitude")
+        ds = ds.load()
+        ds0.close()
+
+        if ds.sizes["longitude"] < 2 or ds.sizes["latitude"] < 2:
+            raise ValueError(
+                "ERA5 bbox selection is too small for bilinear interpolation: "
+                f"longitude={ds.sizes['longitude']}, latitude={ds.sizes['latitude']}"
+            )
         if "level" in ds.keys():
             self.level_name = "level"
         elif "pressure_level" in ds.keys():
@@ -192,25 +259,25 @@ class ERA5Reader(AbstractBackgroundReader):
         # Initialize missing variables
         if not hasattr(self, "qc"):
             self.qc = jnp.zeros(
-                (self.lon.shape[0], self.lat.shape[0], self.plev.shape[0]),
+                (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qi"):
             self.qi = jnp.zeros(
-                (self.lon.shape[0], self.lat.shape[0], self.plev.shape[0]),
+                (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qr"):
             self.qr = jnp.zeros(
-                (self.lon.shape[0], self.lat.shape[0], self.plev.shape[0]),
+                (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qs"):
             self.qs = jnp.zeros(
-                (self.lon.shape[0], self.lat.shape[0], self.plev.shape[0]),
+                (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
@@ -221,69 +288,7 @@ class ERA5Reader(AbstractBackgroundReader):
             qv=self.qv,
             para=self.para
         )
-
-    def grist_post_process(
-        self,
-        ps: Float[Array, "ncol"],
-        qv: Float[Array, "nlev ncol"],
-        qc: Float[Array, "nlev ncol"],
-        qi: Float[Array, "nlev ncol"],
-        qr: Float[Array, "nlev ncol"],
-        qs: Float[Array, "nlev ncol"],
-    ):
-        # ------------- GRIST Post process -------------
-        plev_in = self.plev
-        nlev = plev_in.shape[0]
-        ncol = ps.shape[0]
-
-        # Check effective full level number
-        mask = plev_in[:, None] >= ps[None, :]
-        first_ge_idx = jnp.argmax(mask, axis=0)
-        self.nlev_eff = jnp.where(
-            jnp.any(mask, axis=0),
-            first_ge_idx + 1,
-            nlev
-        )  # (ncol,)
-
-        # Evaluate dry-mass coordinate at ERA pressure level and surface
-        face_idx = jnp.arange(nlev + 1, dtype=jnp.int32)[:, None]  # (nlev+1, 1)
-        nlev_eff = self.nlev_eff[None, :]  # (nlev+1, ncol)
-
-        plev_lev = jnp.zeros((nlev + 1, ncol), dtype=plev_in.dtype)
-        plev_mid = jnp.pad(
-            0.5 * (plev_in[:-1, None] + plev_in[1:, None]),
-            ((1, 1), (0, 0)),
-            mode='constant'
-        )  # (nlev+1, 1)
-        plev_lev = jnp.where(
-            (face_idx >= 1) & (face_idx < nlev_eff),
-            plev_mid,
-            plev_lev
-        )
-        # if ps<pface(nlev_eff), let it be, good assumption! no problem till now...
-        plev_lev = jnp.where(
-            face_idx == nlev_eff,
-            ps[None, :],
-            plev_lev
-        )
-
-        # hpface(1)=pface(1)=zeros
-        # hpface(k)=hpface(k-1)+dp(k-1)*(1-q(k-1)), k=2..nlev_eff+1.
-        dp = plev_lev[1:, :] - plev_lev[:-1, :]
-        lev_idx = jnp.arange(nlev, dtype=jnp.int32)[:, None]  # (nlev, ncol)
-        valid_lev = lev_idx <= nlev_eff - 1  # (nlev, ncol)
-        dhp = jnp.where(valid_lev, dp, 0.0)
-        qm = qv + qc + qi + qr + qs
-        self.plev_lev = jnp.cumulative_sum(
-            dhp * (1.0 - qm),
-            axis=0,
-            include_initial=True
-        )  # (nlev+1, ncol)
-        self.plev = 0.5 * (self.plev_lev[:-1, :] + self.plev_lev[1:, :])
-
-    @property
-    def reader_type(self) -> str:
-        return "era5"
+        self.loaded = True
 
     def flip_latitude(self, data: np.ndarray) -> np.ndarray:
         if data.ndim == 3 and data.shape == (self.lev.shape[0], self.lat.shape[0], self.lon.shape[0]):
@@ -296,3 +301,27 @@ class ERA5Reader(AbstractBackgroundReader):
             raise ValueError(
                 f"Unsupported data shape for latitude flipping: {data.shape}"
             )
+
+    def unload(self):
+        delattr(self, "time_name" )
+        delattr(self, "time_str"  )
+        delattr(self, "level_name")
+        delattr(self, "lon"       )
+        delattr(self, "lat"       )
+        delattr(self, "lev"       )
+        delattr(self, "plev"      )
+        delattr(self, "u"         )
+        delattr(self, "v"         )
+        delattr(self, "t"         )
+        delattr(self, "tv"        )
+        delattr(self, "z"         )
+        delattr(self, "qv"        )
+        delattr(self, "qc"        )
+        delattr(self, "qi"        )
+        delattr(self, "qr"        )
+        delattr(self, "qs"        )
+        delattr(self, "ps"        )
+        delattr(self, "zs"        )
+        self.loaded = False
+        gc.collect()
+        jax.clear_caches()

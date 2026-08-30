@@ -67,8 +67,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
         interp_at_midpoint=False,
-        vert_interp_backend="jax",
-        vert_interp_type="native",
+        vert_interp_backend="jax"
     ),
     dev=dev
 )
@@ -90,19 +89,25 @@ model = tf.model.build_hydrostatic_model(
 
 era5_1deg_lon = jnp.arange(0, 359 + 1.0 ,  1.0, dtype=dev.float_type)
 era5_1deg_lat = jnp.arange(90, -90 - 1.0, -1.0, dtype=dev.float_type)
+era5_lev = jnp.array(
+    [1, 2, 3, 5, 7, 10, 20, 30, 50, 70, 100, 125, 150, 175, 200, 225, 
+    250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 775, 800, 825, 
+    850, 875, 900, 925, 950, 975, 1000] * 100, 
+    dtype=dev.float_type
+)
 
 history = model.build_history(
     mode="scvt",
     case_name="terraflow.hdc" + ".g" + str(mesh.glevel),
     output_h1=False,
-    output_h2=True,
+    output_h2=False,
     h2_opt={
         "hori_regrid_method": "conserve_1st",
         "hori_regrid_backend": "esmf",
-        "vert_interp": True,
+        "vert_interp": False,
         "lon": era5_1deg_lon,
         "lat": era5_1deg_lat,
-        "plev": bkg_reader.lev,
+        "plev": era5_lev,
         "plev_unit": "Pa",
     }
 )
@@ -119,11 +124,12 @@ tf.model.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 
-tf.util.post_process.CDOPostProcesser.remap_history(
-    history=history,
-    res=1.0,
-    remap=True,
-    use_weight=True,
-)
+if dev.is_root():
+    tf.util.post_process.CDOPostProcesser.remap_history(
+        history=history,
+        res=1.0,
+        remap=True,
+        use_weight=True,
+    )
 
 tf.util.datetime.perf_end("program")

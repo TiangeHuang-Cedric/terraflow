@@ -1,28 +1,29 @@
 from __future__ import annotations
-from functools import partial
 from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
+import numpy as np
+from numba import njit, prange
 
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
    
-    Float = typing.Float
+    FLT = typing.Float
     Array = typing.Array
     
     
 def scvt_interp_2d(
     mesh: SCVTMesh,
-    x: Float[Array, "nlev npoint1"], 
-    y: Float[Array, "nlev npoint2"],
+    x: FLT[Array, "nlev npoint1"], 
+    y: FLT[Array, "nlev npoint2"],
     x_loc: str,
     y_loc: str,
     extrap: bool = True,
     extrap_type: int = 1,
     lagrange: bool = False,
     lagrange_order: int = 1
-) -> Float[Array, "nlev npoint2"]: 
+) -> FLT[Array, "nlev npoint2"]: 
     loc_flag = x_loc + ">" + y_loc
     if loc_flag == "cell>edge":
         kds, kde = mesh.full_kds, mesh.full_kde
@@ -79,7 +80,7 @@ def scvt_interp_2d(
         kite_area_vtx = mesh.kite_area_vtx[ids:ide+1, :]
         area_vtx      = mesh.area_vtx     [ids:ide+1   ] 
         
-        def cell2vtx(x: Float[Array, "npoint1"]) -> Float[Array, "npoint2"]:
+        def cell2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = jnp.where(v1 < 0, 0.0, x[v1])
             local_sum = jnp.sum(x_tile * kite_area_vtx, axis=-1)
             return local_sum / area_vtx
@@ -102,7 +103,7 @@ def scvt_interp_2d(
         kite_area_cell = mesh.kite_area_cell[ids:ide+1, :]
         area_cell      = mesh.area_cell     [ids:ide+1   ]
         
-        def vtx2cell(x: Float[Array, "npoint1"]) -> Float[Array, "npoint2"]:
+        def vtx2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = jnp.where(v1 < 0, 0.0, x[v1])
             local_sum = jnp.sum(x_tile * kite_area_cell, axis=-1)
             return local_sum / area_cell
@@ -118,7 +119,7 @@ def scvt_interp_2d(
         le        = mesh.le       [e_idx]
         de        = mesh.de       [e_idx]
         
-        def edge2cell(x: Float[Array, "npoint1"]) -> Float[Array, "npoint2"]:
+        def edge2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = jnp.where(e_idx < 0, 0.0, x[e_idx])
             local_sum = jnp.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_cell
@@ -134,7 +135,7 @@ def scvt_interp_2d(
         le       = mesh.le       [e_idx]
         de       = mesh.de       [e_idx]
         
-        def edge2vtx(x: Float[Array, "npoint1"]) -> Float[Array, "npoint2"]:
+        def edge2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = jnp.where(e_idx < 0, 0.0, x[e_idx])
             local_sum = jnp.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_vtx
@@ -239,11 +240,11 @@ def scvt_interp_2d(
     
 def scvt_average_2d(
     mesh: SCVTMesh,
-    x: Float[Array, "nlev npoint1"], 
-    y: Float[Array, "nlev npoint2"],
+    x: FLT[Array, "nlev npoint1"], 
+    y: FLT[Array, "nlev npoint2"],
     x_loc: str,
     y_loc: str
-) -> Float[Array, "nlev npoint2"]:
+) -> FLT[Array, "nlev npoint2"]:
     loc_flag = x_loc + ">" + y_loc
     if loc_flag == "cell>edge":
        kds, kde = mesh.full_kds, mesh.full_kde
@@ -264,61 +265,62 @@ def scvt_average_2d(
     return y
 
 
-@partial(jax.jit, static_argnames=("logp",))
+@njit(cache=True, parallel=True)
 def _interp_plev_columns(
-    pi_cols: jnp.ndarray,
-    xi_cols: jnp.ndarray,
-    po: jnp.ndarray,
+    pi_cols: np.ndarray,
+    xi_cols: np.ndarray,
+    po: np.ndarray,
     logp: bool,
-) -> jnp.ndarray:
-    """Vectorized column interpolation following the F90 adjacent-pair scan exactly."""
-    pi_lo_all = pi_cols[:-1, :]
-    pi_hi_all = pi_cols[1:, :]
-    xi_lo_all = xi_cols[:-1, :]
-    xi_hi_all = xi_cols[1:, :]
-    po_cols = po[:, None]
+) -> np.ndarray:
+    """Column interpolation for monotonically increasing pressure."""
+    nlev = pi_cols.shape[0]
+    ncol = pi_cols.shape[1]
+    npo = po.shape[0]
+    xo_cols = np.empty((npo, ncol), dtype=xi_cols.dtype)
 
-    # Match the F90 condition:
-    # if (pi(k-1) <= po(ko) .and. po(ko) <= pi(k)) then
-    match = (
-        (pi_lo_all[None, :, :] <= po_cols[:, None, :])
-        & (po_cols[:, None, :] <= pi_hi_all[None, :, :])
-    )
-    has_match = jnp.any(match, axis=1)
-    pair_idx = jnp.argmax(match, axis=1)
+    for col in prange(ncol):
+        k = 1
+        p_min = pi_cols[0, col]
+        p_max = pi_cols[nlev - 1, col]
+        for ko in range(npo):
+            p_out = po[ko]
+            if p_out < p_min or p_out > p_max:
+                xo_cols[ko, col] = np.nan
+                continue
+            while k < nlev - 1 and pi_cols[k, col] < p_out:
+                k += 1
 
-    pi_lo = jnp.take_along_axis(pi_lo_all, pair_idx, axis=0)
-    pi_hi = jnp.take_along_axis(pi_hi_all, pair_idx, axis=0)
-    xi_lo = jnp.take_along_axis(xi_lo_all, pair_idx, axis=0)
-    xi_hi = jnp.take_along_axis(xi_hi_all, pair_idx, axis=0)
+            p_lo = pi_cols[k - 1, col]
+            p_hi = pi_cols[k, col]
+            x_lo = xi_cols[k - 1, col]
+            x_hi = xi_cols[k, col]
+            if logp:
+                dp1 = np.log(p_out) - np.log(p_lo)
+                dp2 = np.log(p_hi) - np.log(p_out)
+            else:
+                dp1 = p_out - p_lo
+                dp2 = p_hi - p_out
+            xo_cols[ko, col] = (dp2 * x_lo + dp1 * x_hi) / (dp1 + dp2)
 
-    if logp:
-        dp1 = jnp.log(po_cols) - jnp.log(pi_lo)
-        dp2 = jnp.log(pi_hi) - jnp.log(po_cols)
-    else:
-        dp1 = po_cols - pi_lo
-        dp2 = pi_hi - po_cols
-
-    xo_cols = (dp2 * xi_lo + dp1 * xi_hi) / (dp1 + dp2)
-    return jnp.where(has_match, xo_cols, jnp.nan)
+    return xo_cols
 
 
 def interp_plev(
     mesh: SCVTMesh,
-    pi: Float[Array, "nlev_i nlat nlon"],
-    xi: Float[Array, "nlev_i nlat nlon"],
-    po: Float[Array, "nlev_o"],
+    pi: np.ndarray, # FLT[Array, "nlev_i nlat nlon"]
+    xi: np.ndarray, # FLT[Array, "nlev_i nlat nlon"]
+    po: np.ndarray, # FLT[Array, "nlev_o"]
     xo_loc: str,
     logp: bool = False
-) -> Float[Array, "nlev_o nlat nlon"]:
+) -> np.ndarray: # FLT[Array, "nlev_o nlat nlon"]
     if xo_loc == "cell" or xo_loc == "vtx" or xo_loc == "edge":
         k_s, k_e = mesh.full_kds, mesh.full_kde
     elif xo_loc == "lev" or xo_loc == "lev_vtx" or xo_loc == "lev_edge":
         k_s, k_e = mesh.half_kds, mesh.half_kde
     else:
         raise ValueError(f"interp_plev: unsupported location {xo_loc} for xo_loc!")
-    pi_src = pi[k_s:k_e+1, ...]
-    xi_src = xi[k_s:k_e+1, ...]
+    pi_src = np.asarray(pi[k_s:k_e+1, ...])
+    xi_src = np.asarray(xi[k_s:k_e+1, ...])
     nlev_src = pi_src.shape[0]
     if nlev_src < 2:
         raise ValueError("interp_plev requires at least two source levels in the active vertical domain.")
@@ -330,10 +332,22 @@ def interp_plev(
 
     pi_cols = pi_src.reshape(nlev_src, ncol)
     xi_cols = xi_src.reshape(nlev_src, ncol)
+    po_array = np.asarray(po)
+    if po_array.size > 1 and not np.all(po_array[1:] >= po_array[:-1]):
+        po_order = np.argsort(po_array)
+        po_inverse = np.empty_like(po_order)
+        po_inverse[po_order] = np.arange(po_order.size)
+        po_for_interp = po_array[po_order]
+    else:
+        po_inverse = None
+        po_for_interp = po_array
+
     xo_cols = _interp_plev_columns(
         pi_cols=pi_cols,
         xi_cols=xi_cols,
-        po=po,
+        po=po_for_interp,
         logp=logp,
     )
-    return xo_cols.reshape((po.shape[0],) + hori_shape)
+    if po_inverse is not None:
+        xo_cols = xo_cols[po_inverse, :]
+    return xo_cols.reshape((po_array.shape[0],) + hori_shape)

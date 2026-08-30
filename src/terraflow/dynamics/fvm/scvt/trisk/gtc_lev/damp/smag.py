@@ -87,7 +87,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         )
         # ===================================================== 
         # ------ Calculate Perot weights at cell ------
-        ids, ihe          = mesh.cell_ids, mesh.cell_ihe[mesh.hori_hw-2]
+        ids, ihe          = mesh.cell_ids, mesh.cell_ihe[1]
         cell_ed           = mesh.cell_ed  [ids:ihe+1, :]
         cell_xyz          = mesh.cell_xyz [ids:ihe+1, :] / radius
         area_cell         = mesh.area_cell[ids:ihe+1   ]
@@ -116,7 +116,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         perot_wgt_at_cell = perot_wgt_at_cell.at[ids:ihe+1, :, :].set(tmp)
 
         # ------ Calculate Perot weights at vtx ------
-        ids, ihe          = mesh.vtx_ids, mesh.vtx_ihe[mesh.hori_hw-1]
+        ids, ihe          = mesh.vtx_ids, mesh.vtx_ihe[0]
         vtx_ed            = mesh.vtx_ed  [ids:ihe+1, :]
         area_vtx          = mesh.area_vtx[ids:ihe+1   ]
         vtx_xyz           = mesh.vtx_xyz [ids:ihe+1, :] / radius
@@ -188,7 +188,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     # Calculate velocity vector at cell and vtx
     # (nlev, ncell, 3)
     kds, kde = mesh.full_kds, mesh.full_kde
-    ids, ihe = mesh.cell_ids, mesh.cell_ihe[mesh.hori_hw-2]
+    ids, ihe = mesh.cell_ids, mesh.cell_ihe[1]
     vec_at_cell = vec_at_cell.at[kds:kde+1, ids:ihe+1, :].set(
         jnp.sum(
             un[kds:kde+1, cell_ed[ids:ihe+1, :], None] * perot_wgt_at_cell[None, ids:ihe+1, :, :], 
@@ -197,7 +197,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     )
     # (nlev, nvtx, 3)
     kds, kde = mesh.full_kds, mesh.full_kde 
-    ids, ihe = mesh.vtx_ids , mesh.vtx_ihe[mesh.hori_hw-1]
+    ids, ihe = mesh.vtx_ids , mesh.vtx_ihe[0]
     vec_at_vtx = vec_at_vtx.at[kds:kde+1, ids:ihe+1, :].set(
         jnp.sum(
             un[kds:kde+1, vtx_ed [ids:ihe+1, :], None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :], 
@@ -210,11 +210,13 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     # dc1---e---dc2
     #       |
     #      pc1
-    ids, ihe = mesh.edge_ids, mesh.edge_ihe[mesh.hori_hw-1]
+    ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
     pc1 = cell_of_edge[ids:ihe+1, 0]  # (nedge,)
     pc2 = cell_of_edge[ids:ihe+1, 1]  # (nedge,)
     dc1 = vtx_of_edge [ids:ihe+1, 0]  # (nedge,)
     dc2 = vtx_of_edge [ids:ihe+1, 1]  # (nedge,)
+    de_ = de[ids:ihe+1]
+    le_ = le[ids:ihe+1]
     # (nedge, 3)
     pc1pc2 = cell_xyz[pc2, :] - cell_xyz[pc1, :]
     dc1dc2 = vtx_xyz [dc2, :] - vtx_xyz [dc1, :]
@@ -235,10 +237,10 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     ut_dc2 = jnp.sum(vec_at_vtx [kds:kde+1, dc2, :] * edge_tg[ids:ihe+1, :], axis=-1)
 
     # (nlev, nedge)
-    un_pc1pc2 = flag1 * (un_pc2 - un_pc1) / de
-    ut_pc1pc2 = flag1 * (ut_pc2 - ut_pc1) / de
-    un_dc1dc2 = flag2 * (un_dc2 - un_dc1) / le
-    ut_dc1dc2 = flag2 * (ut_dc2 - ut_dc1) / le
+    un_pc1pc2 = flag1 * (un_pc2 - un_pc1) / de_
+    ut_pc1pc2 = flag1 * (ut_pc2 - ut_pc1) / de_
+    un_dc1dc2 = flag2 * (un_dc2 - un_dc1) / le_
+    ut_dc1dc2 = flag2 * (ut_dc2 - ut_dc1) / le_
 
     # -----------------------------------------------------
     # Horizontal tension strain on centers
@@ -256,13 +258,13 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     # (nlev, nedge)
     smag_s = (un_dc1dc2 + ut_pc1pc2)
 
-    ls2 = de * le
+    ls2 = de_ * le_
     smag_coef = smag_coef.at[kds:kde+1, ids:ihe+1].set(
         block.cfg.smag_damp_coef * ls2 * jnp.sqrt(smag_t**2 + smag_s**2)
     )
-    tmp = (un_pc1 + un_pc2 - 2 * un) / de**2
+    tmp = (un_pc1 + un_pc2 - 2 * un[kds:kde+1, ids:ihe+1]) / de_**2
     lap_un = lap_un.at[kds:kde+1, ids:ihe+1].set(
-        tmp + (un_dc1 + un_dc2 - 2 * un) / le**2
+        tmp + (un_dc1 + un_dc2 - 2 * un[kds:kde+1, ids:ihe+1]) / le_**2
     )    
     # -----------------------------------------------------
     # Calculate smag lev for non-hydrostatic model

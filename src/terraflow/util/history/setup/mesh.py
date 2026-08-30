@@ -321,29 +321,29 @@ class SCVTHistorySetup(AbstractMeshHistorySetup):
             ds.createVariable("edge_lat", float_type, ("edge",))
         # Fill in coordinate variables
         cell_lon = ds.variables["cell_lon"]
-        cell_lon[:] = jnp.rad2deg(self.mesh.cell_lon)
+        cell_lon[:] = self.mesh.cell_lon_deg
         cell_lon.long_name = "Longitude at cells"
         cell_lon.units = "degrees_east"
         cell_lat = ds.variables["cell_lat"]
-        cell_lat[:] = jnp.rad2deg(self.mesh.cell_lat)
+        cell_lat[:] = self.mesh.cell_lat_deg
         cell_lat.long_name = "Latitude at cells"
         cell_lat.units = "degrees_north"
         if with_vtx:
             vtx_lon = ds.variables["vtx_lon"]
-            vtx_lon[:] = jnp.rad2deg(self.mesh.vtx_lon)
+            vtx_lon[:] = self.mesh.vtx_lon_deg
             vtx_lon.long_name = "Longitude at vertices"
             vtx_lon.units = "degrees_east"
             vtx_lat = ds.variables["vtx_lat"]
-            vtx_lat[:] = jnp.rad2deg(self.mesh.vtx_lat)
+            vtx_lat[:] = self.mesh.vtx_lat_deg
             vtx_lat.long_name = "Latitude at vertices"
             vtx_lat.units = "degrees_north"
         if with_edge:
             edge_lon = ds.variables["edge_lon"]
-            edge_lon[:] = jnp.rad2deg(self.mesh.dual_edge_lon)
+            edge_lon[:] = self.mesh.dual_edge_lon_deg
             edge_lon.long_name = "Longitude at edges"
             edge_lon.units = "degrees_east"
             edge_lat = ds.variables["edge_lat"]
-            edge_lat[:] = jnp.rad2deg(self.mesh.dual_edge_lat)
+            edge_lat[:] = self.mesh.dual_edge_lat_deg
             edge_lat.long_name = "Latitude at edges"
             edge_lat.units = "degrees_north"
         ds.close()

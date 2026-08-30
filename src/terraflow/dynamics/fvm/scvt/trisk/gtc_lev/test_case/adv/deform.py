@@ -154,7 +154,7 @@ class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):
         )
         
         # Uniform one
-        q = q.at[3,0,ids:ide+1].set(1)
+        q = q.at[3,0,:].set(1)
         # ==============================================
         return tree_at(
             where=lambda b: (b.state.dmg.d, b.tracers.q.d),
@@ -190,7 +190,7 @@ class DeformationalFlowCase1(DeformationalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -232,7 +232,7 @@ class DeformationalFlowCase2(DeformationalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -274,7 +274,7 @@ class DeformationalFlowCase3(DeformationalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -318,7 +318,7 @@ class DeformationalFlowCase4(DeformationalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,

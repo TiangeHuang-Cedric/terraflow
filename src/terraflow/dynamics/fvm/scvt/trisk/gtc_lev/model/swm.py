@@ -18,6 +18,7 @@ from terraflow.mesh.scvt.field import SCVTFields
 from terraflow.vert_coord.gtc.onelayer import OneLayerVertCoordinate
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev import time_schemes
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import (
+    print_logo,
     space_operators,
     diagnose
 )
@@ -70,6 +71,8 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
         test_case: AbstractShallowWaterModelTestCase,
         dev: AbstractDevice
     ):
+        if dev.is_root(): print_logo()
+        if dev.is_root(): cfg.__print__()
         # =================================================================
         if test_case.alias_name == "swm_mz":
             test_case = swm_mz.MountainZonalFlowTestCase(para)
@@ -93,7 +96,8 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
             dt_dyn=cfg.dt_dyn,
             dt_adv=cfg.dt_adv,
             save_interval=cfg.save_interval,
-            log_every=cfg.log_every
+            log_every=cfg.log_every,
+            dev=dev
         )
         # =================================================================
         time_integrator = time_schemes.time_scheme_init(cfg)
@@ -126,6 +130,7 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -143,6 +148,7 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -159,6 +165,7 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -173,6 +180,7 @@ class ShallowWaterModel(AbstractModel[Block, SCVTFields]):
             output_h2=output_h2,
             h1_opt=h1_opt,
             h2_opt=h2_opt,
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type

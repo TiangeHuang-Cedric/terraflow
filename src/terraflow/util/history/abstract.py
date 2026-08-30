@@ -198,9 +198,6 @@ class AbstractHistory(ABC):
         self.int_type = int_type
         self.nc_float_type = FLOAT_NP2NC[self.float_type]
         self.nc_int_type = INT_NP2NC[self.int_type]
-        ds = nc4.Dataset(self.file_path, mode="w", format="NETCDF4")
-        ds.sync()
-        ds.close()
         self.built = False
 
     @abstractmethod

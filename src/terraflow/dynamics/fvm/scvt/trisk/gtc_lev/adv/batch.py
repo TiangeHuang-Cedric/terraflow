@@ -7,9 +7,11 @@ import jax.numpy as jnp
 from terraflow.util import typing
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
+    SCVTFieldMeta,
     SCVTField2D,  
     SCVTFields
 )
+from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.model.abstract import ModelMode
 
 if TYPE_CHECKING:
@@ -52,6 +54,11 @@ class AdvBatchType(SCVTFields):
     # FCT variables
     qmfn_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
     qmfz_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    afn        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    afz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    td         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    r_in       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    r_out      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() ) 
     
     @classmethod
     def from_mesh(
@@ -177,13 +184,54 @@ class AdvBatchType(SCVTFields):
                 output=""
             )
             fields["qmfz_lo"] = SCVTField2D.from_mesh(
-                name=batch_name + "_qmfn_lz",
+                name=batch_name + "_qmfz_lo",
                 long_name="Tracer mass flux in z direction",
                 units="Pa kg kg-1 m s-1",
                 loc=locz,
                 mesh=mesh,
                 output=""
             )
+            fields["afn"] = SCVTField2D.from_mesh(
+                name=batch_name + "_afn",
+                long_name="Anti-diffusion flux in normal direction",
+                units="Pa kg kg-1 m s-1",
+                loc=locn,
+                mesh=mesh,
+                output=""
+            )
+            fields["afz"] = SCVTField2D.from_mesh(
+                name=batch_name + "_afz",
+                long_name="Anti-diffusion flux in z direction",
+                units="Pa kg kg-1 m s-1",
+                loc=locz,
+                mesh=mesh,
+                output=""
+            )
+            fields["td"] = SCVTField2D.from_mesh(
+                name=batch_name + "_td",
+                long_name="TD solution flux at cell",
+                units="Pa kg kg-1",
+                loc=loc0,
+                mesh=mesh,
+                output=""
+            )
+            fields["r_in"] = SCVTField2D.from_mesh(
+                name=batch_name + "_r_in",
+                long_name="Temporal array for fct",
+                units="1",
+                loc=loc0,
+                mesh=mesh,
+                output=""
+            )
+            fields["r_out"] = SCVTField2D.from_mesh(
+                name=batch_name + "_r_out",
+                long_name="Temporal array for fct",
+                units="1",
+                loc=loc0,
+                mesh=mesh,
+                output=""
+            )
+
         return cls.from_fields(
             fields=fields,
             name=batch_name,
@@ -201,10 +249,19 @@ class AdvBatchType(SCVTFields):
             semilag=semilag
         )
         
-    def copy_m_old(self, m: FLT[Array, "nlev ncell"]) -> Self:
+    def copy_m_old(self, m: FLT[Array, "nlev ncell"], mesh: SCVTMesh) -> Self:
+        m = scvt_adv_fill_vhalo(
+            f=m,
+            meta=self.m.meta,
+            mesh=mesh,
+            no_negvals=True
+        )
         if not self.passive or self.semilag:
-            # TODO: Add fill halo here!
-            pass
+            m = fill_field2d_array_halo(
+                halo=mesh.halo,
+                f=m,
+                meta=self.m.meta
+            )
         return eqx.tree_at(
             where=lambda b: b.m.d,
             pytree=self,
@@ -218,7 +275,8 @@ class AdvBatchType(SCVTFields):
         mfn: Optional[FLT[Array, "nlev nedge"]] = None,
         mfz: Optional[FLT[Array, "nlevp ncell"]] = None,
         m: Optional[FLT[Array, "nlev ncell"]] = None,
-        m_new: Optional[FLT[Array, "nlev ncell"]] = None 
+        m_new: Optional[FLT[Array, "nlev ncell"]] = None,
+        mesh: Optional[SCVTMesh] = None
     ) -> Self:
         self = eqx.tree_at(
             where=lambda b: b.un.d,
@@ -244,11 +302,9 @@ class AdvBatchType(SCVTFields):
                 replace=mfz
             )
         if m is not None:
-            self = eqx.tree_at(
-                where=lambda b: b.m.d,
-                pytree=self,
-                replace=m
-            )
+            if mesh is None:
+                raise ValueError("AdvBatchType.set_wind: mesh must be provided when m is present.")
+            self = self.copy_m_old(m, mesh)
         if m_new is not None:
             self = eqx.tree_at(
                 where=lambda b: b.m_new.d,
@@ -389,3 +445,43 @@ class AdvBatchType(SCVTFields):
             false_fun=not_reset_istep,
             operand=self
         )
+
+
+def scvt_adv_fill_vhalo(
+    f: FLT[Array, "nlev ncell"],
+    meta: SCVTFieldMeta,
+    mesh: SCVTMesh,
+    no_negvals: bool
+) -> FLT[Array, "nlev ncell"]:
+    if meta.loc == "cell":
+        kds, kde = mesh.full_kds, mesh.full_kde
+        kms, kme = mesh.full_kms, mesh.full_kme
+    elif meta.loc == "lev":
+        kds, kde = mesh.half_kds, mesh.half_kde
+        kms, kme = mesh.half_kms, mesh.half_kme
+    else:
+        raise ValueError(f"scvt_adv_fill_vhalo: unsupported location {meta.loc}!")
+
+    ids, ide = mesh.cell_ids, mesh.cell_ide
+    for k in range(kds - 1, kms - 1, -1):
+        f = f.at[k, ids:ide+1].set(
+            3 * f[k+1, ids:ide+1] - 3 * f[k+2, ids:ide+1] + f[k+3, ids:ide+1]
+        )
+    for k in range(kde + 1, kme + 1):
+        f = f.at[k, ids:ide+1].set(
+            3 * f[k-1, ids:ide+1] - 3 * f[k-2, ids:ide+1] + f[k-3, ids:ide+1]
+        )
+
+    if no_negvals:
+        if kms < kds:
+            top = f[kms:kds, ids:ide+1]
+            top_fill = jnp.broadcast_to(f[kds, ids:ide+1], top.shape)
+            top = jnp.where(top < 0, top_fill, top)
+            f = f.at[kms:kds, ids:ide+1].set(top)
+        if kde < kme:
+            bottom = f[kde+1:kme+1, ids:ide+1]
+            bottom_fill = jnp.broadcast_to(f[kde, ids:ide+1], bottom.shape)
+            bottom = jnp.where(bottom < 0, bottom_fill, bottom)
+            f = f.at[kde+1:kme+1, ids:ide+1].set(bottom)
+
+    return f

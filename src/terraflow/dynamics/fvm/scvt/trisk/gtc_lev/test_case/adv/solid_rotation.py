@@ -125,7 +125,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         )
         
         # Constant one
-        q = q.at[3,0,ids:ide+1].set(1)
+        q = q.at[3,0,:].set(1)
         # ==============================================
         return tree_at(
             where=lambda b: (b.state.dmg.d, b.tracers.q.d),
@@ -153,7 +153,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,

@@ -106,9 +106,6 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     # "jax" or "native"
     vert_interp_backend: str   = "jax"
 
-    # "grist" or "native"
-    vert_interp_type   : str   = "native"
-
     def __print__(self):
         print("================ Background Reader Config ==================")
         print(f"  hori_interp_backend        = {self.hori_interp_backend  }")
@@ -118,16 +115,17 @@ class BackgroundReaderConfig(AbstractReaderConfig):
         print(f"  esmf_conserve_opt          = {self.esmf_conserve_opt    }")
         print(f"  prepare_regrid_gz          = {self.prepare_regrid_gz    }")
         print(f"  vert_interp_backend        = {self.vert_interp_backend  }")
-        print(f"  vert_interp_type           = {self.vert_interp_type     }")
         print("============================================================")
 
 
 class AbstractReader(ABC, Generic[READERCFG]):
+    loaded: bool
 
     def __init__(self, para: PlanetParameterSet, cfg: READERCFG, dev: AbstractDevice):
         self.para = para
         self.cfg = cfg
         self.dev = dev
+        self.loaded = False
 
     @property
     @abstractmethod
@@ -135,8 +133,20 @@ class AbstractReader(ABC, Generic[READERCFG]):
         raise NotImplementedError
 
     @abstractmethod
-    def extract_data(self):
+    def load_data(self, *args, **kwarg):
         raise NotImplementedError
+    
+    @property
+    @abstractmethod
+    def lon_range(self) -> str:
+        raise NotImplementedError
+    
+    @abstractmethod
+    def unload(self):
+        raise NotImplementedError
+
+    def has_loaded(self) -> bool:
+        return self.loaded
 
     def get_config(self) -> READERCFG:
         return self.cfg
@@ -161,19 +171,8 @@ class AbstractTopographyReader(AbstractReader[TopographyReaderConfig]):
             raise FileNotFoundError(
                 f"Topography file '{topo_file}' not found!"
             )
-        self.cfg.__print__()
+        if dev.is_root(): self.cfg.__print__()
         self.topo_file = topo_file
-        self.extract_data()
-        if self.lon.shape[0] < self.cfg.fill_lon_chunk_size:
-            raise ValueError(
-                f"Chunk size for filling topo is larger than the topo grid size! "
-                f"Please reduce fill_lon_chunk_size in TopographyReaderConfig."
-            )
-        if self.lat.shape[0] < self.cfg.fill_lat_chunk_size:
-            raise ValueError(
-                f"Chunk size for filling topo is larger than the topo grid size! "
-                f"Please reduce fill_lat_chunk_size in TopographyReaderConfig."
-            )
 
     def open_dataset(self) -> xr.Dataset:
         return xr.open_dataset(self.topo_file)
@@ -198,9 +197,8 @@ class AbstractBackgroundReader(AbstractReader[BackgroundReaderConfig]):
             raise FileNotFoundError(
                 f"Background file '{bkg_file}' not found!"
             )
-        self.cfg.__print__()
+        if dev.is_root(): self.cfg.__print__()
         self.bkg_file = bkg_file
-        self.extract_data()
 
     def open_dataset(self) -> xr.Dataset:
         return xr.open_dataset(self.bkg_file)

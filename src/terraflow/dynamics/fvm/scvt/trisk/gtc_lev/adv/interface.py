@@ -6,16 +6,20 @@ from terraflow.util import typing
 from terraflow.util.device import AbstractDevice, CPU
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.operators import div_operator_2d
+from terraflow.mesh.scvt.parallel import (
+    fill_field2d_array_halo,
+    fill_field3d_array_halo
+)
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryDataset
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import tracer_calc_qm
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import batch
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.limiter import (
     limiter_hflx, 
     limiter_vflx
 )
 
-Array = typing.Array
 
 if TYPE_CHECKING:
     from terraflow.util import typing
@@ -115,7 +119,7 @@ def adv_prepare(block: Block, itime: int) -> Block:
     if not block.mode.restart:
         m = block.state.dmg.unwrap()[itime, :, :]
         for batch_name, batch in block.adv_batches.items():
-            batch = batch.copy_m_old(m)
+            batch = batch.copy_m_old(m, block.mesh)
             block = tree_at(
                     where=lambda b: b.adv_batches[batch_name],
                     pytree=block,
@@ -156,6 +160,11 @@ def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -
             mfz[kds+1:kde+2, ids:ide+1] - mfz[kds:kde+1, ids:ide+1]
         )
     )
+    m_new = fill_field2d_array_halo(
+        halo=mesh.halo,
+        f=m_new,
+        meta=block.state.dmg.meta
+    )
     # =================================================
     block = tree_at(
         where=lambda b: b.state.dmg.d,
@@ -165,9 +174,12 @@ def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -
         at_idxes=new
     )
     return tree_at(
-        where=lambda b: (b.adv_batch_bg.mfn.d, b.adv_batch_bg.mfz.d),
+        where=lambda b: (
+            b.adv_batch_bg.mfn.d, b.adv_batch_bg.mfz.d,
+            b.aux.mfn.d, b.aux.mfz_lev.d
+        ),
         pytree=block,
-        replace=(mfn, mfz)
+        replace=(mfn, mfz, mfn, mfz)
     )
 
 
@@ -226,11 +238,18 @@ def adv_set_new_mass(block: Block, new_idx: int) -> Block:
         ) -> Block:
             if batch.loc == "cell":
                 mesh = block.mesh
-                kds, kde = mesh.full_kds, mesh.full_kde
-                ims, ime = mesh.cell_ims, mesh.cell_ime
-                batch_m = batch.m_new.unwrap()
-                m_new   = block.state.dmg.unwrap()[new_idx, kds:kde+1, ims:ime+1]
-                batch_m = batch_m.at[kds:kde+1, ims:ime+1].set(m_new)
+                batch_m = block.state.dmg.unwrap()[new_idx, :, :]
+                batch_m = scvt_adv_fill_vhalo(
+                    f=batch_m,
+                    meta=batch.m_new.meta,
+                    mesh=mesh,
+                    no_negvals=True
+                )
+                batch_m = fill_field2d_array_halo(
+                    halo=mesh.halo,
+                    f=batch_m,
+                    meta=batch.m_new.meta
+                )
                 block = tree_at(
                     where=lambda b: b.adv_batches[batch_name].m_new.d,
                     pytree=block,
@@ -288,6 +307,19 @@ def adv_hori_run_tracers(
         q_star   = block.tracers.q.unwrap()[star_idx, idx, ...]
         q_new    = block.tracers.q.unwrap()[new_idx , idx, ...]
         q_new_   = block.tracers.q.unwrap()[new_idx ,      ...]
+        for iq in range(len(idx)):
+            q_old = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_old,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
+            q_star = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_star,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
         # ==========================================
         # Run tracers
         def run_single_tracer(
@@ -347,6 +379,13 @@ def adv_hori_run_tracers(
         
         q_new, batch = run_tracers(q_star, q_old, q_new, batch, block, dt, substep)
         q_new_ = q_new_.at[idx, :, :].set(q_new)
+        for iq in idx:
+            q_new_ = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_new_,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
         # ==========================================
         block = tree_at(
             where=lambda b: b.tracers.q.d,
@@ -357,7 +396,7 @@ def adv_hori_run_tracers(
         )
         
         def substep_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
-            batch = batch.copy_m_old(batch.m_new.unwrap())
+            batch = batch.copy_m_old(batch.m_new.unwrap(), block.mesh)
             batch = batch.swap_time_indices()
             return batch
         
@@ -426,6 +465,19 @@ def adv_vert_run_tracers(
         q_star   = block.tracers.q.unwrap()[star_idx, idx, ...]
         q_new    = block.tracers.q.unwrap()[new_idx , idx, ...]
         q_new_   = block.tracers.q.unwrap()[new_idx ,      ...]
+        for iq in range(len(idx)):
+            q_old = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_old,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
+            q_star = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_star,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
         # ==========================================
         # Run tracers
         def run_single_tracer(
@@ -485,6 +537,13 @@ def adv_vert_run_tracers(
         
         q_new, batch = run_tracers(q_star, q_old, q_new, batch, block, dt, substep)
         q_new_ = q_new_.at[idx, :, :].set(q_new)
+        for iq in idx:
+            q_new_ = fill_field3d_array_halo(
+                halo=mesh.halo,
+                f=q_new_,
+                i0=iq,
+                meta=block.tracers.q.meta
+            )
         # ==========================================
         block = tree_at(
             where=lambda b: b.tracers.q.d,
@@ -494,7 +553,7 @@ def adv_vert_run_tracers(
             at_idxes=new_idx
         )
         def substep_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
-            batch = batch.copy_m_old(batch.m_new.unwrap())
+            batch = batch.copy_m_old(batch.m_new.unwrap(), block.mesh)
             batch = batch.swap_time_indices()
             return batch
         
@@ -529,7 +588,8 @@ def set_wind(block: Block, itime: int) -> Block:
         un=block.state.un.unwrap()[itime, ...],
         w=block.aux.we_lev.unwrap(),
         mfn=block.aux.mfn.unwrap(),
-        mfz=block.aux.mfz_lev.unwrap()
+        mfz=block.aux.mfz_lev.unwrap(),
+        mesh=block.mesh
     )
     return tree_at(
         where=lambda b: b.adv_batch_bg,

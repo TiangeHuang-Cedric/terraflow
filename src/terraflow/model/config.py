@@ -117,7 +117,6 @@ class UserConfig:
             object.__setattr__(self, "upwind_order_h", self.upwind_order)
         if self.upwind_order_v == -1:
             object.__setattr__(self, "upwind_order_v", self.upwind_order)
-        self.__print__()
 
     def __print__(self):
         print("====================== Model Config ========================")

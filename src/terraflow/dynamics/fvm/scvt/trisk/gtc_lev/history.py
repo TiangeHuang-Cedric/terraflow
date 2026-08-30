@@ -14,6 +14,7 @@ import netCDF4 as nc4
 import numpy as np
 import jax.numpy as jnp
 import jax.experimental
+from mpi4py import MPI
 
 
 from terraflow.util import log, datetime as tfdatetime
@@ -44,6 +45,7 @@ from terraflow.mesh.scvt.field import (
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.parallel_types import Proc
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.swm import ShallowWaterModel
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.adv import (
@@ -88,6 +90,127 @@ VARNAMES_USING_LOG_INTERP = {"gz", "gz_lev", "t"}
 PLEV_NAMES = {"ph", "ph_lev"}
 
 
+def _history_group_id(nproc: int, ngroups: int, rank: int) -> int:
+    return rank // (nproc // ngroups)
+
+
+def _history_group_bounds(nproc: int, ngroups: int, group_id: int) -> tuple[int, int]:
+    group_count = nproc // ngroups
+    group_first = group_id * group_count
+    return group_first, group_count
+
+
+def _history_global_range(n_global: int, ngroups: int, group_id: int) -> tuple[int, int]:
+    count_base, remainder = divmod(n_global, ngroups)
+    start = group_id * count_base + min(group_id, remainder)
+    count = count_base + (1 if group_id < remainder else 0)
+    return start, count
+
+
+class SCVTHistoryIOMap:
+    name: str
+    n_global: int
+    writer_start: int
+    writer_count: int
+    is_writer: bool
+
+    def __init__(
+        self,
+        history: AbstractBaseHistory,
+        name: str,
+        n_global: int,
+    ) -> None:
+        self.history = history
+        self.name = name
+        self.n_global = int(n_global)
+        group_id = _history_group_id(
+            history.io_nproc,
+            history.output_ngroups,
+            history.io_rank
+        )
+        group_first, _ = _history_group_bounds(
+            history.io_nproc,
+            history.output_ngroups,
+            group_id
+        )
+        self.writer_start, self.writer_count = _history_global_range(
+            self.n_global,
+            history.output_ngroups,
+            group_id
+        )
+        self.is_writer = history.io_rank == group_first
+
+    def collect(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta,
+        dtype: type[np.float32] | type[np.float64],
+    ) -> list[tuple[np.ndarray, np.ndarray]]:
+        local_piece = self.local_piece(field_data, meta, dtype)
+        return self.history.comm_io.allgather(local_piece)
+
+    def collect_root(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta,
+        dtype: type[np.float32] | type[np.float64],
+    ) -> list[tuple[np.ndarray, np.ndarray]] | None:
+        local_piece = self.local_piece(field_data, meta, dtype)
+        return self.history.comm_io.gather(local_piece, root=0)
+
+    def local_piece(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta,
+        dtype: type[np.float32] | type[np.float64],
+    ) -> tuple[np.ndarray, np.ndarray]:
+        local_data = np.asarray(
+            field_data[..., meta.ids:meta.ide + 1],
+            dtype=dtype
+        )
+        local_indices = self.history.owned_global_indices(meta)
+        owned = self.history.source_owns_indices(self.name, local_indices)
+        local_indices = local_indices[owned]
+        local_data = local_data[..., owned]
+        return local_indices, local_data
+
+    def assemble_writer_range(
+        self,
+        pieces: list[tuple[np.ndarray, np.ndarray]],
+        dtype: type[np.float32] | type[np.float64],
+    ) -> np.ndarray:
+        if not pieces:
+            return np.empty((self.writer_count,), dtype=dtype)
+        sample = pieces[0][1]
+        fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
+        out = np.full(
+            sample.shape[:-1] + (self.writer_count,),
+            fill_value,
+            dtype=dtype
+        )
+        filled = np.zeros(self.writer_count, dtype=bool)
+        writer_end = self.writer_start + self.writer_count
+        for global_indices, data in pieces:
+            mask = (
+                (global_indices >= self.writer_start)
+                & (global_indices < writer_end)
+            )
+            if not np.any(mask):
+                continue
+            pos = global_indices[mask] - self.writer_start
+            if np.any(filled[pos]):
+                raise RuntimeError(
+                    f"SCVT history IO map for {self.name} received duplicated indices."
+                )
+            out[..., pos] = data[..., mask]
+            filled[pos] = True
+        if not np.all(filled):
+            raise RuntimeError(
+                f"SCVT history IO map for {self.name} has missing indices."
+            )
+        return out
+
+
 def build_history(
     model: MODEL,
     mode: str = "scvt",
@@ -98,6 +221,7 @@ def build_history(
     output_h2: bool = False,
     h1_opt: dict = {"use_dual": False},
     h2_opt: dict = {},
+    output_ngroups: int = 0,
     dev: Optional[AbstractDevice] = None,
     float_type: Optional[type[np.float32] | type[np.float64]] = None,
     int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -111,6 +235,7 @@ def build_history(
             output_h1=output_h1,
             output_h2=output_h2,
             h2_opt=h2_opt,
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type
@@ -125,6 +250,7 @@ def build_history(
             output_h2=output_h2,
             h2_opt=h2_opt,
             use_dual=h1_opt["use_dual"],
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type            
@@ -134,17 +260,19 @@ def build_history(
 
 
 class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
-    h0: HY
-    h1: HY
-    h2: SHY
-    output_h0: bool
-    output_h1: bool
-    output_h2: bool
+    h0          : HY
+    h1          : HY
+    h2          : SHY
+    output_h0   : bool
+    output_h1   : bool
+    output_h2   : bool
     time_manager: DateTimeManager
-    case_name: str
-    float_type: type[np.float32] | type[np.float64]
-    int_type: type[np.int32] | type[np.int64]
-    built: bool
+    case_name   : str
+    float_type  : type[np.float32] | type[np.float64]
+    int_type    : type[np.int32] | type[np.int64]
+    proc        : Proc
+    output_ngroups: int
+    built       : bool
 
     @abstractmethod
     def __init__(
@@ -158,6 +286,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         h0_opt: dict = {},
         h1_opt: dict = {},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -166,9 +295,11 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         self.built = False
         self.time_manager = model.time_manager
         self.case_name = case_name
+        self.proc      = model.block.dev.proc
         self.output_h0 = output_h0
         self.output_h1 = output_h1
         self.output_h2 = output_h2
+        self.output_ngroups = output_ngroups
         super().__init__(
             model=model,
             case_name=case_name,
@@ -185,10 +316,12 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
                 file_path=file_path,
                 float_type=self.float_type,
                 int_type=self.int_type,
+                output_ngroups=output_ngroups,
                 **h0_opt,
                 **kwargs,
             )
-            log.logger.info(f"History will output h0: {self.h0.file_path}")
+            if self.is_root():
+                log.logger.info(f"History will output h0: {self.h0.file_path}")
         if self.output_h1:
             self.h1 = self.history_type()(
                 model=model,
@@ -197,10 +330,12 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
                 file_path=file_path,
                 float_type=self.float_type,
                 int_type=self.int_type,
+                output_ngroups=output_ngroups,
                 **h1_opt,
                 **kwargs,
             )
-            log.logger.info(f"History will output h1: {self.h1.file_path}")
+            if self.is_root():
+                log.logger.info(f"History will output h1: {self.h1.file_path}")
         if self.output_h2:
             self.h2 = self.structured_history_type()(
                 model=model,
@@ -209,10 +344,12 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
                 file_path=file_path,
                 float_type=self.float_type,
                 int_type=self.int_type,
+                output_ngroups=output_ngroups,
                 **h2_opt,
                 **kwargs,
             )
-            log.logger.info(f"History will output h2: {self.h2.file_path}")
+            if self.is_root():
+                log.logger.info(f"History will output h2: {self.h2.file_path}")
 
     def setup(self, block: Block) -> Self:
         if self.has_built():
@@ -245,6 +382,12 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
 
     def has_built(self) -> bool:
         return self.built
+
+    def is_root(self) -> bool:
+        return self.proc.is_root()
+
+    def sync(self) -> None:
+        self.proc.comm_model.Barrier()
 
     def output_diag(self, itimestep: int) -> None:
         jax.experimental.io_callback(
@@ -306,6 +449,8 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
             )
 
     def log_diag(self, itimestep: int) -> None:
+        if not self.is_root():
+            return None
         perf_runtime()
 
         log.logger.log(
@@ -317,6 +462,8 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         return None
 
     def _prepare_for_output(self, save_interval_idx: int) -> None:
+        if not self.is_root():
+            return None
         perf_runtime()
 
         log.logger.log(
@@ -328,17 +475,23 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         return None
 
     def log_write_elapsed_seconds(self) -> None:
+        if not self.is_root():
+            return None
         log.logger.success(
             f"Time cost {format(perf_write_history(), '.16f')} seconds."
         )
         return None
 
     def log_start_write(self, history: str) -> None:
+        if not self.is_root():
+            return None
         log.logger.info(
             f"Write {history} file."
         )
 
     def log_done_write(self, history: str, cost_time: float) -> None:
+        if not self.is_root():
+            return None
         log.logger.success(
             f"Done write {history} file cost {format(cost_time, '.16f')} seconds."
         )
@@ -381,12 +534,14 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         self.log_write_elapsed_seconds()
 
         def _set_time_var(h: HY | SHY):
-            ds = nc4.Dataset(h.file_path, mode="a")
-            time_var = ds.variables["time"]
-            current_length = len(time_var)
-            interval = save_interval_idx * self.time_manager.save_interval_value
-            time_var[current_length] = interval
-            ds.close()
+            if h.is_root():
+                ds = nc4.Dataset(h.file_path, mode="a")
+                time_var = ds.variables["time"]
+                current_length = len(time_var)
+                interval = save_interval_idx * self.time_manager.save_interval_value
+                time_var[current_length] = interval
+                ds.close()
+            h.sync()
 
         if self.output_h0:
             self.log_start_write("h0")
@@ -406,9 +561,10 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
             self.log_start_write("h2")
             t0 = time.perf_counter()
             _set_time_var(self.h2)
-            self.write_h2(block, itime_str=itime_str)
+            self.write_h2(block, itime_str=itime_str, first_call=first_call)
             t1 = time.perf_counter()
             self.log_done_write("h2", t1 - t0)
+        self.sync()
         return None
 
     def setup_h0(self, block: Block) -> None:
@@ -456,7 +612,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
 
     def write_h0(self, block: Block, itime_str: str, first_call: bool = False):
         itime = block.get_time_idx(itime_str=itime_str)
-        self.h0.write_fields(block.state, expand_idx=itime)
+        self.h0.write_fields(block.state, dim0_idx=itime)
         self.h0.write_fields(block.tend)
         if first_call:
             self.h0.write_fields(block.static)
@@ -466,7 +622,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
             itime_batch = batch.get_time_idx(itime_str=itime_str)
             self.h0.write_fields(
                 block.tracers,
-                expand_idx=itime_batch,
+                dim0_idx=itime_batch,
                 tracer_idx=batch_idx
             )
         self.h0.write_fields(block.adv_batch_bg)
@@ -476,7 +632,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
 
     def write_h1(self, block: Block, itime_str: str):
         itime = block.get_time_idx(itime_str=itime_str)
-        self.h1.write_fields(block.state, expand_idx=itime)
+        self.h1.write_fields(block.state, dim0_idx=itime)
         self.h1.write_fields(block.tend)
         self.h1.write_fields(block.static)
         self.h1.write_fields(block.aux)
@@ -485,26 +641,27 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         for batch in block.adv_batches.values():
             self.h1.write_fields(batch)
 
-    def write_h2(self, block: Block, itime_str: str):
+    def write_h2(self, block: Block, itime_str: str, first_call: bool = False):
         itime = block.get_time_idx(itime_str=itime_str)
         ph, ph_lev = block.get_plev()
         ph, ph_lev = self.h2.update_plev(ph=ph, ph_lev=ph_lev, itime=itime)
         if self.output_h0:
             self.h2.write_fields(
                 block.state,
-                expand_idx=itime,
+                dim0_idx=itime,
                 ph=ph,
                 ph_lev=ph_lev
             )
             self.h2.write_fields(block.tend, ph=ph, ph_lev=ph_lev)
-            self.h2.write_fields(block.static, ph=ph, ph_lev=ph_lev)
+            if first_call:
+                self.h2.write_fields(block.static, ph=ph, ph_lev=ph_lev)
             self.h2.write_fields(block.aux, ph=ph, ph_lev=ph_lev)
             for batch in block.adv_batches.values():
                 batch_idx = batch.idx
                 itime_batch = batch.get_time_idx(itime_str=itime_str)
                 self.h2.write_fields(
                     block.tracers,
-                    expand_idx=itime_batch,
+                    dim0_idx=itime_batch,
                     tracer_idx=batch_idx,
                     ph=ph,
                     ph_lev=ph_lev
@@ -532,6 +689,7 @@ class UGRIDHistoryset(
         output_h1: bool = False,
         output_h2: bool = False,
         use_dual: bool = False,
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -546,6 +704,7 @@ class UGRIDHistoryset(
             output_h2=output_h2,
             h0_opt={"use_dual": use_dual},
             h1_opt={"use_dual": use_dual},
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type,
@@ -573,6 +732,7 @@ class SCVTHistoryset(
         output_h0: bool = True,
         output_h1: bool = False,
         output_h2: bool = False,
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -590,6 +750,7 @@ class SCVTHistoryset(
             output_h2=output_h2,
             h0_opt={"with_vtx": with_vtx, "with_edge": with_edge},
             h1_opt={"with_vtx": with_vtx, "with_edge": True},
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type,
@@ -606,13 +767,22 @@ class SCVTHistoryset(
 
 
 class AbstractBaseHistory(AbstractHistory):
-    file_path: str
-    time_manager: DateTimeManager
-    float_type: type[np.float32] | type[np.float64]
-    int_type: type[np.int32] | type[np.int64]
+    file_path    : str
+    time_manager : DateTimeManager
+    float_type   : type[np.float32] | type[np.float64]
+    int_type     : type[np.int32  ] | type[np.int64  ]
     nc_float_type: str
-    nc_int_type: str
-    built: bool
+    nc_int_type  : str
+    proc         : Proc
+    local_mesh   : SCVTMesh
+    global_mesh  : SCVTMesh
+    comm_io      : MPI.Comm
+    io_rank      : int
+    io_nproc     : int
+    output_ngroups: int
+    grouped_io   : bool
+    io_maps      : dict[str, SCVTHistoryIOMap]
+    built        : bool
 
     @abstractmethod
     def __init__(
@@ -622,7 +792,8 @@ class AbstractBaseHistory(AbstractHistory):
         case_name: str,
         file_path: str,
         float_type: type[np.float32] | type[np.float64],
-        int_type: type[np.int32] | type[np.int64]
+        int_type: type[np.int32] | type[np.int64],
+        output_ngroups: int = 0,
     ) -> None:
         super().__init__(
             model=model,
@@ -632,6 +803,54 @@ class AbstractBaseHistory(AbstractHistory):
             float_type=float_type,
             int_type=int_type
         )
+        block = model.block
+        mesh  = block.mesh
+        proc  = block.dev.proc
+        comm  = proc.comm_model
+        if not proc.is_model() or comm is None or comm == MPI.COMM_NULL:
+            raise RuntimeError(
+                "History output must be created on model ranks."
+            )
+        output_ngroups = int(output_ngroups)
+        grouped_io = output_ngroups > 0
+        if grouped_io:
+            n_global_min = min(
+                mesh.parent.n_cell,
+                mesh.parent.n_vtx,
+                mesh.parent.n_edge
+            )
+            if output_ngroups > proc.np_model:
+                raise ValueError(
+                    "SCVT history output_ngroups must not exceed the IO communicator size."
+                )
+            if output_ngroups > n_global_min:
+                raise ValueError(
+                    "SCVT history output_ngroups must not exceed the minimum horizontal dimension."
+                )
+            if proc.np_model % output_ngroups != 0:
+                raise ValueError(
+                    "SCVT history output_ngroups must evenly divide the IO communicator size."
+                )
+        else:
+            output_ngroups = 1
+        if proc.is_root():
+            ds = nc4.Dataset(self.file_path, mode="w", format="NETCDF4")
+            ds.sync()
+            ds.close()
+        comm.Barrier()
+        self.proc           = proc
+        self.local_mesh     = mesh
+        self.global_mesh    = mesh.parent
+        self.comm_io        = comm
+        self.io_rank        = comm.rank
+        self.io_nproc       = comm.size
+        self.output_ngroups = output_ngroups
+        self.grouped_io     = grouped_io
+        self.io_maps = {
+            "cell": SCVTHistoryIOMap(self, "cell", self.global_mesh.n_cell),
+            "vtx" : SCVTHistoryIOMap(self, "vtx" , self.global_mesh.n_vtx ),
+            "edge": SCVTHistoryIOMap(self, "edge", self.global_mesh.n_edge),
+        }
 
     @abstractmethod
     def setup(self, *args, **kwargs) -> Self:
@@ -646,47 +865,235 @@ class AbstractBaseHistory(AbstractHistory):
     def open_dataset(self) -> nc4.Dataset:
         return nc4.Dataset(self.file_path, mode="r")
 
+    def is_root(self) -> bool:
+        return self.proc.is_root()
+
+    def sync(self) -> None:
+        self.proc.comm_model.Barrier()
+
+    def global_spatial_size(self, meta: SCVTFieldMeta) -> int:
+        if meta.at_cell:
+            return int(self.global_mesh.n_cell)
+        if meta.at_vtx:
+            return int(self.global_mesh.n_vtx)
+        if meta.at_edge:
+            return int(self.global_mesh.n_edge)
+        raise ValueError(
+            f"Unsupported field location {meta.loc} for variable {meta.name}."
+        )
+
+    def io_map(self, meta: SCVTFieldMeta) -> SCVTHistoryIOMap:
+        if meta.at_cell:
+            return self.io_maps["cell"]
+        if meta.at_vtx:
+            return self.io_maps["vtx"]
+        if meta.at_edge:
+            return self.io_maps["edge"]
+        raise ValueError(
+            f"Unsupported field location {meta.loc} for variable {meta.name}."
+        )
+
+    def owned_global_indices(self, meta: SCVTFieldMeta) -> np.ndarray:
+        if meta.at_cell:
+            global_id = self.local_mesh.global_cell_id
+        elif meta.at_vtx:
+            global_id = self.local_mesh.global_vtx_id
+        elif meta.at_edge:
+            global_id = self.local_mesh.global_edge_id
+        else:
+            raise ValueError(
+                f"Unsupported field location {meta.loc} for variable {meta.name}."
+            )
+        global_id = np.asarray(global_id, dtype=np.int64)
+        if global_id.size == 0:
+            return np.arange(meta.ids, meta.ide + 1, dtype=np.int64)
+        return global_id[meta.ids:meta.ide + 1]
+
+    def source_owns_indices(self, name: str, global_indices: np.ndarray) -> np.ndarray:
+        if self.io_nproc == 1:
+            return np.ones(global_indices.shape, dtype=bool)
+        if name == "cell":
+            cell_owner = np.asarray(self.global_mesh.cell_proc_idmap, dtype=np.int64)
+            return cell_owner[global_indices] == self.proc.id_model
+        if name == "vtx":
+            cells = np.asarray(self.global_mesh.cell_of_vtx , dtype=np.int64)[global_indices]
+        elif name == "edge":
+            cells = np.asarray(self.global_mesh.cell_of_edge, dtype=np.int64)[global_indices]
+        else:
+            raise ValueError(f"Invalid SCVT history IO map name {name}.")
+        valid = cells >= 0
+        cell_owner = np.asarray(self.global_mesh.cell_proc_idmap, dtype=np.int64)
+        owner = np.min(
+            np.where(valid, cell_owner[np.where(valid, cells, 0)], np.iinfo(np.int64).max),
+            axis=1
+        )
+        return owner == self.proc.id_model
+
+    def _gather_field_data(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta,
+        dtype: type[np.float32] | type[np.float64] | None = None
+    ) -> np.ndarray | None:
+        dtype = self.float_type if dtype is None else dtype
+        history_io_map = self.io_map(meta)
+        pieces = history_io_map.collect_root(field_data, meta, dtype)
+        if self.is_root():
+            assert pieces is not None
+            fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
+            global_data = np.full(
+                pieces[0][1].shape[:-1] + (self.global_spatial_size(meta),),
+                fill_value,
+                dtype=dtype
+            )
+            for global_indices, data in pieces:
+                global_data[..., global_indices] = data
+            return global_data
+        return None
+
+    def _gather_field_pieces(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta,
+        dtype: type[np.float32] | type[np.float64] | None = None
+    ) -> list[tuple[np.ndarray, np.ndarray]] | None:
+        dtype = self.float_type if dtype is None else dtype
+        history_io_map = self.io_map(meta)
+        if self.grouped_io:
+            return history_io_map.collect(field_data, meta, dtype)
+        return history_io_map.collect_root(field_data, meta, dtype)
+
+    def _write_spatial_range(
+        self,
+        ds: nc4.Dataset,
+        var_name: str,
+        data: np.ndarray,
+        start: int,
+        count: int,
+        time_idx: int | None
+    ) -> None:
+        if count == 0:
+            return None
+        var = ds.variables[var_name]
+        spatial_slice = slice(start, start + count)
+        if time_idx is None:
+            nc_idx = (slice(None),) * (var.ndim - 1) + (spatial_slice,)
+        else:
+            nc_idx = (time_idx,) + (slice(None),) * (var.ndim - 2) + (spatial_slice,)
+        var[nc_idx] = data
+        return None
+
+    def _write_field_pieces(
+        self,
+        ds: nc4.Dataset,
+        field: SCVTFieldLike,
+        pieces: list[tuple[np.ndarray, np.ndarray]],
+        time_idx: int,
+        tracer_idx: Optional[list[int]],
+        tracers_meta: Optional[dict[str, TracerMeta]]
+    ) -> None:
+        meta = field.meta
+        history_io_map = self.io_map(meta)
+        if not history_io_map.is_writer:
+            return None
+        writer_data = history_io_map.assemble_writer_range(pieces, self.float_type)
+        write_time_idx = None if meta.is_static else time_idx
+        if not meta.is_tracer:
+            self._write_spatial_range(
+                ds=ds,
+                var_name=meta.name,
+                data=writer_data,
+                start=history_io_map.writer_start,
+                count=history_io_map.writer_count,
+                time_idx=write_time_idx
+            )
+            return None
+        if tracers_meta is None:
+            raise ValueError("tracers_meta is required for tracer fields.")
+        if tracer_idx is None:
+            raise ValueError("tracer_idx is required for tracer fields.")
+        tracer_indices = set(np.asarray(tracer_idx).reshape(-1).astype(int).tolist())
+        for q_idx, tracer_name in enumerate(tracers_meta.keys()):
+            if q_idx not in tracer_indices:
+                continue
+            self._write_spatial_range(
+                ds=ds,
+                var_name=tracer_name,
+                data=writer_data[q_idx, ...],
+                start=history_io_map.writer_start,
+                count=history_io_map.writer_count,
+                time_idx=write_time_idx
+            )
+        return None
+
     def write_fields(
         self,
         fields: SCVTFields,
-        expand_idx: Optional[int] = None,
+        dim0_idx: Optional[int] = None,
         tracer_idx: Optional[list[int]] = None,
         **kwargs
     ) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        idx = len(ds.variables["time"]) - 1
+        io_pending: list[
+            tuple[SCVTFieldLike, list[tuple[np.ndarray, np.ndarray]]]
+        ] = []
+        scalar_pending: list[tuple[str, np.ndarray, bool]] = []
+        tracers_meta: dict[str, TracerMeta] | None = None
+        if hasattr(fields, "tracers_meta"):
+            tracers_meta = getattr(fields, "tracers_meta")
+
         for field_name in fields.keys():
             field = getattr(fields, field_name)
             if field.meta.output != self.history_name or field.meta.output == "":
                 continue
-            if expand_idx is None:
-                data = np.asarray(field.unwrap(), dtype=self.float_type)
+            if dim0_idx is None:
+                data = field.unwrap()
             else:
-                data = np.asarray(
-                    field.unwrap()[expand_idx, ...],
-                    dtype=self.float_type
+                data = field.unwrap()[dim0_idx, ...]
+            if isinstance(field.meta, SCVTFieldMeta):
+                pieces = self._gather_field_pieces(data, field.meta)
+                if self.io_map(field.meta).is_writer:
+                    assert pieces is not None
+                    io_pending.append((field, pieces))
+            elif isinstance(field.meta, ScalarFieldMeta):
+                if self.is_root():
+                    scalar_pending.append((
+                        field.meta.name,
+                        np.asarray(data, dtype=self.float_type),
+                        field.meta.is_static
+                    ))
+            else:
+                raise ValueError(
+                    f"Unsupported field meta data type: {type(field.meta)}"
                 )
-            if field.meta.is_static:
-                ds.variables[field.meta.name][...] = data
-            if not getattr(field.meta, "is_tracer", False):
-                ds.variables[field.meta.name][idx, ...] = data
-            else:
-                if hasattr(fields, "tracers_meta"):
-                    tracers_meta: dict[str, TracerMeta] = getattr(
-                        fields, "tracers_meta"
-                    )
-                else:
-                    raise ValueError(
-                        "tracers_meta is required for tracer fields."
-                    )
-                if tracer_idx is None:
-                    raise ValueError(
-                        "tracer_idx is required for tracer fields."
-                    )
-                for q_idx, tracer_name in enumerate(tracers_meta.keys()):
-                    if q_idx in tracer_idx:
-                        ds.variables[tracer_name][idx, ...] = data[q_idx, ...]
-        ds.close()
+
+        for group_id in range(self.output_ngroups):
+            writer_rank, _ = _history_group_bounds(
+                self.io_nproc,
+                self.output_ngroups,
+                group_id
+            )
+            if self.io_rank == writer_rank:
+                ds = nc4.Dataset(self.file_path, mode="a")
+                try:
+                    idx = len(ds.variables["time"]) - 1
+                    for field, pieces in io_pending:
+                        self._write_field_pieces(
+                            ds=ds,
+                            field=field,
+                            pieces=pieces,
+                            time_idx=idx,
+                            tracer_idx=tracer_idx,
+                            tracers_meta=tracers_meta
+                        )
+                    if self.is_root():
+                        for var_name, data, is_static in scalar_pending:
+                            if is_static:
+                                ds.variables[var_name][...] = data
+                            else:
+                                ds.variables[var_name][idx] = data
+                finally:
+                    ds.close()
+            self.sync()
         return None
 
     @abstractmethod
@@ -709,6 +1116,7 @@ class UGRIDHistory(AbstractBaseHistory):
         file_path: str,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64],
+        output_ngroups: int = 0,
         use_dual: bool = False,
     ) -> None:
         super().__init__(
@@ -717,7 +1125,8 @@ class UGRIDHistory(AbstractBaseHistory):
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
-            int_type=int_type
+            int_type=int_type,
+            output_ngroups=output_ngroups
         )
         self.use_dual = use_dual
         self.attr_setup = GlobalAttributesSetup(
@@ -733,7 +1142,7 @@ class UGRIDHistory(AbstractBaseHistory):
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.mesh_setup = model.block.mesh.history_builder(
+        self.mesh_setup = self.global_mesh.history_builder(
             file_path=self.file_path,
             output_type="ugrid",
             float_type=self.float_type,
@@ -749,25 +1158,29 @@ class UGRIDHistory(AbstractBaseHistory):
     def setup(self, fields: SCVTFields) -> Self:
         if self.has_built():
             return self
-        if not self.attr_setup.has_built():
-            self.attr_setup.setup()
-        if not self.time_setup.has_built():
-            self.time_setup.setup()
-        if not self.mesh_setup.has_built():
-            self.mesh_setup.setup(use_dual=self.use_dual)
-        if not self.vert_setup.has_built():
-            self.vert_setup.setup()
-        if (
-            self.attr_setup.has_built()
-            and self.time_setup.has_built()
-            and self.mesh_setup.has_built()
-            and self.vert_setup.has_built()
-            and not self.built
-        ):
-            self.add_fields(fields)
+        if self.is_root():
+            if not self.attr_setup.has_built():
+                self.attr_setup.setup()
+            if not self.time_setup.has_built():
+                self.time_setup.setup()
+            if not self.mesh_setup.has_built():
+                self.mesh_setup.setup(use_dual=self.use_dual)
+            if not self.vert_setup.has_built():
+                self.vert_setup.setup()
+            if (
+                self.attr_setup.has_built()
+                and self.time_setup.has_built()
+                and self.mesh_setup.has_built()
+                and self.vert_setup.has_built()
+                and not self.built
+            ):
+                self.add_fields(fields)
+        self.sync()
         return self
 
     def add_fields(self, fields: SCVTFields) -> None:
+        if not self.is_root():
+            return None
         ds = nc4.Dataset(self.file_path, mode="a")
         var_dtype = self.nc_float_type
         for _, field in fields.items():
@@ -846,6 +1259,7 @@ class SCVTHistory(AbstractBaseHistory):
         with_edge: bool,
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64],
+        output_ngroups: int = 0,
     ) -> None:
         super().__init__(
             model=model,
@@ -853,7 +1267,8 @@ class SCVTHistory(AbstractBaseHistory):
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
-            int_type=int_type
+            int_type=int_type,
+            output_ngroups=output_ngroups
         )
         self.attr_setup = GlobalAttributesSetup(
             file_path=self.file_path,
@@ -868,7 +1283,7 @@ class SCVTHistory(AbstractBaseHistory):
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.mesh_setup = model.block.mesh.history_builder(
+        self.mesh_setup = self.global_mesh.history_builder(
             file_path=self.file_path,
             output_type="unstructured",
             float_type=self.float_type,
@@ -886,28 +1301,32 @@ class SCVTHistory(AbstractBaseHistory):
     def setup(self, fields: SCVTFields) -> Self:
         if self.has_built():
             return self
-        if not self.attr_setup.has_built():
-            self.attr_setup.setup()
-        if not self.time_setup.has_built():
-            self.time_setup.setup()
-        if not self.mesh_setup.has_built():
-            self.mesh_setup.setup(
-                with_vtx=self.with_vtx,
-                with_edge=self.with_edge
-            )
-        if not self.vert_setup.has_built():
-            self.vert_setup.setup()
-        if (
-            self.attr_setup.has_built()
-            and self.time_setup.has_built()
-            and self.mesh_setup.has_built()
-            and self.vert_setup.has_built()
-            and not self.built
-        ):
-            self.add_fields(fields)
+        if self.is_root():
+            if not self.attr_setup.has_built():
+                self.attr_setup.setup()
+            if not self.time_setup.has_built():
+                self.time_setup.setup()
+            if not self.mesh_setup.has_built():
+                self.mesh_setup.setup(
+                    with_vtx=self.with_vtx,
+                    with_edge=self.with_edge
+                )
+            if not self.vert_setup.has_built():
+                self.vert_setup.setup()
+            if (
+                self.attr_setup.has_built()
+                and self.time_setup.has_built()
+                and self.mesh_setup.has_built()
+                and self.vert_setup.has_built()
+                and not self.built
+            ):
+                self.add_fields(fields)
+        self.sync()
         return self
 
     def add_fields(self, fields: SCVTFields) -> None:
+        if not self.is_root():
+            return None
         ds = nc4.Dataset(self.file_path, mode="a")
         var_dtype = self.nc_float_type
         for _, field in fields.items():
@@ -994,7 +1413,8 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         lon: Optional[np.ndarray | Array] = None,
         lat: Optional[np.ndarray | Array] = None,
         plev: np.ndarray | Array = np.array([10, 20, 50, 100, 200, 300, 500, 700, 850, 925, 1000]),
-        plev_unit: str = "hPa"
+        plev_unit: str = "hPa",
+        output_ngroups: int = 0,
     ) -> None:
         if vert_interp and model.mode.is_2d_model():
             log.logger.warning(
@@ -1008,7 +1428,8 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             case_name=case_name,
             file_path=file_path,
             float_type=float_type,
-            int_type=int_type
+            int_type=int_type,
+            output_ngroups=output_ngroups
         )
         self.attr_setup = GlobalAttributesSetup(
             file_path=self.file_path,
@@ -1023,7 +1444,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             float_type=self.float_type,
             int_type=self.int_type
         )
-        self.mesh_setup = model.block.mesh.history_builder(
+        self.mesh_setup = self.global_mesh.history_builder(
             file_path=self.file_path,
             output_type="structured",
             float_type=self.float_type,
@@ -1036,7 +1457,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             int_type=self.int_type
         )
         self.para = model.block.para
-        self.mesh = model.block.mesh.parent
+        self.mesh = self.global_mesh
         self.hori_regrid_method = hori_regrid_method
         self.hori_regrid_backend = hori_regrid_backend
         self.vert_interp = vert_interp
@@ -1067,31 +1488,35 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
     def setup(self, fields: SCVTFields) -> Self:
         if self.has_built():
             return self
-        if not self.attr_setup.has_built():
-            self.attr_setup.setup()
-        if not self.time_setup.has_built():
-            self.time_setup.setup()
-        if not self.mesh_setup.has_built():
-            self.mesh_setup.setup(
-                dst_lon=self.structured_lon,
-                dst_lat=self.structured_lat,
-            )
-        if not self.vert_setup.has_built():
-            self.vert_setup.setup(
-                lev=self.structured_lev,
-                lev_unit="Pa",
-            )
-        if (
-            self.attr_setup.has_built()
-            and self.time_setup.has_built()
-            and self.mesh_setup.has_built()
-            and self.vert_setup.has_built()
-            and not self.built
-        ):
-            self.add_fields(fields)
+        if self.is_root():
+            if not self.attr_setup.has_built():
+                self.attr_setup.setup()
+            if not self.time_setup.has_built():
+                self.time_setup.setup()
+            if not self.mesh_setup.has_built():
+                self.mesh_setup.setup(
+                    dst_lon=self.structured_lon,
+                    dst_lat=self.structured_lat,
+                )
+            if not self.vert_setup.has_built():
+                self.vert_setup.setup(
+                    lev=self.structured_lev,
+                    lev_unit="Pa",
+                )
+            if (
+                self.attr_setup.has_built()
+                and self.time_setup.has_built()
+                and self.mesh_setup.has_built()
+                and self.vert_setup.has_built()
+                and not self.built
+            ):
+                self.add_fields(fields)
+        self.sync()
         return self
 
     def add_fields(self, fields: SCVTFields) -> None:
+        if not self.is_root():
+            return None
         ds = nc4.Dataset(self.file_path, mode="a", format="NETCDF4")
         var_dtype = self.nc_float_type
         for _, field in fields.items():
@@ -1160,88 +1585,103 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
     def write_fields(
         self,
         fields: SCVTFields,
-        expand_idx: Optional[int] = None,
+        dim0_idx: Optional[int] = None,
         tracer_idx: Optional[list[int]] = None,
         ph: Optional[np.ndarray] = None,
         ph_lev: Optional[np.ndarray] = None,
         **kwargs
     ) -> None:
-        ds = nc4.Dataset(self.file_path, mode="a")
-        idx = len(ds.variables["time"]) - 1
-        expand_idx = int(expand_idx) if expand_idx is not None else None
         var_dtype = self.float_type
+        ds = nc4.Dataset(self.file_path, mode="a") if self.is_root() else None
         # Write remapped FieldMetaData fields
-        for _, field in fields.items():
-            meta = field.meta
-            if not isinstance(meta, SCVTFieldMeta):
-                continue
-            if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
-                continue
-            if meta.name in PLEV_NAMES and self.vert_interp:
-                continue
+        try:
+            for _, field in fields.items():
+                meta = field.meta
+                if not isinstance(meta, SCVTFieldMeta):
+                    continue
+                if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
+                    continue
+                if meta.name in PLEV_NAMES and self.vert_interp:
+                    continue
 
-            if expand_idx is None:
-                field_data = field.unwrap()
-            else:
-                field_data = field.unwrap()[expand_idx, ...]
-            field_data = self._remap_field(
-                field_data=field_data,
-                meta=meta,
-                ph=ph,
-                ph_lev=ph_lev,
-            )
-            if meta.is_static:
-                ds.variables[meta.name][...] = np.array(
-                    field_data,
-                    dtype=var_dtype
-                )
-            elif not meta.is_tracer:
-                ds.variables[meta.name][idx, ...] = np.array(
-                    field_data,
-                    dtype=var_dtype
-                )
-            else:
-                if hasattr(fields, "tracers_meta"):
-                    tracers_meta: dict[str, TracerMeta] = getattr(
-                        fields, "tracers_meta"
-                    )
+                if dim0_idx is None:
+                    field_data = field.unwrap()
                 else:
-                    raise ValueError(
-                        "tracers_meta is required for tracer fields."
-                    )
-                if tracer_idx is None:
-                    raise ValueError(
-                        "tracer_idx is required for tracer fields."
-                    )
-                tracer_indices = set(
-                    np.asarray(tracer_idx).reshape(-1).astype(int).tolist()
+                    field_data = field.unwrap()[dim0_idx, ...]
+                field_data = self._gather_field_data(
+                    field_data=field_data,
+                    meta=meta,
+                    dtype=var_dtype
                 )
-                for q_idx, tracer_name in enumerate(tracers_meta.keys()):
-                    if q_idx in tracer_indices:
-                        ds.variables[tracer_name][idx, ...] = np.array(
-                            field_data[q_idx, ...],
+                if field_data is None:
+                    continue
+                if self.is_root():
+                    assert ds is not None
+                    idx = len(ds.variables["time"]) - 1
+                    field_data = self._remap_field(
+                        field_data=np.asarray(field_data),
+                        meta=meta,
+                        ph=ph,
+                        ph_lev=ph_lev,
+                    )
+                    if meta.is_static:
+                        ds.variables[meta.name][...] = np.asarray(
+                            field_data,
                             dtype=var_dtype
                         )
-        # Write NumericMetaData fields
-        for _, field in fields.items():
-            if not isinstance(field.meta, ScalarFieldMeta):
-                continue
-            if field.meta.output not in STRUCTURED_HISTORY_LIST or field.meta.output == "":
-                continue
-            if expand_idx is None:
-                field_data = field.unwrap()
-            else:
-                field_data = field.unwrap()[expand_idx, ...]
-            field_name = field.meta.name
-            if field.meta.is_static:
-                ds.variables[field_name][...] = np.array(
-                    field_data, dtype=var_dtype
-                )
-            else:
-                ds.variables[field_name][idx] = np.array(
-                    field_data, dtype=var_dtype
-                )
-        ds.close()
+                    elif not meta.is_tracer:
+                        ds.variables[meta.name][idx, ...] = np.asarray(
+                            field_data,
+                            dtype=var_dtype
+                        )
+                    else:
+                        if hasattr(fields, "tracers_meta"):
+                            tracers_meta: dict[str, TracerMeta] = getattr(
+                                fields, "tracers_meta"
+                            )
+                        else:
+                            raise ValueError(
+                                "tracers_meta is required for tracer fields."
+                            )
+                        if tracer_idx is None:
+                            raise ValueError(
+                                "tracer_idx is required for tracer fields."
+                            )
+                        tracer_indices = set(
+                            np.asarray(tracer_idx).reshape(-1).astype(int).tolist()
+                        )
+                        for q_idx, tracer_name in enumerate(tracers_meta.keys()):
+                            if q_idx in tracer_indices:
+                                ds.variables[tracer_name][idx, ...] = np.asarray(
+                                    field_data[q_idx, ...],
+                                    dtype=var_dtype
+                                )
+            # Write NumericMetaData fields
+            if self.is_root():
+                assert ds is not None
+                for _, field in fields.items():
+                    if not isinstance(field.meta, ScalarFieldMeta):
+                        continue
+                    if field.meta.output not in STRUCTURED_HISTORY_LIST or field.meta.output == "":
+                        continue
+                    if dim0_idx is None:
+                        field_data = field.unwrap()
+                    else:
+                        field_data = field.unwrap()[dim0_idx, ...]
+                    field_name = field.meta.name
+                    idx = len(ds.variables["time"]) - 1
+                    if field.meta.is_static:
+                        ds.variables[field_name][...] = np.asarray(
+                            field_data, dtype=var_dtype
+                        )
+                    else:
+                        ds.variables[field_name][idx] = np.asarray(
+                            field_data, dtype=var_dtype
+                        )
+        finally:
+            if ds is not None:
+                ds.close()
+        self.sync()
         return None
 
     def _get_regridder(
@@ -1289,7 +1729,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
 
     def _horizontal_remap(
         self,
-        field_data: Array,
+        field_data: np.ndarray,
         meta: SCVTFieldMeta,
         ndbound: Optional[int],
     ) -> np.ndarray:
@@ -1298,17 +1738,17 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             return np.stack(
                 [
                     np.array(
-                        regridder.regrid(field_data[q_idx, ...]),
+                        regridder.regrid(jnp.asarray(field_data[q_idx, ...])),
                         copy=True,
                     )
                     for q_idx in range(field_data.shape[0])
                 ]
             )
-        return np.array(regridder.regrid(field_data), copy=True)
+        return np.array(regridder.regrid(jnp.asarray(field_data)), copy=True)
 
     def _remap_field(
         self,
-        field_data: Array,
+        field_data: np.ndarray,
         meta: SCVTFieldMeta,
         ph: Optional[np.ndarray] = None,
         ph_lev: Optional[np.ndarray] = None,
@@ -1316,7 +1756,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         if meta.at_sfc:
             if meta.is_tracer:
                 if field_data.ndim == 3 and field_data.shape[1] == 1:
-                    field_data = jnp.squeeze(field_data, axis=1)
+                    field_data = np.squeeze(field_data, axis=1)
                 elif field_data.ndim != 2:
                     raise ValueError(
                         f"Tracer variable {meta.name} has shape {field_data.shape}, "
@@ -1324,7 +1764,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
                     )
             else:
                 if field_data.ndim == 2 and field_data.shape[0] == 1:
-                    field_data = jnp.squeeze(field_data, axis=0)
+                    field_data = np.squeeze(field_data, axis=0)
                 elif field_data.ndim != 1:
                     raise ValueError(
                         f"Variable {meta.name} has shape {field_data.shape}, "
@@ -1379,27 +1819,25 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             )
         # Vertical interpolation if applicable
         if meta.is_tracer:
-            vert_remapped = np.stack(
-                [
-                    np.asarray(
-                        interp_plev(
-                            mesh=self.mesh,
-                            pi=jnp.asarray(pi),
-                            xi=jnp.asarray(hori_remapped[q_idx, ...]),
-                            po=jnp.asarray(self.structured_lev),
-                            xo_loc=meta.loc,
-                            logp=meta.name in VARNAMES_USING_LOG_INTERP,
-                        )
-                    )
-                    for q_idx in range(hori_remapped.shape[0])
-                ]
+            xi = np.moveaxis(np.asarray(hori_remapped), 1, 0)
+            pi_batched = np.broadcast_to(
+                np.asarray(pi)[:, None, ...],
+                xi.shape,
             )
-            return vert_remapped
+            vert_remapped = interp_plev(
+                mesh=self.mesh,
+                pi=pi_batched,
+                xi=xi,
+                po=self.structured_lev,
+                xo_loc=meta.loc,
+                logp=meta.name in VARNAMES_USING_LOG_INTERP,
+            )
+            return np.moveaxis(np.asarray(vert_remapped), 1, 0)
         vert_remapped = interp_plev(
             mesh=self.mesh,
-            pi=jnp.asarray(pi),
-            xi=jnp.asarray(hori_remapped),
-            po=jnp.asarray(self.structured_lev),
+            pi=np.asarray(pi),
+            xi=np.asarray(hori_remapped),
+            po=np.asarray(self.structured_lev),
             xo_loc=meta.loc,
             logp=meta.name in VARNAMES_USING_LOG_INTERP,
         )
@@ -1419,16 +1857,32 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             return None, None
         ph_data = ph.unwrap()[itime, ...]
         ph_lev_data = ph_lev.unwrap()[itime, ...]
-        ph_remapped = self._horizontal_remap(
+        ph_data = self._gather_field_data(
             field_data=ph_data,
             meta=ph.meta,
-            ndbound=ph_data.shape[0] if ph_data.ndim >= 2 else None
+            dtype=self.float_type
         )
-        ph_lev_remapped = self._horizontal_remap(
+        ph_lev_data = self._gather_field_data(
             field_data=ph_lev_data,
             meta=ph_lev.meta,
-            ndbound=ph_lev_data.shape[0] if ph_lev_data.ndim >= 2 else None
+            dtype=self.float_type
         )
+        if ph_data is not None:
+            ph_remapped = self._horizontal_remap(
+                field_data=ph_data,
+                meta=ph.meta,
+                ndbound=ph_data.shape[0] if ph_data.ndim >= 2 else None
+            )
+        else:
+            ph_remapped = None
+        if ph_lev_data is not None:
+            ph_lev_remapped = self._horizontal_remap(
+                field_data=ph_lev_data,
+                meta=ph_lev.meta,
+                ndbound=ph_lev_data.shape[0] if ph_lev_data.ndim >= 2 else None
+            )
+        else:
+            ph_lev_remapped = None
         return ph_remapped, ph_lev_remapped
 
 

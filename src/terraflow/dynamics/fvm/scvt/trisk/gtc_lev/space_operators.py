@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.util import formula
 from terraflow.util.pytree import tree_at
@@ -261,10 +262,11 @@ def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     
     
 def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
-    half_kds = block.mesh.half_kds
-    half_kde = block.mesh.half_kde
-    polg_ids = block.mesh.cell_ids
-    polg_ide = block.mesh.cell_ide
+    mesh = block.mesh
+    half_kds = mesh.half_kds
+    half_kde = mesh.half_kde
+    polg_ids = mesh.cell_ids
+    polg_ide = mesh.cell_ide
     dmgsdt  = block.tend.dmgsdt .unwrap()
     dmf     = block.aux .dmf    .unwrap()
     mfz_lev = block.aux .mfz_lev.unwrap()
@@ -274,11 +276,16 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         ks=half_kds + 1,
         ke=half_kde - 1
     )
-    mfz_lev = mfz_lev.at[half_kds+1:half_kde].set(
+    mfz_lev = mfz_lev.at[half_kds+1:half_kde, polg_ids:polg_ide+1].set(
         - dmgdt_lev - jnp.cumsum(
             dmf[:half_kde-1, polg_ids:polg_ide+1],
             axis=0
         )
+    )
+    mfz_lev = fill_field2d_array_halo(
+        halo=mesh.halo,
+        f=mfz_lev,
+        meta=block.aux.mfz_lev.meta
     )
     # ==========================================================
     return tree_at(
@@ -383,12 +390,12 @@ def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         div2 = block.aux.div2 .unwrap()
         
         kds, kde = mesh.full_kds, mesh.full_kde
-        ids, ide = mesh.edge_ids, mesh.edge_ide
-        v1 = mesh.cell_of_edge[ids:ide+1, 0]
-        v2 = mesh.cell_of_edge[ids:ide+1, 1]
+        ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
+        v1 = mesh.cell_of_edge[ids:ihe+1, 0]
+        v2 = mesh.cell_of_edge[ids:ihe+1, 1]
         divn = (
             (div[kds:kde+1, v2] - div[kds:kde+1, v1]) 
-            * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
+            * mesh.edpnr_eddtg[ids:ihe+1] / mesh.de[ids:ihe+1]
         )
         div2 = op.div_operator_2d(
             mesh=mesh,
@@ -426,10 +433,10 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     kds, kde = half_kds, half_kde
     # =======================================
     # From half_kde to half_kds
-    tmp = rd * tv * jnp.log(
+    tmp = rd * tv[kds:kde, ids:ihe+1] * jnp.log(
         ph_lev[kds+1:kde+1, ids:ihe+1] / ph_lev[kds:kde, ids:ihe+1]
     )
-    _gz_lev = gzs + jnp.cumulative_sum(
+    _gz_lev = gzs[ids:ihe+1] + jnp.cumulative_sum(
         jnp.flip(tmp, axis=0),
         axis=0,
         include_initial=True
@@ -507,6 +514,11 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         dmg_lev = dmg_lev.at[k, ids:ihe+1].set(
             mg_lev[k, ids:ihe+1] - mg[k-1, ids:ihe+1]
         )
+        dmg_lev = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=dmg_lev,
+            meta=block.state.dmg_lev.meta
+        )
         # ======================================================
         dmg_edge = interp.scvt_average_2d(
             mesh=mesh,
@@ -514,6 +526,11 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             y=dmg_edge,
             x_loc=block.state.dmg     .meta.loc,
             y_loc=block.aux  .dmg_edge.meta.loc
+        )
+        dmg_edge = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=dmg_edge,
+            meta=block.aux.dmg_edge.meta
         )
         dmg_vtx = interp.scvt_interp_2d(
             mesh=mesh,
@@ -546,6 +563,11 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             x_loc=block.state.dmg     .meta.loc,
             y_loc=block.aux  .dmg_edge.meta.loc
         )
+        dmg_edge = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=dmg_edge,
+            meta=block.aux.dmg_edge.meta
+        )
         dmg_vtx = interp.scvt_interp_2d(
             mesh=mesh,
             x=dmg,
@@ -568,14 +590,14 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     
 def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     mesh = block.mesh
-    ihs, ihe = mesh.edge_ihs[0], mesh.edge_ihe[0]
+    ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
     kds, kde = mesh.full_kds, mesh.full_kde
     un       = block.state.un      .unwrap()[star_idx, :, :]
     dmg_edge = block.aux  .dmg_edge.unwrap()[          :, :]
     mfn      = block.aux  .mfn     .unwrap()
     # ==========================================================
-    mfn = mfn.at[kds:kde+1, ihs:ihe+1].set(
-        un[kds:kde+1, ihs:ihe+1] * dmg_edge[kds:kde+1, ihs:ihe+1]
+    mfn = mfn.at[kds:kde+1, ids:ihe+1].set(
+        un[kds:kde+1, ids:ihe+1] * dmg_edge[kds:kde+1, ids:ihe+1]
     )
     # ==========================================================
     return tree_at(
@@ -642,16 +664,21 @@ def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = Fal
     
 def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
     mesh = block.mesh
-    ids, ide = mesh.vtx_ids, mesh.vtx_ide
+    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
     kds, kde = mesh.full_kds, mesh.full_kde
     f_vtx    = mesh.f_vtx
     dmg_vtx  = block.aux.dmg_vtx.unwrap()[:, :]
     pv       = block.aux.pv     .unwrap()
     # ==========================================================
-    block = calc_vor(block, star_idx)
-    vor = block.aux.vor.unwrap()[kds:kde+1, ids:ide+1]
-    pv = pv.at[kds:kde+1, ids:ide+1].set(
-        (vor + f_vtx[ids:ide+1]) / dmg_vtx[kds:kde+1, ids:ide+1]
+    block = calc_vor(block, star_idx, with_halo=True)
+    vor = block.aux.vor.unwrap()[kds:kde+1, ids:ihe+1]
+    pv = pv.at[kds:kde+1, ids:ihe+1].set(
+        (vor + f_vtx[ids:ihe+1]) / dmg_vtx[kds:kde+1, ids:ihe+1]
+    )
+    pv = fill_field2d_array_halo(
+        halo=mesh.halo,
+        f=pv,
+        meta=block.aux.pv.meta
     )
     # ==========================================================
     return tree_at(
@@ -677,6 +704,11 @@ def interp_pv_midpoint(
     v2 = mesh.vtx_of_edge[ids:ide+1, 1]
     pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
         0.5 * (pv[kds:kde+1, v1] + pv[kds:kde+1, v2])
+    )
+    pv_edge = fill_field2d_array_halo(
+        halo=mesh.halo,
+        f=pv_edge,
+        meta=block.aux.pv_edge.meta
     )
     return tree_at(
         where=lambda b: b.aux.pv_edge.d,
@@ -759,6 +791,11 @@ def interp_pv_upwind(
         )
     else:
         raise ValueError(f"interp_pv_upwind: unsupported upwind order {upwind_order_pv}!")
+    pv_edge = fill_field2d_array_halo(
+        halo=mesh.halo,
+        f=pv_edge,
+        meta=block.aux.pv_edge.meta
+    )
     return tree_at(
         where=lambda b: b.aux.pv_edge.d,
         pytree=block,
@@ -891,7 +928,8 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         un=un,
         mfn=mfn,
         mfz=mfz_lev,
-        m=dmg
+        m=dmg,
+        mesh=mesh
     )
     ptfn = interface.calc_tracer_hflx(
         block=block,
@@ -906,7 +944,12 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         div=dptdt, 
         div_loc=block.tend.dptdt.meta.loc
     )
-    # TODO: add scvt_adv_fill_vhalo function at here!
+    pt = scvt_adv_fill_vhalo(
+        f=pt,
+        meta=block.state.pt.meta,
+        mesh=mesh,
+        no_negvals=True
+    )
     ptfz = interface.calc_tracer_vflx(
         block=block,
         batch=batch,
@@ -933,6 +976,7 @@ def calc_dmgsdt(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     dmf    = block.aux .dmf   .unwrap()
     dmgsdt = block.tend.dmgsdt.unwrap()
     # ==========================================================
+    dmgsdt = jnp.zeros_like(dmgsdt)
     dmgsdt = dmgsdt.at[ids:ide+1].set(
         - jnp.sum(dmf[kds:kde+1, ids:ide+1], axis=0)
     )

@@ -32,12 +32,46 @@ class SCVTRegridInfo:
     para: PlanetParameterSet
     mesh: SCVTMesh
     loc: str
+    with_halo: bool = False
 
     def get_coord(self, layout: str) -> dict[str, Float[Array, "npoints"]]:
         return self.mesh.get_coords(
             loc=self.loc,
             layout=layout,
+            with_halo=self.with_halo,
         )
+
+    def get_coord_degrees(self, layout: str) -> dict[str, Float[Array, "npoints"]]:
+        if layout != "triskc":
+            raise ValueError(f"Unsupported layout {layout}!")
+        if self.loc == "cell" or self.loc == "lev":
+            if self.with_halo:
+                i_s, i_e = self.mesh.cell_ims, self.mesh.cell_ime
+            else:
+                i_s, i_e = self.mesh.cell_ids, self.mesh.cell_ide
+            return dict(
+                lon=self.mesh.cell_lon_deg[i_s:i_e+1],
+                lat=self.mesh.cell_lat_deg[i_s:i_e+1],
+            )
+        if self.loc == "vtx" or self.loc == "node" or self.loc == "lev_vtx":
+            if self.with_halo:
+                i_s, i_e = self.mesh.vtx_ims, self.mesh.vtx_ime
+            else:
+                i_s, i_e = self.mesh.vtx_ids, self.mesh.vtx_ide
+            return dict(
+                lon=self.mesh.vtx_lon_deg[i_s:i_e+1],
+                lat=self.mesh.vtx_lat_deg[i_s:i_e+1],
+            )
+        if self.loc == "edge" or self.loc == "lev_edge":
+            if self.with_halo:
+                i_s, i_e = self.mesh.edge_ims, self.mesh.edge_ime
+            else:
+                i_s, i_e = self.mesh.edge_ids, self.mesh.edge_ide
+            return dict(
+                lon=self.mesh.dual_edge_lon_deg[i_s:i_e+1],
+                lat=self.mesh.dual_edge_lat_deg[i_s:i_e+1],
+            )
+        raise ValueError(f"Unsupported location {self.loc} for layout {layout}!")
 
 
 class Regridder:
@@ -89,7 +123,7 @@ class Regridder:
                     f"Native backend only supports latlon -> scvt regridding currently, got "
                     f"{src_type} -> {dst_type}"
                 )
-            dst_coord = dst.get_coord(layout=layout)
+            dst_coord = dst.get_coord_degrees(layout=layout)
             self._impl = NativeRegridder(
                 src_lon=src.lon,
                 src_lat=src.lat,
@@ -113,7 +147,8 @@ class Regridder:
                     para=src.para,
                     mesh=src.mesh,
                     loc=src.loc,
-                    layout=layout
+                    layout=layout,
+                    with_halo=src.with_halo,
                 )
             else:
                 raise ValueError(
@@ -132,7 +167,8 @@ class Regridder:
                     para=dst.para,
                     mesh=dst.mesh,
                     loc=dst.loc,
-                    layout=layout
+                    layout=layout,
+                    with_halo=dst.with_halo,
                 )
             else:
                 raise ValueError(
@@ -147,7 +183,7 @@ class Regridder:
                 extrap=self.extrap,
                 extrap_method=self.esmf_extrap_method,
                 conserve_opt=self.esmf_conserve_opt,
-                precompute_weights=self.precompute_weights,
+                precompute_weights=self.precompute_weights
             )
         else:
             raise ValueError(f"Unsupported backend: {backend}")
@@ -171,5 +207,15 @@ class Regridder:
         return LatlonRegridInfo(lon=lon, lat=lat)
 
     @staticmethod
-    def create_scvt_info(para: PlanetParameterSet, mesh: SCVTMesh, loc: str) -> SCVTRegridInfo:
-        return SCVTRegridInfo(para=para, mesh=mesh, loc=loc)
+    def create_scvt_info(
+        para: PlanetParameterSet,
+        mesh: SCVTMesh,
+        loc: str,
+        with_halo: bool = False,
+    ) -> SCVTRegridInfo:
+        return SCVTRegridInfo(
+            para=para,
+            mesh=mesh,
+            loc=loc,
+            with_halo=with_halo,
+        )

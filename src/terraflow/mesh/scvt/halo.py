@@ -46,12 +46,12 @@ class SCVTHalo(AbstractHalo):
     recv_vtx_id     : INT[Array, "nngb max_recv_n_vtx" ]
     recv_edge_id    : INT[Array, "nngb max_recv_n_edge"]
 
-    send_cell_buf   : FLT[Array, "nngb max_send_n_cell half_nlev"]
-    send_vtx_buf    : FLT[Array, "nngb max_send_n_vtx  half_nlev"]
-    send_edge_buf   : FLT[Array, "nngb max_send_n_edge half_nlev"]
-    recv_cell_buf   : FLT[Array, "nngb max_recv_n_cell half_nlev"]
-    recv_vtx_buf    : FLT[Array, "nngb max_recv_n_vtx  half_nlev"]
-    recv_edge_buf   : FLT[Array, "nngb max_recv_n_edge half_nlev"]
+    send_cell_buf   : FLT[Array, "nngb half_nlev max_send_n_cell"]
+    send_vtx_buf    : FLT[Array, "nngb half_nlev max_send_n_vtx "]
+    send_edge_buf   : FLT[Array, "nngb half_nlev max_send_n_edge"]
+    recv_cell_buf   : FLT[Array, "nngb half_nlev max_recv_n_cell"]
+    recv_vtx_buf    : FLT[Array, "nngb half_nlev max_recv_n_vtx "]
+    recv_edge_buf   : FLT[Array, "nngb half_nlev max_recv_n_edge"]
 
     def __init__(
         self,
@@ -103,13 +103,13 @@ class SCVTHalo(AbstractHalo):
         recv_edge_id    = jnp.zeros((proc.nngb, self.max_recv_n_edge), device=dev(), dtype=dev.int_type)
         
         kms, kme = mesh.half_kms, mesh.half_kme
-        send_cell_buf = jnp.zeros((proc.nngb, self.max_send_n_cell, kme-kms+1), device=dev(), dtype=dev.float_type)
-        send_vtx_buf  = jnp.zeros((proc.nngb, self.max_send_n_vtx , kme-kms+1), device=dev(), dtype=dev.float_type)
-        send_edge_buf = jnp.zeros((proc.nngb, self.max_send_n_edge, kme-kms+1), device=dev(), dtype=dev.float_type)
+        send_cell_buf = jnp.zeros((proc.nngb, kme-kms+1, self.max_send_n_cell), device=dev(), dtype=dev.float_type)
+        send_vtx_buf  = jnp.zeros((proc.nngb, kme-kms+1, self.max_send_n_vtx ), device=dev(), dtype=dev.float_type)
+        send_edge_buf = jnp.zeros((proc.nngb, kme-kms+1, self.max_send_n_edge), device=dev(), dtype=dev.float_type)
         
-        recv_cell_buf = jnp.zeros((proc.nngb, self.max_recv_n_cell, kme-kms+1), device=dev(), dtype=dev.float_type)
-        recv_vtx_buf  = jnp.zeros((proc.nngb, self.max_recv_n_vtx , kme-kms+1), device=dev(), dtype=dev.float_type)
-        recv_edge_buf = jnp.zeros((proc.nngb, self.max_recv_n_edge, kme-kms+1), device=dev(), dtype=dev.float_type)
+        recv_cell_buf = jnp.zeros((proc.nngb, kme-kms+1, self.max_recv_n_cell), device=dev(), dtype=dev.float_type)
+        recv_vtx_buf  = jnp.zeros((proc.nngb, kme-kms+1, self.max_recv_n_vtx ), device=dev(), dtype=dev.float_type)
+        recv_edge_buf = jnp.zeros((proc.nngb, kme-kms+1, self.max_recv_n_edge), device=dev(), dtype=dev.float_type)
         
         for nb in range(proc.nngb):
             send = proc.send[nb]

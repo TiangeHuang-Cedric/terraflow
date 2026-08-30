@@ -21,7 +21,10 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.interface import (
     adv_run_mass,
     adv_run_tracers_fn
 )
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import diagnose
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import (
+    print_logo,
+    diagnose
+)
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.test_case.adv import (
     solid_rotation as adv_sr,
     dcmip12 as adv_dcmip12,
@@ -71,6 +74,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         test_case: AbstractAdvectionModelTestCase,
         dev: AbstractDevice
     ):
+        if dev.is_root(): print_logo()
+        if dev.is_root(): cfg.__print__()
         # =================================================================
         if test_case.alias_name == "adv_sr":
             test_case   = adv_sr.SolidRotationTestCase(para)
@@ -105,7 +110,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
             dt_dyn=cfg.dt_dyn,
             dt_adv=cfg.dt_adv,
             save_interval=cfg.save_interval,
-            log_every=cfg.log_every
+            log_every=cfg.log_every,
+            dev=dev
         )
         # =================================================================
         adv_time_integrator = adv_time_schemes.adv_scheme_init(cfg)
@@ -144,6 +150,7 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -161,6 +168,7 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -177,6 +185,7 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -191,6 +200,7 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
             output_h2=output_h2,
             h1_opt=h1_opt,
             h2_opt=h2_opt,
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type
@@ -254,6 +264,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         test_case: AbstractAdvectionModelTestCase,
         dev: AbstractDevice
     ):
+        if dev.is_root(): print_logo()
+        if dev.is_root(): cfg.__print__()
         # =================================================================
         if test_case.alias_name == "adv_dcmip12":
             test_case = adv_dcmip12.DCMIP12TestCase(para)
@@ -272,7 +284,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
             dt_dyn=cfg.dt_dyn,
             dt_adv=cfg.dt_adv,
             save_interval=cfg.save_interval,
-            log_every=cfg.log_every
+            log_every=cfg.log_every,
+            dev=dev
         )
         # =================================================================
         adv_time_integrator = adv_time_schemes.adv_scheme_init(cfg)
@@ -310,6 +323,7 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -327,6 +341,7 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -343,6 +358,7 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -357,6 +373,7 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
             output_h2=output_h2,
             h1_opt=h1_opt,
             h2_opt=h2_opt,
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type

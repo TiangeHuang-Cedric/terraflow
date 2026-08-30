@@ -43,7 +43,7 @@ class MountainZonalFlowTestCase(swm_mz.MountainZonalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[:, :], axis=-1)
+        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,

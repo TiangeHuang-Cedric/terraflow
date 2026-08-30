@@ -30,7 +30,7 @@ def prepare_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
 def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     para = block.para
     mesh = block.mesh
-    log.logger.info(f"Regrid topography.")
+    if block.dev.is_root(): log.logger.info(f"Regrid topography.")
     # =================================================================
     regrid_type = reader.cfg.regrid_type
     if regrid_type == "fill":
@@ -58,7 +58,7 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
             replace=(gzs, lnd),
         )
     elif regrid_type == "interp":
-        log.logger.info("Build regridder for topography data.")
+        if block.dev.is_root(): log.logger.info("Build regridder for topography data.")
         src = Regridder.create_latlon_info(
             lon=reader.lon,
             lat=reader.lat

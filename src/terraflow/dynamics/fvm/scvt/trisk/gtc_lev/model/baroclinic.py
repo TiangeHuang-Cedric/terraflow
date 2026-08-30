@@ -7,6 +7,7 @@ from typing import (
     Optional, 
     Callable
 )
+import math
 import equinox as eqx
 import numpy as np
 
@@ -19,6 +20,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev import time_schemes
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import adv_time_schemes
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.interface import adv_run_tracers_fn
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import (
+    print_logo,
     space_operators,
     diagnose
 )
@@ -84,6 +86,8 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         bkg_reader: Optional[AbstractBackgroundReader] = None,
         topo_reader: Optional[AbstractTopographyReader] = None
     ):
+        if dev.is_root(): print_logo()
+        if dev.is_root(): cfg.__print__()
         # =================================================================
         if test_case is None and bkg_reader is None and topo_reader is None:
             raise ValueError("User must provide a test_case or readers for barocclinic models!")
@@ -103,6 +107,57 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         else:
             self.set_ic = lambda b: b
         # =================================================================
+        if test_case is None and bkg_reader is not None and topo_reader is not None:
+            min_lon, max_lon = mesh.lon_range()
+            min_lat, max_lat = mesh.lat_range()
+            min_lon = max(0  , math.floor(min_lon))
+            min_lat = max(-90, math.floor(min_lat))
+            max_lon = min(360, math.ceil (max_lon))
+            max_lat = min(90 , math.ceil (max_lat))
+            if topo_reader.lon_range == "-180>180":
+                if min_lon == 0 and max_lon == 360:
+                    topo_min_lon = -180
+                    topo_max_lon = 180
+                else:
+                    topo_min_lon = min_lon if min_lon < 180 else min_lon - 360.0
+                    topo_max_lon = max_lon if max_lon < 180 else max_lon - 360.0
+                topo_min_lat = min_lat
+                topo_max_lat = max_lat
+            else:
+                topo_min_lon = min_lon
+                topo_max_lon = max_lon
+                topo_min_lat = min_lat
+                topo_max_lat = max_lat
+            topo_reader.load_data(
+                min_lon=topo_min_lon, 
+                max_lon=topo_max_lon, 
+                min_lat=topo_min_lat, 
+                max_lat=topo_max_lat
+            )
+            if bkg_reader.cfg.hori_interp_backend == "esmf":
+                bkg_reader.load_data() 
+            else:
+                if bkg_reader.lon_range == "-180>180":
+                    if min_lon == 0 and max_lon == 360:
+                        bkg_min_lon = -180
+                        bkg_max_lon = 180
+                    else:
+                        bkg_min_lon = min_lon if min_lon < 180 else min_lon - 360.0
+                        bkg_max_lon = max_lon if max_lon < 180 else max_lon - 360.0
+                    bkg_min_lat = min_lat
+                    bkg_max_lat = max_lat
+                else:
+                    bkg_min_lon = min_lon
+                    bkg_max_lon = max_lon
+                    bkg_min_lat = min_lat
+                    bkg_max_lat = max_lat
+                bkg_reader.load_data(
+                    min_lon=bkg_min_lon, 
+                    max_lon=bkg_max_lon, 
+                    min_lat=bkg_min_lat, 
+                    max_lat=bkg_max_lat
+                )
+        # ================================================================= 
         self.mode  = mode
         self.const = Const(cfg)
         self.cfg   = cfg
@@ -114,7 +169,8 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
             dt_adv=cfg.dt_adv,
             save_interval=cfg.save_interval,
             log_every=cfg.log_every,
-            bkg_reader=bkg_reader
+            bkg_reader=bkg_reader,
+            dev=dev
         )
         # =================================================================
         time_integrator = time_schemes.time_scheme_init(cfg)
@@ -155,7 +211,9 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
             block = self.set_ic(block)
         elif bkg_reader is not None and topo_reader is not None:
             block = prepare_topo(block, topo_reader)
-            block = prepare_bkg (block, bkg_reader ) 
+            topo_reader.unload()
+            block = prepare_bkg (block, bkg_reader )
+            bkg_reader .unload()
         self.block = block.from_parent_after_ic()
 
     @overload
@@ -169,6 +227,7 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -186,6 +245,7 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -202,6 +262,7 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         output_h2: bool = False,
         h1_opt: dict = {"use_dual": False},
         h2_opt: dict = {},
+        output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
         float_type: Optional[type[np.float32] | type[np.float64]] = None,
         int_type: Optional[type[np.int32] | type[np.int64]] = None,
@@ -216,6 +277,7 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
             output_h2=output_h2,
             h1_opt=h1_opt,
             h2_opt=h2_opt,
+            output_ngroups=output_ngroups,
             dev=dev,
             float_type=float_type,
             int_type=int_type

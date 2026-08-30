@@ -73,11 +73,12 @@ tf.model.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 
-tf.util.post_process.CDOPostProcesser.remap_history(
-    history=history,
-    res=1.0,
-    remap=True,
-    use_weight=True,
-)
+if dev.is_root():
+    tf.util.post_process.CDOPostProcesser.remap_history(
+        history=history,
+        res=1.0,
+        remap=True,
+        use_weight=True,
+    )
 
 tf.util.datetime.perf_end("program")

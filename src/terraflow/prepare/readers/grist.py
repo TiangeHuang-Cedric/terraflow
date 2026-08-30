@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
+import gc
 import jax
 import jax.numpy as jnp
 import xarray as xr
@@ -48,13 +49,9 @@ class GRISTBackgroundReaderConfig(AbstractReaderConfig):
     # "jax" or "native"
     vert_interp_backend: str = "jax"
 
-    # "native" or "grist"
-    vert_interp_type: str = "native"
-
     def __print__(self):
         print("================ GRIST Background Reader Config ==================")
         print(f"  vert_interp_backend        = {self.vert_interp_backend}")
-        print(f"  vert_interp_type           = {self.vert_interp_type}")
         print("==================================================================")
 
 
@@ -96,10 +93,17 @@ class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
             dev=dev
         )
         self.static_file = static_file
-        log.logger.info(f"Use GRIST static file {static_file} as static data source.")
-        self.extract_data()
-
-    def extract_data(self):
+        if dev.is_root(): log.logger.info(f"Use GRIST static file {static_file} as static data source.")
+    
+    @property
+    def reader_type(self) -> str:
+        return "grist"
+    
+    @property
+    def lon_range(self) -> str:
+        return "-180>180"
+    
+    def load_data(self):
         float_type = self.dev.float_type
         ds = xr.open_dataset(self.static_file, engine="netcdf4")
         self.lon = jnp.array(
@@ -218,9 +222,33 @@ class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
             dtype=float_type
         )
 
-    @property
-    def reader_type(self) -> str:
-        return "grist"
+    def unload(self):
+        delattr(self, "lon"          )
+        delattr(self, "lat"          )
+        delattr(self, "phis"         )
+        delattr(self, "lu_index"     )
+        delattr(self, "lu_index_frac")
+        delattr(self, "soiltop"      )
+        delattr(self, "soiltop_frac" )
+        delattr(self, "mask"         )
+        delattr(self, "soiltemp"     )
+        delattr(self, "snoalb"       )
+        delattr(self, "greenfrac"    )
+        delattr(self, "albedo"       )
+        delattr(self, "varsso"       )
+        delattr(self, "con"          )
+        delattr(self, "oa1"          )
+        delattr(self, "oa2"          )
+        delattr(self, "oa3"          )
+        delattr(self, "oa4"          )
+        delattr(self, "ol1"          )
+        delattr(self, "ol2"          )
+        delattr(self, "ol3"          )
+        delattr(self, "ol4"          )
+        delattr(self, "var2d"        )
+        self.loaded = False
+        gc.collect
+        jax.clear_caches()
 
 
 class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
@@ -228,8 +256,6 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
     lon: Float[Array, "ncells"]
     lat: Float[Array, "ncells"]
     plev: Float[Array, "plev"]
-    plev_lev: Float[Array, "plev_lev ncells"]
-    nlev_eff: Float[Array, "ncells"]
     ps: Float[Array, "ncells"]
     q: Float[Array, "ncells plev"]
     skintemp: Float[Array, "ncells"]
@@ -257,10 +283,17 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
             dev=dev
         )
         self.bkg_file = bkg_file
-        log.logger.info(f"Use GRIST background file {bkg_file} as background data source.")
-        self.extract_data()
-
-    def extract_data(self):
+        if dev.is_root(): log.logger.info(f"Use GRIST background file {bkg_file} as background data source.")
+    
+    @property
+    def reader_type(self) -> str:
+        return "grist"
+    
+    @property
+    def lon_range(self) -> str:
+        return "-180>180"
+     
+    def load_data(self):
         float_type = self.dev.float_type
         ds = xr.open_dataset(self.bkg_file, engine="netcdf4")
         # ------------- Load data -------------
@@ -345,56 +378,25 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
             device=jax.devices("cpu")[0],
             dtype=float_type
         ).T
-        if self.cfg.vert_interp_type == "grist":
-            # ------------- GRIST Post process -------------
-            plev_in = self.plev
-            nlev = plev_in.shape[0]
-            ncol = self.ps.shape[0]
 
-            # Check effective full level number
-            mask = plev_in[:, None] >= self.ps[None, :]
-            first_ge_idx = jnp.argmax(mask, axis=0)
-            self.nlev_eff = jnp.where(
-                jnp.any(mask, axis=0),
-                first_ge_idx + 1,
-                nlev
-            )  # (ncol,)
-
-            # Evaluate dry-mass coordinate at ERA pressure level and surface
-            face_idx = jnp.arange(nlev + 1, dtype=jnp.int32)[:, None]  # (nlev+1, 1)
-            nlev_eff = self.nlev_eff[None, :]  # (nlev+1, ncol)
-
-            plev_lev = jnp.zeros((nlev + 1, ncol), dtype=plev_in.dtype)
-            plev_mid = jnp.pad(
-                0.5 * (plev_in[:-1, None] + plev_in[1:, None]),
-                ((1, 1), (0, 0)),
-                mode='constant'
-            )  # (nlev+1, 1)
-            plev_lev = jnp.where(
-                (face_idx >= 1) & (face_idx < nlev_eff),
-                plev_mid,
-                plev_lev
-            )
-            # if ps<pface(nlev_eff), let it be, good assumption! no problem till now...
-            plev_lev = jnp.where(
-                face_idx == nlev_eff,
-                self.ps[None, :],
-                plev_lev
-            )
-
-            # hpface(1)=pface(1)=zeros
-            # hpface(k)=hpface(k-1)+dp(k-1)*(1-q(k-1)), k=2..nlev_eff+1.
-            dp = plev_lev[1:, :] - plev_lev[:-1, :]
-            lev_idx = jnp.arange(nlev, dtype=jnp.int32)[:, None]  # (nlev, ncol)
-            valid_lev = lev_idx <= nlev_eff - 1  # (nlev, ncol)
-            dhp = jnp.where(valid_lev, dp, 0.0)
-            self.plev_lev = jnp.cumulative_sum(
-                dhp * (1.0 - self.q),
-                axis=0,
-                include_initial=True
-            )  # (nlev+1, ncol)
-            self.plev = 0.5 * (self.plev_lev[:-1, :] + self.plev_lev[1:, :])
-
-    @property
-    def reader_type(self) -> str:
-        return "grist"
+    def unload(self):
+        delattr(self, "time_str"    )
+        delattr(self, "lon"         )
+        delattr(self, "lat"         )
+        delattr(self, "plev"        )
+        delattr(self, "ps"          )
+        delattr(self, "q"           )
+        delattr(self, "skintemp"    )
+        delattr(self, "snow"        )
+        delattr(self, "snowh"       )
+        delattr(self, "soilh"       )
+        delattr(self, "t"           )
+        delattr(self, "u"           )
+        delattr(self, "v"           )
+        delattr(self, "xice"        )
+        delattr(self, "soiltemp"    )
+        delattr(self, "nsoil_levels")
+        delattr(self, "soilmoist"   )
+        self.loaded = False
+        gc.collect
+        jax.clear_caches()

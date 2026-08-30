@@ -5,6 +5,7 @@ import jax.numpy as jnp
 
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.operators import wind_c2a_operator
+from terraflow.mesh.scvt.parallel import global_sum
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.interface import pgf_run
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     operators_prepare_2,
@@ -24,6 +25,21 @@ if TYPE_CHECKING:
     INT = typing.Int
     FLT = typing.Float
     Array = typing.Array
+
+
+def print_logo():
+    banner = [
+        "████████╗███████╗██████╗ ██████╗  █████╗ ███████╗██╗      ██████╗ ██╗    ██╗",
+        "╚══██╔══╝██╔════╝██╔══██╗██╔══██╗██╔══██╗██╔════╝██║     ██╔═══██╗██║    ██║",
+        "   ██║   █████╗  ██████╔╝██████╔╝███████║█████╗  ██║     ██║   ██║██║ █╗ ██║",
+        "   ██║   ██╔══╝  ██╔══██╗██╔══██╗██╔══██║██╔══╝  ██║     ██║   ██║██║███╗██║",
+        "   ██║   ███████╗██║  ██║██║  ██║██║  ██║██║     ███████╗╚██████╔╝╚███╔███╔╝",
+        "   ╚═╝   ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ ",
+    ]
+    print("")
+    for line in banner:
+        print(line)
+    print("")
 
 
 def space_operators(
@@ -60,7 +76,10 @@ def space_operators(
             ids, ide = mesh.cell_ids, mesh.cell_ide
             dmf   = block.aux.dmf.unwrap()
             g     = block.para.gravity.unwrap()
-            dgzdt = -dmf[kds:kde+1, ids:ide+1] * g
+            dgzdt = block.tend.dgzdt  .unwrap()
+            dgzdt = dgzdt.at[kds:kde+1, ids:ide+1].set(
+                -dmf[kds:kde+1, ids:ide+1] * g
+            )
             block = tree_at(
                 where=lambda b: (b.tend.dgzdt.d),
                 pytree=block,
@@ -87,7 +106,10 @@ def space_operators(
             ids, ide = mesh.cell_ids, mesh.cell_ide
             dmf   = block.aux.dmf.unwrap()
             g     = block.para.gravity.unwrap()
-            dgzdt = -dmf[kds:kde+1, ids:ide+1] * g
+            dgzdt = block.tend.dgzdt  .unwrap()
+            dgzdt = dgzdt.at[kds:kde+1, ids:ide+1].set(
+                -dmf[kds:kde+1, ids:ide+1] * g
+            )
             block = tree_at(
                 where=lambda b: (b.tend.dgzdt.d),
                 pytree=block,
@@ -127,8 +149,10 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # =============================================
         itime = block.get_time_idx(itime_str=itime_str)
         mesh = block.mesh
-        dmg = block.state.dmg.unwrap()[itime, :, :]
-        area_cell = mesh.area_cell
+        kds, kde = mesh.full_kds, mesh.full_kde
+        ids, ide = mesh.cell_ids, mesh.cell_ide
+        dmg = block.state.dmg.unwrap()[itime, kds:kde+1, ids:ide+1]
+        area_cell = mesh.area_cell[ids:ide+1]
         # =============================================
         tm = jnp.array(0.0, dtype=jnp.float64)
         return tm + jnp.sum(dmg * area_cell[None, :])
@@ -137,9 +161,12 @@ def diagnose(block: Block, itime_str: str) -> Block:
         idx_qv = block.tracers.idx_qv
         if idx_qv >= 0:
             itime_qv = block.adv_batches["moist"].get_time_idx(itime_str=itime_str)
-            area_cell = block.mesh.area_cell
-            m  = block.adv_batches["moist"].m.unwrap()
-            qv = block.tracers.q.unwrap()[itime_qv, idx_qv, :, :]
+            mesh = block.mesh
+            kds, kde = mesh.full_kds, mesh.full_kde
+            ids, ide = mesh.cell_ids, mesh.cell_ide
+            area_cell = mesh.area_cell[ids:ide+1]
+            m  = block.adv_batches["moist"].m.unwrap()[kds:kde+1, ids:ide+1]
+            qv = block.tracers.q.unwrap()[itime_qv, idx_qv, kds:kde+1, ids:ide+1]
             return jnp.sum(m * qv * area_cell[None, :])
         else:
             return jnp.array(0.0, dtype=jnp.float64)
@@ -157,18 +184,18 @@ def diagnose(block: Block, itime_str: str) -> Block:
         float_type = block.dev.float_type
         itime = block.get_time_idx(itime_str=itime_str)
         mesh = block.mesh
-        le = mesh.le
-        de = mesh.de
-        gzs      = block.static.gzs     .unwrap()
-        dmg      = block.state .dmg     .unwrap()[itime, :, :]
-        un       = block.state .un      .unwrap()[itime, :, :]
-        dmg_edge = block.aux   .dmg_edge.unwrap()
-        tv       = block.aux   .tv      .unwrap()
+        kds, kde = mesh.full_kds, mesh.full_kde
+        cids, cide = mesh.cell_ids, mesh.cell_ide
+        eids, eide = mesh.edge_ids, mesh.edge_ide
+        gzs      = block.static.gzs     .unwrap()[cids:cide+1]
+        dmg      = block.state .dmg     .unwrap()[itime, kds:kde+1, cids:cide+1]
+        un       = block.state .un      .unwrap()[itime, kds:kde+1, eids:eide+1]
+        dmg_edge = block.aux   .dmg_edge.unwrap()[kds:kde+1, eids:eide+1]
         g        = block.para  .gravity .unwrap()
         cpd      = block.para  .cpd     .unwrap()
         # Weighted area
-        area_cell = mesh.area_cell
-        kite_area = le * de * 0.5
+        area_cell = mesh.area_cell[cids:cide+1]
+        area_edge = mesh.area_edge[eids:eide+1]
         # =============================================
         te_ke = jnp.array(0.0, dtype=float_type)
         te_ie = jnp.array(0.0, dtype=float_type)
@@ -177,15 +204,16 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # Total energy due to kinetic energy
         # TODO: nh dynamics kinetic energy
         # Kinetic energy at edge
-        te_ke = te_ke + jnp.sum(0.5 * un**2 * dmg_edge * kite_area[None, :])
+        te_ke = te_ke + jnp.sum(0.5 * un**2 * dmg_edge * area_edge[None, :] * 2)
         # =============================================
         # Total energy due to internal energy
         if block.mode.is_baroclinic():
+            tv = block.aux.tv.unwrap()[kds:kde+1, cids:cide+1]
             te_ie = te_ie + jnp.sum(dmg * cpd * tv * area_cell[None, :])
         # =============================================
         # Total energy due to potential energy
         if block.mode.is_baroclinic():
-            mgs = block.state.mgs.unwrap()[itime, :]
+            mgs = block.state.mgs.unwrap()[itime, cids:cide+1]
             te_pe = te_pe + jnp.sum(gzs * mgs * area_cell)
         else:
             te_pe = te_pe + jnp.sum(
@@ -197,25 +225,27 @@ def diagnose(block: Block, itime_str: str) -> Block:
     def diagnose_tpe(block: Block, itime_str: str) -> FLT[Array, ""]:
         # =======================================================
         mesh = block.mesh
-        le = mesh.le
-        de = mesh.de
-        pv_edge  = block.aux.pv_edge .unwrap()
-        dmg_edge = block.aux.dmg_edge.unwrap()
+        kds, kde = mesh.full_kds, mesh.full_kde
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        pv_edge  = block.aux.pv_edge .unwrap()[kds:kde+1, ids:ide+1]
+        dmg_edge = block.aux.dmg_edge.unwrap()[kds:kde+1, ids:ide+1]
         # Weighted area
-        kite_area = le * de * 0.5
+        area_edge = mesh.area_edge[ids:ide+1]
         # =======================================================
         # Total potential enstrophy
-        return jnp.sum(dmg_edge * pv_edge**2 * kite_area[None, :])
+        return jnp.sum(dmg_edge * pv_edge**2 * 0.5 * area_edge[None, :] * 2)
 
     def diagnose_tpt(block: Block, itime_str: str) -> FLT[Array, ""]:
         # =======================================================
         float_type = block.dev.float_type
         itime = block.get_time_idx(itime_str=itime_str)
         mesh = block.mesh
-        dmg = block.state.dmg.unwrap()[itime, :, :]
-        pt  = block.state.pt .unwrap()[itime, :, :]
+        kds, kde = mesh.full_kds, mesh.full_kde
+        ids, ide = mesh.cell_ids, mesh.cell_ide
+        dmg = block.state.dmg.unwrap()[itime, kds:kde+1, ids:ide+1]
+        pt  = block.state.pt .unwrap()[itime, kds:kde+1, ids:ide+1]
         # Weighted area
-        area_cell = mesh.area_cell
+        area_cell = mesh.area_cell[ids:ide+1]
         # =======================================================
         # Total potential temperature
         if block.mode.is_baroclinic():
@@ -227,18 +257,23 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # =======================================================
         float_type = block.dev.float_type
         mesh = block.mesh
+        kds, kde = mesh.full_kds, mesh.full_kde
+        ids, ide = mesh.cell_ids, mesh.cell_ide
         # Weighted area
-        area_cell = mesh.area_cell
+        area_cell = mesh.area_cell[ids:ide+1]
         # =======================================================
         tq = jnp.array(0.0, dtype=float_type)
         for batch in block.adv_batches.values():
-            dmg = batch.m.unwrap()
+            dmg = batch.m.unwrap()[kds:kde+1, ids:ide+1]
             itime = batch.get_time_idx(itime_str)
             idx = batch.idx
-            q = block.tracers.q.unwrap()[itime, idx, :, :]
+            q = block.tracers.q.unwrap()[itime, idx, kds:kde+1, ids:ide+1]
             tq = tq + jnp.sum(dmg * q * area_cell[None, :])
         # =======================================================
         return tq
+
+    def diagnose_global_sum(x: FLT[Array, ""]) -> FLT[Array, ""]:
+        return global_sum(block.dev.proc.comm_model, x)
     
     def diagnose4barotropic(block: Block, itime_str: str) -> Block:
         # =======================================================
@@ -255,6 +290,13 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # =========================================
         # Total potential enstrophy
         tpe = diagnose_tpe(block, itime_str=itime_str)
+        # =========================================
+        # Global sums
+        tm    = diagnose_global_sum(tm)
+        te_ke = diagnose_global_sum(te_ke)
+        te_pe = diagnose_global_sum(te_pe)
+        tpe   = diagnose_global_sum(tpe)
+        te    = te_ke + te_pe
         # =======================================================
         # Wrap diagnosed variables into block
         itime = block.get_time_idx(itime_str=itime_str)
@@ -297,6 +339,16 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # Total potential temperature
         tpt = diagnose_tpt(block, itime_str=itime_str)
         # =========================================
+        # Global sums
+        tm    = diagnose_global_sum(tm)
+        tqv   = diagnose_global_sum(tqv)
+        te_ke = diagnose_global_sum(te_ke)
+        te_ie = diagnose_global_sum(te_ie)
+        te_pe = diagnose_global_sum(te_pe)
+        tpe   = diagnose_global_sum(tpe)
+        tpt   = diagnose_global_sum(tpt)
+        te    = te_ke + te_ie + te_pe
+        # =========================================
         # Wrap diagnosed variables into block
         itime = block.get_time_idx(itime_str=itime_str)
         if block.mode.is_baroclinic() and block.mode.is_dry():
@@ -335,6 +387,10 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # =========================================
         # Total tracers
         tq = diagnose_tq(block, itime_str)
+        # =========================================
+        # Global sums
+        tm = diagnose_global_sum(tm)
+        tq = diagnose_global_sum(tq)
         # =======================================================
         # Wrap diagnosed variables into block
         itime = block.get_time_idx(itime_str=itime_str)

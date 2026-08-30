@@ -137,6 +137,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
     global_cell_id   : INT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
     global_vtx_id    : INT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
     global_edge_id   : INT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    cell_proc_idmap  : INT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
     # Topology
     cell_nnb         : INT[Array, "n_cell"            ] = eqx.field(default_factory=lambda: jnp.zeros(0))
     cell_nb          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
@@ -186,11 +187,11 @@ class SCVTMesh(AbstractUnstructuredMesh):
         if layout == "triskc":
             if loc == "cell" or loc == "lev":
                 if with_halo:
-                    i_s, i_e = self.cell_ids, self.cell_ide
-                    k_s, k_e = self.full_kds, self.full_kde 
-                else:
                     i_s, i_e = self.cell_ims, self.cell_ime
                     k_s, k_e = self.full_kms, self.full_kme
+                else:
+                    i_s, i_e = self.cell_ids, self.cell_ide
+                    k_s, k_e = self.full_kds, self.full_kde
                 return dict(
                     xyz=self.cell_xyz[i_s:i_e+1, :],
                     lat=self.cell_lat[i_s:i_e+1],
@@ -199,11 +200,11 @@ class SCVTMesh(AbstractUnstructuredMesh):
                 )
             elif loc == "vtx" or loc == "lev_vtx":
                 if with_halo:
-                    i_s, i_e = self.vtx_ids , self.vtx_ide
-                    k_s, k_e = self.full_kds, self.full_kde 
-                else:
                     i_s, i_e = self.vtx_ims , self.vtx_ime
                     k_s, k_e = self.full_kms, self.full_kme
+                else:
+                    i_s, i_e = self.vtx_ids , self.vtx_ide
+                    k_s, k_e = self.full_kds, self.full_kde
                 return dict(
                     xyz=self.vtx_xyz[i_s:i_e+1, :],
                     lat=self.vtx_lat[i_s:i_e+1],
@@ -212,11 +213,11 @@ class SCVTMesh(AbstractUnstructuredMesh):
                 )
             elif loc == "edge" or loc == "lev_edge":
                 if with_halo:
-                    i_s, i_e = self.edge_ids, self.edge_ide
-                    k_s, k_e = self.full_kds, self.full_kde 
-                else:
                     i_s, i_e = self.edge_ims, self.edge_ime
                     k_s, k_e = self.full_kms, self.full_kme
+                else:
+                    i_s, i_e = self.edge_ids, self.edge_ide
+                    k_s, k_e = self.full_kds, self.full_kde
                 return dict(
                     xyz=self.dual_edge_xyz[i_s:i_e+1, :],
                     lat=self.dual_edge_lat[i_s:i_e+1],
@@ -470,12 +471,20 @@ class SCVTMesh(AbstractUnstructuredMesh):
         )
         halo = SCVTHalo(proc=scvt_proc, mesh=parent, dev=dev)
         
-        l2g_cell_id = jnp.asarray(scvt_proc.l2g_cell_id, device=dev(), dtype=int_type)
-        l2g_vtx_id  = jnp.asarray(scvt_proc.l2g_vtx_id , device=dev(), dtype=int_type)
-        l2g_edge_id = jnp.asarray(scvt_proc.l2g_edge_id, device=dev(), dtype=int_type)
-        g2l_cell_id = jnp.asarray(scvt_proc.g2l_cell_id, device=dev(), dtype=int_type)
-        g2l_vtx_id  = jnp.asarray(scvt_proc.g2l_vtx_id , device=dev(), dtype=int_type)
-        g2l_edge_id = jnp.asarray(scvt_proc.g2l_edge_id, device=dev(), dtype=int_type)
+        l2g_cell_id     = jnp.asarray(scvt_proc.l2g_cell_id    , device=dev(), dtype=int_type)
+        l2g_vtx_id      = jnp.asarray(scvt_proc.l2g_vtx_id     , device=dev(), dtype=int_type)
+        l2g_edge_id     = jnp.asarray(scvt_proc.l2g_edge_id    , device=dev(), dtype=int_type)
+        g2l_cell_id     = jnp.asarray(scvt_proc.g2l_cell_id    , device=dev(), dtype=int_type)
+        g2l_vtx_id      = jnp.asarray(scvt_proc.g2l_vtx_id     , device=dev(), dtype=int_type)
+        g2l_edge_id     = jnp.asarray(scvt_proc.g2l_edge_id    , device=dev(), dtype=int_type)
+        cell_proc_idmap = jnp.asarray(scvt_proc.cell_proc_idmap, device=dev(), dtype=int_type)
+        # ====================================================
+        # Prepare parent mesh
+        parent = eqx.tree_at(
+            where=lambda m: m.cell_proc_idmap,
+            pytree=parent,
+            replace=cell_proc_idmap
+        )
         # ====================================================
         # Determine domain indices
         # haloN -> haloN-1 -> ... -> halo1 -> bdry1 -> bdry2 -> ... -> bdryN -> inner 
@@ -795,6 +804,82 @@ class SCVTMesh(AbstractUnstructuredMesh):
             id=0,
             dev=dev,
         )
+        
+    def lon_range(self) -> tuple[float, ...]:
+        
+        min_lon = min(
+            self.cell_lon_deg     .min(), 
+            self.vtx_lon_deg      .min(), 
+            self.edge_lon_deg     .min(),
+            self.dual_edge_lon_deg.min()
+        )
+        max_lon = max(
+            self.cell_lon_deg     .max(), 
+            self.vtx_lon_deg      .max(),
+            self.edge_lon_deg     .max(),
+            self.dual_edge_lon_deg.max()
+        )
+        
+        if bool(jnp.allclose(min_lon, 0)) and bool(jnp.allclose(max_lon, 360)):
+            # cyclic = True
+            cell_lon_deg = jnp.where(
+                self.cell_lon_deg >= 180.0, 
+                self.cell_lon_deg - 360.0, 
+                self.cell_lon_deg
+            )
+            vtx_lon_deg = jnp.where(
+                self.vtx_lon_deg >= 180.0, 
+                self.vtx_lon_deg - 360.0, 
+                self.vtx_lon_deg
+            )
+            edge_lon_deg = jnp.where(
+                self.edge_lon_deg >= 180.0, 
+                self.edge_lon_deg - 360.0, 
+                self.edge_lon_deg
+            )
+            dual_edge_lon_deg = jnp.where(
+                self.dual_edge_lon_deg >= 180.0, 
+                self.dual_edge_lon_deg - 360.0, 
+                self.dual_edge_lon_deg
+            )
+            min_lon = min(
+                cell_lon_deg     .min(), 
+                vtx_lon_deg      .min(), 
+                edge_lon_deg     .min(),
+                dual_edge_lon_deg.min()
+            )
+            max_lon = max(
+                cell_lon_deg     .max(), 
+                vtx_lon_deg      .max(),
+                edge_lon_deg     .max(),
+                dual_edge_lon_deg.max()
+            )
+            if bool(jnp.allclose(min_lon, -180)) and bool(jnp.allclose(max_lon, 180)):
+                min_lon = 0.0
+                max_lon = 360.0
+            else:
+                min_lon = min_lon + 360.0
+                max_lon = max_lon
+        else:
+            # cyclic = False
+            pass
+            
+        return float(min_lon), float(max_lon)
+    
+    def lat_range(self) -> tuple[float, ...]:
+        min_lat = min(
+            self.cell_lat_deg     .min(), 
+            self.vtx_lat_deg      .min(), 
+            self.edge_lat_deg     .min(),
+            self.dual_edge_lat_deg.min()
+        )
+        max_lat = max(
+            self.cell_lat_deg     .max(), 
+            self.vtx_lat_deg      .max(), 
+            self.edge_lat_deg     .max(),
+            self.dual_edge_lat_deg.max()
+        )
+        return float(min_lat), float(max_lat)
         
     def output(
         self,
