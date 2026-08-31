@@ -114,48 +114,20 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
             min_lat = max(-90, math.floor(min_lat))
             max_lon = min(360, math.ceil (max_lon))
             max_lat = min(90 , math.ceil (max_lat))
-            if topo_reader.lon_range == "-180>180":
-                if min_lon == 0 and max_lon == 360:
-                    topo_min_lon = -180
-                    topo_max_lon = 180
-                else:
-                    topo_min_lon = min_lon if min_lon < 180 else min_lon - 360.0
-                    topo_max_lon = max_lon if max_lon < 180 else max_lon - 360.0
-                topo_min_lat = min_lat
-                topo_max_lat = max_lat
-            else:
-                topo_min_lon = min_lon
-                topo_max_lon = max_lon
-                topo_min_lat = min_lat
-                topo_max_lat = max_lat
             topo_reader.load_data(
-                min_lon=topo_min_lon, 
-                max_lon=topo_max_lon, 
-                min_lat=topo_min_lat, 
-                max_lat=topo_max_lat
+                min_lon=min_lon,
+                max_lon=max_lon,
+                min_lat=min_lat,
+                max_lat=max_lat
             )
             if bkg_reader.cfg.hori_interp_backend == "esmf":
                 bkg_reader.load_data() 
             else:
-                if bkg_reader.lon_range == "-180>180":
-                    if min_lon == 0 and max_lon == 360:
-                        bkg_min_lon = -180
-                        bkg_max_lon = 180
-                    else:
-                        bkg_min_lon = min_lon if min_lon < 180 else min_lon - 360.0
-                        bkg_max_lon = max_lon if max_lon < 180 else max_lon - 360.0
-                    bkg_min_lat = min_lat
-                    bkg_max_lat = max_lat
-                else:
-                    bkg_min_lon = min_lon
-                    bkg_max_lon = max_lon
-                    bkg_min_lat = min_lat
-                    bkg_max_lat = max_lat
                 bkg_reader.load_data(
-                    min_lon=bkg_min_lon, 
-                    max_lon=bkg_max_lon, 
-                    min_lat=bkg_min_lat, 
-                    max_lat=bkg_max_lat
+                    min_lon=min_lon, 
+                    max_lon=max_lon, 
+                    min_lat=min_lat, 
+                    max_lat=max_lat
                 )
         # ================================================================= 
         self.mode  = mode

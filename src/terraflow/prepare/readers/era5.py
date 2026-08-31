@@ -1,18 +1,18 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import gc
-import numpy as np
 import jax
 import jax.numpy as jnp
-import xarray as xr
 
 
 from terraflow.util import typing, log, formula
 from terraflow.prepare.readers.abstract import AbstractBackgroundReader, BackgroundReaderConfig
 
+
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
     from terraflow.planet import PlanetParameterSet
+
 
 Float = typing.Float
 Array = typing.Array
@@ -73,69 +73,33 @@ class ERA5Reader(AbstractBackgroundReader):
         # Load data
         float_type = self.dev.float_type
         ds0 = self.open_dataset()
-        lon_values = np.asarray(ds0["longitude"].values, dtype=np.float64)
-        lat_values = np.asarray(ds0["latitude"].values, dtype=np.float64)
-        lon_min = float(np.min(lon_values))
-        lon_max = float(np.max(lon_values))
-        lat_min = max(float(min_lat), -89.75, float(np.min(lat_values)))
-        lat_max = min(float(max_lat),  89.75, float(np.max(lat_values)))
-        lon0 = float(min_lon)
-        lon1 = float(max_lon)
-
-        if self.cfg.hori_interp_backend == "native":
-            dlon = float(np.min(np.abs(np.diff(np.sort(lon_values)))))
-            dlat = float(np.min(np.abs(np.diff(np.sort(lat_values)))))
-            lon0 -= dlon
-            lon1 += dlon
-            lat_min = max(lat_min - dlat, -89.75, float(np.min(lat_values)))
-            lat_max = min(lat_max + dlat,  89.75, float(np.max(lat_values)))
-
-        lon_width = lon1 - lon0 if lon1 >= lon0 else lon1 + 360.0 - lon0
-        if lon_width >= 360.0 - 1e-10:
-            ds = ds0.sel(
-                longitude=slice(lon_min, lon_max),
-                latitude=slice(lat_max, lat_min)
-            )
-        else:
-            lon0_norm = (lon0 - lon_min) % 360.0 + lon_min
-            lon1_norm = (lon1 - lon_min) % 360.0 + lon_min
-            if lon0_norm <= lon1_norm:
-                ds = ds0.sel(
-                    longitude=slice(lon0_norm, lon1_norm),
-                    latitude=slice(lat_max, lat_min)
-                )
-            else:
-                ds_west = ds0.sel(
-                    longitude=slice(lon0_norm, lon_max),
-                    latitude=slice(lat_max, lat_min)
-                )
-                ds_east = ds0.sel(
-                    longitude=slice(lon_min, lon1_norm),
-                    latitude=slice(lat_max, lat_min)
-                )
-                ds_east = ds_east.assign_coords(
-                    longitude=ds_east["longitude"] + 360.0
-                )
-                ds = xr.concat([ds_west, ds_east], dim="longitude")
-        ds = ds.load()
+        ds = self.input_range(
+            ds0,
+            lon_name="longitude",
+            lat_name="latitude",
+            lon_span=(0.0, 360.0),
+            min_lon=min_lon,
+            max_lon=max_lon,
+            min_lat=max(float(min_lat), -89.75),
+            max_lat=min(float(max_lat), 89.75),
+        )
         ds0.close()
-
-        if ds.sizes["longitude"] < 2 or ds.sizes["latitude"] < 2:
-            raise ValueError(
-                "ERA5 bbox selection is too small for bilinear interpolation: "
-                f"longitude={ds.sizes['longitude']}, latitude={ds.sizes['latitude']}"
-            )
-        if "level" in ds.keys():
+        self.check_input_range(
+            "ERA5",
+            ds["longitude"].values,
+            ds["latitude"].values,
+        )
+        if "level" in ds:
             self.level_name = "level"
-        elif "pressure_level" in ds.keys():
+        elif "pressure_level" in ds:
             self.level_name = "pressure_level"
         else:
             raise ValueError(
                 f"No valid level information in ERA5 file '{self.bkg_file}'!"
             )
-        if "time" in ds.keys():
+        if "time" in ds:
             self.time_name = "time"
-        elif "valid_time" in ds.keys():
+        elif "valid_time" in ds:
             self.time_name = "valid_time"
         else:
             raise ValueError(
@@ -148,7 +112,7 @@ class ERA5Reader(AbstractBackgroundReader):
             dtype=float_type
         )
         self.lat = jnp.array(
-            np.flip(ds["latitude"].values),
+            ds["latitude"].values,
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
@@ -159,61 +123,61 @@ class ERA5Reader(AbstractBackgroundReader):
         )
         self.lev = self.plev
         self.u = jnp.array(
-            self.flip_latitude(ds["u"].values[0, :, :, :]),
+            ds["u"].values[0, :, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.v = jnp.array(
-            self.flip_latitude(ds["v"].values[0, :, :, :]),
+            ds["v"].values[0, :, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.t = jnp.array(
-            self.flip_latitude(ds["t"].values[0, :, :, :]),
+            ds["t"].values[0, :, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.z = jnp.array(
-            self.flip_latitude(ds["z"].values[0, :, :, :]),
+            ds["z"].values[0, :, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.qv = jnp.array(
-            self.flip_latitude(ds["q"].values[0, :, :, :]),
+            ds["q"].values[0, :, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.ps = jnp.array(
-            self.flip_latitude(ds["sp"].values[0, :, :]),
+            ds["sp"].values[0, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.zs = jnp.array(
-            self.flip_latitude(ds["zs"].values[0, :, :]),
+            ds["zs"].values[0, :, :],
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
-        if "clwc" in ds.keys():
+        if "clwc" in ds:
             self.qc = jnp.array(
-                self.flip_latitude(ds["clwc"].values[0, :, :, :]),
+                ds["clwc"].values[0, :, :, :],
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
-        if "ciwc" in ds.keys():
+        if "ciwc" in ds:
             self.qi = jnp.array(
-                self.flip_latitude(ds["ciwc"].values[0, :, :, :]),
+                ds["ciwc"].values[0, :, :, :],
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
-        if "crwc" in ds.keys():
+        if "crwc" in ds:
             self.qr = jnp.array(
-                self.flip_latitude(ds["crwc"].values[0, :, :, :]),
+                ds["crwc"].values[0, :, :, :],
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
-        if "cswc" in ds.keys():
+        if "cswc" in ds:
             self.qs = jnp.array(
-                self.flip_latitude(ds["cswc"].values[0, :, :, :]),
+                ds["cswc"].values[0, :, :, :],
                 device=jax.devices("cpu")[0],
                 dtype=float_type
             )
@@ -289,18 +253,6 @@ class ERA5Reader(AbstractBackgroundReader):
             para=self.para
         )
         self.loaded = True
-
-    def flip_latitude(self, data: np.ndarray) -> np.ndarray:
-        if data.ndim == 3 and data.shape == (self.lev.shape[0], self.lat.shape[0], self.lon.shape[0]):
-            # (nlev, nlat, nlon)
-            return np.flip(data, axis=1)
-        elif data.ndim == 2 and data.shape == (self.lat.shape[0], self.lon.shape[0]):
-            # (nlat, nlon)
-            return np.flip(data, axis=0)
-        else:
-            raise ValueError(
-                f"Unsupported data shape for latitude flipping: {data.shape}"
-            )
 
     def unload(self):
         delattr(self, "time_name" )

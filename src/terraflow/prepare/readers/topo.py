@@ -3,15 +3,16 @@ from typing import TYPE_CHECKING
 import gc
 import jax
 import jax.numpy as jnp
-import xarray as xr
 
 
 from terraflow.util import typing, log
 from terraflow.prepare.readers.abstract import AbstractTopographyReader, TopographyReaderConfig
 
+
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
     from terraflow.planet import PlanetParameterSet
+
 
 Float = typing.Float
 Array = typing.Array
@@ -55,34 +56,29 @@ class ETOPO1Reader(AbstractTopographyReader):
     ):
         float_type = self.dev.float_type
         gravity = self.para.gravity.unwrap()
-        if min_lon <= max_lon:
-            ds = self.open_dataset().sel(
-                x=slice(min_lon, max_lon), 
-                y=slice(min_lat, max_lat)
-            )
-        else:
-            ds0 = self.open_dataset()
-            ds1 = ds0.sel(
-                x=slice(min_lon, 180), 
-                y=slice(min_lat, max_lat)
-            )
-            ds2 = ds0.sel(
-                x=slice(-180, max_lon), 
-                y=slice(min_lat, max_lat)
-            )
-            ds = xr.concat([ds1, ds2], dim="x")
-            ds = ds.load()
-            ds0.close()
-            ds1.close()
-            ds2.close()
+        ds0 = self.open_dataset()
+        ds = self.input_range(
+            ds0,
+            lon_name="x",
+            lat_name="y",
+            lon_span=(-180.0, 180.0),
+            min_lon=min_lon,
+            max_lon=max_lon,
+            min_lat=min_lat,
+            max_lat=max_lat,
+        )
+        ds0.close()
+        lon = ds["x"].values
+        lat = ds["y"].values
+        self.check_input_range("ETOPO1", lon, lat)
         # Load data
         self.lon = jnp.array(
-            ds["x"].values,
+            lon,
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.lat = jnp.array(
-            ds["y"].values,
+            lat,
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
@@ -97,17 +93,6 @@ class ETOPO1Reader(AbstractTopographyReader):
             dtype=float_type
         )
         ds.close()
-        # Convert longitude from [-180, 180] to [0, 360]
-        self.lon = jnp.where(
-            self.lon < 0.0,
-            self.lon + 360.0,
-            self.lon
-        )
-        # Sort the longitude and corresponding data to ensure monotonicity
-        sort_idx = jnp.argsort(self.lon)
-        self.lon = self.lon[sort_idx]
-        self.gzs = self.gzs[:, sort_idx]
-        self.mask = self.mask[:, sort_idx]
         if self.cfg.fill_split_with_chunks:
             if self.lon.shape[0] < self.cfg.fill_lon_chunk_size:
                 raise ValueError(
@@ -127,7 +112,7 @@ class ETOPO1Reader(AbstractTopographyReader):
         delattr(self, "gzs" )
         delattr(self, "mask")
         self.loaded = False
-        gc.collect
+        gc.collect()
         jax.clear_caches()
 
 
@@ -158,7 +143,7 @@ class GMETED2010Reader(AbstractTopographyReader):
         
     @property
     def lon_range(self) -> str:
-        return "0>360"
+        return "-180>180"
     
     def load_data(
         self,
@@ -169,33 +154,28 @@ class GMETED2010Reader(AbstractTopographyReader):
     ):
         float_type = self.dev.float_type
         gravity = self.para.gravity.unwrap()
-        if min_lon <= max_lon:
-            ds = self.open_dataset().sel(
-                lon=slice(min_lon, max_lon), 
-                lat=slice(min_lat, max_lat)
-            )
-        else:
-            ds0 = self.open_dataset()
-            ds1 = ds0.sel(
-                lon=slice(min_lon, 360), 
-                lat=slice(min_lat, max_lat)
-            )
-            ds2 = ds0.sel(
-                lon=slice(0, max_lon), 
-                lat=slice(min_lat, max_lat)
-            )
-            ds = xr.concat([ds1, ds2], dim="lon")
-            ds = ds.load()
-            ds0.close()
-            ds1.close()
-            ds2.close()
+        ds0 = self.open_dataset()
+        ds = self.input_range(
+            ds0,
+            lon_name="lon",
+            lat_name="lat",
+            lon_span=(-180.0, 180.0),
+            min_lon=min_lon,
+            max_lon=max_lon,
+            min_lat=min_lat,
+            max_lat=max_lat,
+        )
+        ds0.close()
+        lon = ds["lon"].values
+        lat = ds["lat"].values
+        self.check_input_range("GMETED2010", lon, lat)
         self.lon = jnp.array(
-            ds["lon"].values,
+            lon,
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
         self.lat = jnp.array(
-            ds["lat"].values,
+            lat,
             device=jax.devices("cpu")[0],
             dtype=float_type
         )
@@ -223,5 +203,5 @@ class GMETED2010Reader(AbstractTopographyReader):
         delattr(self, "lat" )
         delattr(self, "gzs" )
         self.loaded = False
-        gc.collect
+        gc.collect()
         jax.clear_caches()
