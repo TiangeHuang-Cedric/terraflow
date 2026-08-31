@@ -8,7 +8,7 @@ from numba import njit
 
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     Float = typing.Float

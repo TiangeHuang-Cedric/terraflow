@@ -19,8 +19,8 @@ NVTX = "vtx"
 
 
 if TYPE_CHECKING:
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 

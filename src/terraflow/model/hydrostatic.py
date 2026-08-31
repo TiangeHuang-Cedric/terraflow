@@ -3,14 +3,13 @@ from typing import TYPE_CHECKING, overload, cast, Optional, Literal
 
 from terraflow.model.abstract import ModelMode
 from terraflow.mesh.abstract import AbstractMesh
-from terraflow.vert_coord.abstract import AbstractVertCoordinate
 from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate
 
 
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.model.abstract import AbstractModel
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.vert_coord.abstract import AbstractVertCoordinate

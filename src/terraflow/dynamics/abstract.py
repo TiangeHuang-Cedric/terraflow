@@ -4,16 +4,15 @@ from typing import (
     Generic,
     TypeVar,
     Self,
-    Any,
     TYPE_CHECKING
 )
 import equinox as eqx
 
 
-from terraflow.field import AbstractFields
+from terraflow.util.field import AbstractFields
+from terraflow.util.planet import PlanetParameterSet
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractVertCoordinate
-from terraflow.planet import PlanetParameterSet
 
 
 if TYPE_CHECKING:

@@ -16,7 +16,7 @@ from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
     from terraflow.prepare.readers.grist import GRISTBackgroundReader

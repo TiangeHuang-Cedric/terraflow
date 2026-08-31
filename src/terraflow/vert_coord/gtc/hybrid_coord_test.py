@@ -5,7 +5,7 @@ import jax.numpy as jnp
 from terraflow.util import typing, device
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
 
 
 IntType = typing.IntType

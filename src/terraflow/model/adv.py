@@ -12,7 +12,7 @@ from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoo
 
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.util.device import AbstractDevice
     from terraflow.model.config import UserConfig
     from terraflow.model.abstract import AbstractModel

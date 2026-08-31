@@ -5,7 +5,7 @@ from jax import numpy as jnp
 from terraflow.test_case.abstract import AbstractBaroclinicModelTestCase
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
 
 class MountainWaveTestCase(AbstractBaroclinicModelTestCase):
     """Baroclinic wave test case with a mountain perturbation."""

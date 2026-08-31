@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.util.device import AbstractDevice
     from terraflow.util.uxarray import UGRIDDataset
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.abstract import ModelMode
     from terraflow.model.config import UserConfig
     from terraflow.mesh.scvt.mesh_type import SCVTMesh

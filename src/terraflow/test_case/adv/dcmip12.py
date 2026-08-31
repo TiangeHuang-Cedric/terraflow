@@ -1,4 +1,4 @@
-from terraflow.planet import PlanetParameterSet
+from terraflow.util.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractAdvectionModel3DTestCase
 
 

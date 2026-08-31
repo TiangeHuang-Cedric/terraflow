@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from functools import partial
 import equinox as eqx
 import jax.numpy as jnp
 import jax
@@ -10,7 +9,7 @@ from terraflow.mesh.scvt.parallel import fill_raw_array_halo as fill_halo
 
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     
     FloatType = typing.FloatType

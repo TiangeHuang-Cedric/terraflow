@@ -30,9 +30,9 @@ from terraflow.vert_coord.gtc.onelayer import OneLayerVertCoordinate
 
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.vert_coord.gtc.hybrid_coord import AbstractGeneralizedTerrainFollowingCoordinate
-    import numpy as np
+
     
 FLT       = typing.Float
 INT       = typing.Int

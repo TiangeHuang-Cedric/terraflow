@@ -13,7 +13,7 @@ from terraflow.prepare.readers.abstract import (
 )
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
 
 Float = typing.Float
 Array = typing.Array

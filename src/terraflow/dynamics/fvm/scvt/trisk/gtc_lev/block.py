@@ -40,8 +40,8 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import diagnose
 if TYPE_CHECKING:
     import uxarray as uxr
     from terraflow.util import typing
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.model.abstract import ModelMode
     from terraflow.mesh.scvt.field import SCVTField3D
 

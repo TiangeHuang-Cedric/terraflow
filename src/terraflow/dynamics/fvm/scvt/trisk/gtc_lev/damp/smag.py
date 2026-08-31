@@ -11,8 +11,8 @@ from terraflow.dynamics.abstract import AbstractEquationAuxiliaryData
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 

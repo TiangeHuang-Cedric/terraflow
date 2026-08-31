@@ -25,7 +25,7 @@ from terraflow.util.datetime import (
 
 if TYPE_CHECKING:
     from terraflow.model.abstract import AbstractModel
-    from terraflow.field import AbstractFields
+    from terraflow.util.field import AbstractFields
 
 
 FLOAT_JNP2NP = {

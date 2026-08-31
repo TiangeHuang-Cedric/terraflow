@@ -1,5 +1,5 @@
 from terraflow.util import typing
-from terraflow.planet import PlanetParameterSet
+from terraflow.util.planet import PlanetParameterSet
 
 Float = typing.Float
 Array = typing.Array

@@ -1,6 +1,6 @@
 from jax import numpy as jnp
 
-from terraflow.planet import PlanetParameterSet
+from terraflow.util.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractAdvectionModel2DTestCase
 
 

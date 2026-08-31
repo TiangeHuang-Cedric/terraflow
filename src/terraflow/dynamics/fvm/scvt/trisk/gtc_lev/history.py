@@ -32,7 +32,7 @@ from terraflow.util.history.abstract import (
 from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
 from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
-from terraflow.field import ScalarFieldMeta
+from terraflow.util.field import ScalarFieldMeta
 from terraflow.mesh.scvt.regridder import Regridder
 from terraflow.mesh.scvt.interp import interp_plev
 from terraflow.mesh.scvt.field import (

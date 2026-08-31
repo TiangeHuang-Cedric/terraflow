@@ -6,7 +6,7 @@ from typing import (
 import equinox as eqx
 
 from terraflow.util.device import AbstractDevice, CPU
-from terraflow.field import ScalarField
+from terraflow.util.field import ScalarField
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
     SCVTField1D,
@@ -23,8 +23,8 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.damp.interface import DampDataset
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.model.abstract import ModelMode
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate

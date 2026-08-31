@@ -16,7 +16,7 @@ from terraflow.test_case.adv import deform as adv_dc
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import TracerMeta
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 
 class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):

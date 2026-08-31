@@ -10,8 +10,8 @@ from terraflow.util import sphere_geometry
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.prepare.readers.topo import AbstractTopographyReader
-    from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
     Float = typing.Float

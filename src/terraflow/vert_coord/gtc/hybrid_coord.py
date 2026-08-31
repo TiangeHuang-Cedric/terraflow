@@ -7,7 +7,7 @@ from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoo
 from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     import numpy as np
 
 IntType = typing.IntType

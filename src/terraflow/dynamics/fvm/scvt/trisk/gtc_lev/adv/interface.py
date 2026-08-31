@@ -2,7 +2,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Self
 import jax
 
-from terraflow.util import typing
 from terraflow.util.device import AbstractDevice, CPU
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.operators import div_operator_2d
@@ -23,8 +22,8 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.limiter import (
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
-    from terraflow.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 

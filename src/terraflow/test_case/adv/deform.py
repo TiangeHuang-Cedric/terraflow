@@ -5,7 +5,7 @@ from jax import numpy as jnp
 from terraflow.test_case.abstract import AbstractAdvectionModel2DTestCase
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
 
 
 class DeformationalFlowTestCase(AbstractAdvectionModel2DTestCase):

@@ -12,7 +12,7 @@ from terraflow.model.abstract import ModelMode
 
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.abstract import AbstractModel
     from terraflow.model.config import UserConfig
     from terraflow.mesh.abstract import AbstractMesh

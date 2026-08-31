@@ -3,11 +3,11 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet as PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet as PlanetParameterSet
 
 
 _LAZY_CLASS = {
-    "PlanetParameterSet": "terraflow.planet.PlanetParameterSet",
+    "PlanetParameterSet": "terraflow.util.planet.PlanetParameterSet",
 }
 
 __all__ = [

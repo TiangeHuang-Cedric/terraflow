@@ -9,7 +9,7 @@ from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
 
 if TYPE_CHECKING:
     from terraflow.util import typing
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
     from terraflow.vert_coord.abstract import AbstractVertCoordinate
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
 

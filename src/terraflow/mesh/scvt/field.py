@@ -26,7 +26,7 @@ import equinox as eqx
 from terraflow.util import typing, device
 from terraflow.util.pytree import tree_at
 import terraflow.util.uxarray as tuxr
-from terraflow.field import (
+from terraflow.util.field import (
     AbstractMeta, 
     AbstractField,
     AbstractFields,

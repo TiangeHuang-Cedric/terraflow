@@ -2,7 +2,7 @@ from abc import ABC
 from typing import Dict, Union
 
 
-from terraflow.planet import PlanetParameterSet
+from terraflow.util.planet import PlanetParameterSet
 
 class AbstractTestCase(ABC):
     alias_name : str

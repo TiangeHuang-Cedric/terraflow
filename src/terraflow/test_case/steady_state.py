@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from terraflow.test_case.abstract import AbstractBaroclinicModelTestCase
 
 if TYPE_CHECKING:
-    from terraflow.planet import PlanetParameterSet
+    from terraflow.util.planet import PlanetParameterSet
 
 
 class SteadyStateTestCase(AbstractBaroclinicModelTestCase):
