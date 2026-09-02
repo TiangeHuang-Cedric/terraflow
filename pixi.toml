@@ -13,15 +13,12 @@ platforms = [
 [dependencies]
 bokeh = ">=3.9.2,<4"
 cartopy = ">=0.25.0,<0.26"
-compilers = ">=1.7.0,<3"
 easygems = ">=0.2.1,<0.3"
 esmpy = ">=8.8.1,<9"
 holoviews = ">=1.21.0"
 ipykernel = ">=7.3.0,<8"
 netcdf4 = ">=1.7.2,<2"
 numba = ">=0.66.0,<0.67"
-openmpi = ">=4.1.6,<5"
-mpi4py = ">=4.1.2,<5"
 panel = ">=1.9.3,<2"
 pip = ">=26.2.1,<27"
 python = ">=3.12,<3.13"
@@ -34,6 +31,7 @@ jaxtyping = ">=0.3.11, <0.4"
 jupytext = ">=1.19.5, <2"
 loguru = ">=0.7.3, <0.8"
 mpi4jax = "==0.9.1"
+mpi4py = ">=4.1.2,<5"
 nanobind = ">=2.14.0, <3"
 numpy = "*"
 polars = "*"
@@ -66,7 +64,11 @@ jax-cuda12-pjrt = "==0.10.2"
 jaxkd = ">=0.1.2, <0.2"
 
 [tasks]
-build-mpi4jax = "pip uninstall -y mpi4jax; pip install --no-deps --no-build-isolation --no-cache-dir --no-binary=mpi4jax --force-reinstall 'mpi4jax==0.9.1'"
+build-mpi4jax = """
+python -m pip uninstall -y mpi4jax mpi4py
+MPICC=${MPICC:-$(which mpicc)} python -m pip install --no-cache-dir --no-binary=mpi4py --force-reinstall 'mpi4py>=4.1.2,<5'
+MPI4JAX_USE_CUDA_MPI=${MPI4JAX_USE_CUDA_MPI:-1} MPICC=${MPICC:-$(which mpicc)} python -m pip install --no-deps --no-build-isolation --no-cache-dir --no-binary=mpi4jax --force-reinstall 'mpi4jax==0.9.1'
+"""
 
 [environments]
 default = { features = ["cpu"] }
