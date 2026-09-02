@@ -310,12 +310,12 @@ class SCVTMesh(AbstractUnstructuredMesh):
         cls,
         ref_mesh_type: str,
         para: PlanetParameterSet,
+        dev: device.AbstractDevice,
         vert_coord: Optional[AbstractGeneralizedTerrainFollowingCoordinate] = None,
         hori_hw: int = 3,
         lev_hw: int = 3,
         grist_mesh_0d_file: Optional[str] = None, 
         grist_mesh_2d_file: Optional[str] = None, 
-        dev: device.AbstractDevice = device.CPU(),
     ) -> Self:
         int_type = dev.int_type
         radius = para.radius.unwrap()
@@ -456,8 +456,8 @@ class SCVTMesh(AbstractUnstructuredMesh):
         cls,
         parent: "SCVTMesh",
         para: PlanetParameterSet,
-        id: Optional[int] = None,
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice,
+        id: Optional[int] = None
     ) -> "SCVTMesh":
         int_type   = dev.int_type
         float_type = dev.float_type
@@ -783,10 +783,10 @@ class SCVTMesh(AbstractUnstructuredMesh):
         mesh_0d_file: str, 
         mesh_2d_file: str,
         para: PlanetParameterSet,
+        dev: device.AbstractDevice,
         vert_coord: Optional[AbstractGeneralizedTerrainFollowingCoordinate] = None,
         hori_hw: int = 3,
-        lev_hw: int = 3,
-        dev: device.AbstractDevice = device.CPU()
+        lev_hw: int = 3
     ) -> "SCVTMesh":
         global_mesh = cls.init_global_from_ref_mesh(
             ref_mesh_type="grist",

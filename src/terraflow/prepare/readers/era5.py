@@ -108,77 +108,77 @@ class ERA5Reader(AbstractBackgroundReader):
         self.time_str = str(ds[self.time_name].values[0])
         self.lon = jnp.array(
             ds["longitude"].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.lat = jnp.array(
             ds["latitude"].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.plev = jnp.array(
             ds[self.level_name].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.lev = self.plev
         self.u = jnp.array(
             ds["u"].values[0, :, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.v = jnp.array(
             ds["v"].values[0, :, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.t = jnp.array(
             ds["t"].values[0, :, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.z = jnp.array(
             ds["z"].values[0, :, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.qv = jnp.array(
             ds["q"].values[0, :, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.ps = jnp.array(
             ds["sp"].values[0, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.zs = jnp.array(
             ds["zs"].values[0, :, :],
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         if "clwc" in ds:
             self.qc = jnp.array(
                 ds["clwc"].values[0, :, :, :],
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if "ciwc" in ds:
             self.qi = jnp.array(
                 ds["ciwc"].values[0, :, :, :],
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if "crwc" in ds:
             self.qr = jnp.array(
                 ds["crwc"].values[0, :, :, :],
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if "cswc" in ds:
             self.qs = jnp.array(
                 ds["cswc"].values[0, :, :, :],
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         ds.close()
@@ -224,25 +224,25 @@ class ERA5Reader(AbstractBackgroundReader):
         if not hasattr(self, "qc"):
             self.qc = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qi"):
             self.qi = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qr"):
             self.qr = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         if not hasattr(self, "qs"):
             self.qs = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.devices("cpu")[0],
+                device=jax.local_devices(backend="cpu")[0],
                 dtype=float_type
             )
         # ===================================================

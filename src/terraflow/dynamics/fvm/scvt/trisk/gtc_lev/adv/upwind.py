@@ -598,7 +598,7 @@ class UpwindStencilDataset(AbstractEquationAuxiliaryDataset):
         cfg: UserConfig,
         para: PlanetParameterSet,
         mesh: SCVTMesh,
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice
     ) -> Self:
         if cfg.adv_scheme == "upwind" or cfg.bg_adv_scheme == "upwind" or cfg.pt_adv_scheme == "upwind":
             if cfg.upwind_order == 3 and cfg.upwind_order_bg == 3:
@@ -700,7 +700,7 @@ class UpwindStencilData(AbstractEquationAuxiliaryData):
         mesh: SCVTMesh,
         loc: str,
         polynomial_order: int,
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice
     ):
         if loc == "cell":
             fn = init_upwind_cell_stencil

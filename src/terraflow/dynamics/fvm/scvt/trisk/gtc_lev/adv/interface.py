@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Self
 import jax
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.operators import div_operator_2d
 from terraflow.mesh.scvt.parallel import (
@@ -48,7 +48,7 @@ class AdvectionAuxiliaryDataset(AbstractEquationAuxiliaryDataset):
         cfg: UserConfig,
         para: PlanetParameterSet,
         mesh: SCVTMesh,
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         upwind_ds = upwind.UpwindStencilDataset.initialize(
             cfg=cfg,

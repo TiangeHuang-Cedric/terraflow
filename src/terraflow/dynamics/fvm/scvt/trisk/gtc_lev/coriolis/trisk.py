@@ -44,7 +44,7 @@ class TriSKCoriolisForceData(AbstractEquationAuxiliaryData):
         )
 
     @classmethod
-    def from_coord(cls, mesh: SCVTMesh, dev: device.AbstractDevice = device.CPU()) -> "TriSKCoriolisForceData":
+    def from_coord(cls, mesh: SCVTMesh, dev: device.AbstractDevice) -> "TriSKCoriolisForceData":
         collection = calc_trsk_wgt(mesh, dev)
         ne_edge_of_edge  = jax.device_put(collection[0], device=dev())
         edge_of_edge     = jax.device_put(collection[1], device=dev())
@@ -63,7 +63,7 @@ class TriSKCoriolisForceData(AbstractEquationAuxiliaryData):
 @functools.partial(jax.jit, static_argnames="dev", backend="cpu")
 def calc_trsk_wgt_stage_1(
     mesh: SCVTMesh, 
-    dev: device.AbstractDevice = device.CPU()
+    dev: device.AbstractDevice
 ) -> FLT[Array, "nPrimal_cell maxnnb maxnnb"]:
     dtype = dev.float_type
     maxnnb = mesh.maxnnb_cell
@@ -195,7 +195,7 @@ def calc_trsk_wgt_stage_1(
 @functools.partial(jax.jit, static_argnames="dev", backend="cpu")
 def calc_trsk_wgt(
     mesh: SCVTMesh, 
-    dev: device.AbstractDevice = device.CPU()
+    dev: device.AbstractDevice
 ) -> tuple[
     FLT[Array, "n_edge"],
     INT[Array, "n_edge maxnnb*2"],

@@ -2,7 +2,7 @@ from typing import Self, Dict, Union, Optional, List
 import unxt as ux
 
 from terraflow.util import log
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 
 
 kb   : float = 1.380649e-23        # Boltzmann constant (J K-1)
@@ -224,7 +224,7 @@ class PlanetParameterSet:
         cls, 
         planet: str, 
         component: str, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         """Create a PlanetParameterSet for Earth with specified component."""
         if planet not in ["earth"]:

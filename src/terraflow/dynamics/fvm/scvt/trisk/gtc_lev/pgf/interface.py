@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryDataset
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.swm import pgf_swm_run
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.ptb import RefProfileData, pgf_ptb_run
@@ -39,7 +39,7 @@ class PressureGradientForceDataset(AbstractEquationAuxiliaryDataset):
         mesh: SCVTMesh,
         vert_coord: AbstractGeneralizedTerrainFollowingCoordinate,
         ref_ps: Float[Array, "ncell"],
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         if mode.is_baroclinic():
             pro = RefProfileData.initialize(

@@ -41,3 +41,6 @@ src/terraflow.egg-info/
 
 # netCDF files
 *.nc
+
+# profile data folders
+**/.profile_data

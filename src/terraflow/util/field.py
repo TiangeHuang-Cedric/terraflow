@@ -255,11 +255,11 @@ class ScalarField(AbstractField[ScalarFieldMeta]):
         name: str,
         long_name: str,
         units: str,
+        dev: device.AbstractDevice,
         is_static: bool = False,
         is_expand_dim0: bool = False,
         expand_dim0_len: int = 1,
-        output: str = "",
-        dev: device.AbstractDevice = device.CPU()
+        output: str = ""
     ) -> Self:
         d    = jnp.zeros(expand_dim0_len, device=dev(), dtype=dev.float_type)
         meta = ScalarFieldMeta(

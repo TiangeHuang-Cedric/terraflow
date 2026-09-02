@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import typing
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.pytree import tree_at
 from terraflow.model.abstract import ModelMode
 from terraflow.mesh.scvt.field import (
@@ -164,7 +164,7 @@ class Tracer(SCVTFields):
         cfg: UserConfig,
         mesh: SCVTMesh,
         tracers_meta: dict[str, TracerMeta],
-        dev: AbstractDevice = CPU(),
+        dev: AbstractDevice,
     ) -> Self:
         if cfg.adv_time_scheme == "wrfrk3":
             ntracer_tile = 3
@@ -222,7 +222,7 @@ class Tracer(SCVTFields):
         cfg : UserConfig,
         mesh: SCVTMesh,
         tracers_meta: dict[str, TracerMeta],
-        dev: AbstractDevice = CPU(),
+        dev: AbstractDevice,
     ) -> Self:
         return cls.initialize(mode=mode, cfg=cfg, mesh=mesh, tracers_meta=tracers_meta, dev=dev)
 

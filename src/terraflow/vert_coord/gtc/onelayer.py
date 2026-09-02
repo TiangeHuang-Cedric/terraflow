@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate
 from terraflow.util.history.setup.vert import OneLayerVerticalCoordinateSetup
 
@@ -25,7 +25,7 @@ class OneLayerVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
     full_dlev: Float[Array, "nlev"]
     half_dlev: Float[Array, "nlev+1"]
     
-    def __init__(self, dev: AbstractDevice = CPU()):
+    def __init__(self, dev: AbstractDevice):
         self.full_nlev = 1
         self.half_nlev = 2
         self.full_lev  = jnp.zeros(

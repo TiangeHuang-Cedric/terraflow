@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from terraflow.util import typing
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
     SCVTFieldMeta,
@@ -74,8 +74,8 @@ class AdvBatchType(SCVTFields):
         dynamic: bool,
         passive: bool,
         semilag: bool,
-        idx: Optional[list[int]] = None,
-        dev: AbstractDevice = CPU(),
+        dev: AbstractDevice,
+        idx: Optional[list[int]] = None
     ):
         if batch_loc not in {"cell", "lev", "vtx"}:
             raise ValueError(f"Unsupported batch_loc {batch_loc} for batch {batch_name}!")

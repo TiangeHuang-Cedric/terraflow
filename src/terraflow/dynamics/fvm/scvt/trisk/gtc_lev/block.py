@@ -10,7 +10,7 @@ import numpy as np
 import xarray as xr
 
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.pytree import tree_at
 from terraflow.util.uxarray import UGRIDDataset
 from terraflow.model.config import Const
@@ -67,8 +67,8 @@ class Block(
         para: PlanetParameterSet,
         mesh: SCVTMesh,
         vert_coord: AbstractGeneralizedTerrainFollowingCoordinate,
-        tracers: Optional[Tracer] = None,
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice,
+        tracers: Optional[Tracer] = None
     ) -> Self:
         # ================================================
         state  = State    .from_coord(mode=mode, cfg=cfg, mesh=mesh, dev=dev)

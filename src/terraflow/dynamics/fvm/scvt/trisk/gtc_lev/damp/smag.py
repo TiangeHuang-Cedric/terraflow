@@ -3,7 +3,7 @@ from typing import Self, TYPE_CHECKING
 import jax
 import jax.numpy as jnp
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.sphere_geometry import _project_sphere2plane
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt import operators as mesh_ops
@@ -44,7 +44,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         cfg: UserConfig,
         para: PlanetParameterSet, 
         mesh: SCVTMesh, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         if cfg.use_smag_damp:
             return cls.from_coord(para, mesh, dev)
@@ -56,7 +56,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         cls, 
         para: PlanetParameterSet, 
         mesh: SCVTMesh, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         radius        = para.radius.unwrap()
         de            = mesh.de

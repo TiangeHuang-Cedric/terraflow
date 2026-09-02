@@ -480,7 +480,8 @@ dst["gz"].isel(lev=0).plot(
     pixel_ratio=0.5,
     cmap="plasma",
     rasterize=True,
-    features=["borders", "coastline"]
+    features=["borders", "coastline"],
+    periodic_elements="ignore",
 )
 
 # %%
@@ -499,7 +500,8 @@ dst["gz"].isel(lev=0).plot(
     pixel_ratio=0.5,
     cmap="plasma",
     rasterize=True,
-    features=["borders", "coastline"]
+    features=["borders", "coastline"],
+    periodic_elements="ignore",
 )
 
 # %%
@@ -518,5 +520,6 @@ dst["gz"].isel(lev=0).plot(
     pixel_ratio=0.5,
     cmap="plasma",
     rasterize=True,
-    features=["borders", "coastline"]
+    features=["borders", "coastline"],
+    periodic_elements="ignore",
 )

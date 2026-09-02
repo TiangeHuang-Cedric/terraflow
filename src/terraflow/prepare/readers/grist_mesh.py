@@ -83,7 +83,7 @@ class GRISTRefMesh(AbstractRefMesh):
         self,
         mesh_0d_file: Str,
         mesh_2d_file: Str,
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice
     ):
         """Initialize a GRIST reference mesh from 0d metadata and 2d mesh files."""
         arch = dev()

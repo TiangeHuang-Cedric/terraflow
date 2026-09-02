@@ -57,7 +57,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         mesh: SCVTMesh,
         vert_coord: AbstractGeneralizedTerrainFollowingCoordinate,
         ref_ps: Float[Array, "ncell"],
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice
     ) -> Self:
         if cfg.pgf_scheme == "ptb":
             return cls.from_coord(
@@ -77,7 +77,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         mesh: SCVTMesh,
         vert_coord: AbstractGeneralizedTerrainFollowingCoordinate,
         ref_ps: Float[Array, "ncell"],
-        dev: device.AbstractDevice = device.CPU()
+        dev: device.AbstractDevice
     ) -> Self:
         a    = jnp.array(0.09923 , dtype=dev.float_type)
         b    = jnp.array(247.7874, dtype=dev.float_type)
@@ -158,7 +158,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         )
 
     @classmethod
-    def zeros_like(cls, mesh: SCVTMesh, dev: device.AbstractDevice = device.CPU()) -> Self:
+    def zeros_like(cls, mesh: SCVTMesh, dev: device.AbstractDevice) -> Self:
         fields: dict[str, SCVTField2D] = {}
         fields["mg"] = SCVTField2D.from_mesh(
             name="mg",

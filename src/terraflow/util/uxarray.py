@@ -1181,7 +1181,7 @@ class UGRIDDataArray:
                     lat_remapped
                 )
             },
-            attrs=uxda.attrs
+            attrs=daux.attrs
         )
         return cast(Tuple[ux.UxDataArray, xr.DataArray], (uxda, da))
 
@@ -1484,7 +1484,7 @@ class UGRIDDataset:
                         lat_remapped[lat_name]
                     )
                 },
-                attrs=var.attrs
+                attrs=dsux[var_name].attrs
             )
         ds = xr.Dataset(
             data_vars=vars_remapped,

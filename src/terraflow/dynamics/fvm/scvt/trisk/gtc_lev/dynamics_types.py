@@ -5,7 +5,7 @@ from typing import (
 )
 import equinox as eqx
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.field import ScalarField
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
@@ -65,7 +65,7 @@ class State(SCVTFields):
     tq      : ScalarField = eqx.field(default_factory=lambda: ScalarField())
     
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice):
         fields = state_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
@@ -82,7 +82,7 @@ class Tendency(SCVTFields):
     dundt_wedundeta : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice):
         fields = tend_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
@@ -99,7 +99,7 @@ class Static(SCVTFields):
     ref_ps_perb: SCVTField1D = eqx.field(default_factory=lambda: SCVTField1D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice):
         fields = static_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
@@ -143,7 +143,7 @@ class Auxiliary(SCVTFields):
     dptdt_damp   : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice):
         fields = aux_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
@@ -177,7 +177,7 @@ class EquationAuxDataset(AbstractEquationAuxiliaryDataset):
         mesh: SCVTMesh,
         vert_coord: AbstractGeneralizedTerrainFollowingCoordinate,
         ref_ps: FLT[Array, "ncell"],
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         if not mode.is_advection():
             pgf = PressureGradientForceDataset.initialize(
@@ -224,7 +224,7 @@ def state_init(
     mode: ModelMode,
     cfg: UserConfig,
     mesh: SCVTMesh,
-    dev: AbstractDevice = CPU()
+    dev: AbstractDevice
 ) -> dict[str, SCVTFieldLike | ScalarField]:
     fields: dict[str, SCVTFieldLike | ScalarField] = {}
     if cfg.time_scheme == "wrfrk3" or cfg.time_scheme == "pc2":
@@ -539,7 +539,7 @@ def tend_init(
     mode: ModelMode,
     cfg: UserConfig,
     mesh: SCVTMesh,
-    dev: AbstractDevice = CPU()
+    dev: AbstractDevice
 ) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if mode.is_barotropic():
@@ -625,7 +625,7 @@ def static_init(
     mode: ModelMode,
     cfg: UserConfig,
     mesh: SCVTMesh,
-    dev: AbstractDevice = CPU()
+    dev: AbstractDevice
 ) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
@@ -698,7 +698,7 @@ def aux_init(
     mode: ModelMode,
     cfg: UserConfig,
     mesh: SCVTMesh,
-    dev: AbstractDevice = CPU()
+    dev: AbstractDevice
 ) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if cfg.use_smag_damp:

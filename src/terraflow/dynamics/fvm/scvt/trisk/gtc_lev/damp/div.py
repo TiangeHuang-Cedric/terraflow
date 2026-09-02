@@ -3,7 +3,7 @@ from typing import Self, TYPE_CHECKING
 import jax.numpy as jnp
 
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.util.math import exp_two_values
 from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
@@ -38,7 +38,7 @@ class DivDampdata(AbstractEquationAuxiliaryData):
         cls,
         cfg: UserConfig,
         mesh: SCVTMesh, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         if cfg.use_div_damp:
             return cls.from_coord(
@@ -54,7 +54,7 @@ class DivDampdata(AbstractEquationAuxiliaryData):
         cls,
         cfg: UserConfig,
         mesh: SCVTMesh, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         kms, kme = mesh.full_kms, mesh.full_kme
         ims, ime = mesh.edge_ims, mesh.edge_ime

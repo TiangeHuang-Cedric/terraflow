@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Self, TYPE_CHECKING
 
-from terraflow.util.device import AbstractDevice, CPU
+from terraflow.util.device import AbstractDevice
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryDataset
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.damp.smag import SmagorinskyDampData, smag_damp_prepare
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.damp.div import DivDampdata, div_damp_run
@@ -36,7 +36,7 @@ class DampDataset(AbstractEquationAuxiliaryDataset):
         cfg: UserConfig,
         para: PlanetParameterSet, 
         mesh: SCVTMesh, 
-        dev: AbstractDevice = CPU()
+        dev: AbstractDevice
     ) -> Self:
         smag = SmagorinskyDampData.initialize(
             cfg=cfg,

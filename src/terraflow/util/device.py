@@ -1,5 +1,6 @@
 import jax
 import jax.numpy as jnp
+import os
 from mpi4py import MPI
 
 
@@ -25,6 +26,44 @@ class JaxBackend(Backend):
 
     def __call__(self):
         return self.ref
+
+
+def has_slurm() -> bool:
+    return all(
+        var in os.environ
+        for var in (
+            "SLURM_JOB_ID",
+            "SLURM_STEP_NODELIST",
+            "SLURM_NTASKS",
+            "SLURM_PROCID",
+            "SLURM_LOCALID",
+        )
+    )
+
+
+def has_openmpi() -> bool:
+    return "OMPI_MCA_orte_hnp_uri" in os.environ
+
+
+def cluster_detection_method() -> str | None:
+    if has_slurm() or has_openmpi():
+        return None
+    if MPI.COMM_WORLD.Get_size() > 1:
+        return "mpi4py"
+    return None
+
+
+def distributed_initialize(
+    proc: Proc,
+) -> None:
+    if proc.np_model <= 1 or jax.distributed.is_initialized():
+        return
+    if not proc.is_model():
+        return
+
+    jax.distributed.initialize(
+        cluster_detection_method=cluster_detection_method(),
+    )
 
 
 class AbstractDevice:
@@ -61,15 +100,17 @@ class CPU(AbstractDevice):
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
-        ref = jax.devices("cpu")[0]
+        proc = Proc(
+            comm=comm,
+            use_async_io=use_async_io,
+            proc_io_stride=proc_io_stride
+        )
+        distributed_initialize(proc)
+        ref = jax.local_devices(backend="cpu")[0]
         super().__init__(
             float_type, 
             int_type, 
-            Proc(
-                comm=comm,
-                use_async_io=use_async_io,
-                proc_io_stride=proc_io_stride
-            ),
+            proc,
             JaxBackend("cpu", ref)
         )
 
@@ -85,15 +126,17 @@ class GPU(AbstractDevice):
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
-        ref = jax.devices("gpu")[0]
+        proc = Proc(
+            comm=comm,
+            use_async_io=use_async_io,
+            proc_io_stride=proc_io_stride
+        )
+        distributed_initialize(proc)
+        ref = jax.local_devices(backend="gpu")[0]
         super().__init__(
             float_type, 
             int_type, 
-            Proc(
-                comm=comm,
-                use_async_io=use_async_io,
-                proc_io_stride=proc_io_stride
-            ),
+            proc,
             JaxBackend("gpu", ref)
         )
 
@@ -109,14 +152,16 @@ class TPU(AbstractDevice):
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
-        ref = jax.devices("tpu")[0]
+        proc = Proc(
+            comm=comm,
+            use_async_io=use_async_io,
+            proc_io_stride=proc_io_stride
+        )
+        distributed_initialize(proc)
+        ref = jax.local_devices(backend="tpu")[0]
         super().__init__(
             float_type, 
             int_type, 
-            Proc(
-                comm=comm,
-                use_async_io=use_async_io,
-                proc_io_stride=proc_io_stride
-            ),
+            proc,
             JaxBackend("tpu", ref),
         )

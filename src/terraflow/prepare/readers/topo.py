@@ -74,22 +74,22 @@ class ETOPO1Reader(AbstractTopographyReader):
         # Load data
         self.lon = jnp.array(
             lon,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.lat = jnp.array(
             lat,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.gzs = jnp.array(
             ds["z"].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         ) * gravity
         self.mask = jnp.array(
             ds["mask"].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         ds.close()
@@ -171,17 +171,17 @@ class GMETED2010Reader(AbstractTopographyReader):
         self.check_input_range("GMETED2010", lon, lat)
         self.lon = jnp.array(
             lon,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.lat = jnp.array(
             lat,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.gzs = jnp.array(
             ds["htopo"].values,
-            device=jax.devices("cpu")[0],
+            device=jax.local_devices(backend="cpu")[0],
             dtype=float_type
         ) * gravity
         ds.close()
