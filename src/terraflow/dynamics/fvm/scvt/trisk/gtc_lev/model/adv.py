@@ -129,7 +129,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
                 mode=mode,
                 cfg=cfg,
                 mesh=mesh,
-                tracers_meta=tracers_meta
+                tracers_meta=tracers_meta,
+                dev=dev
             ),
             dev=dev
         )
@@ -303,7 +304,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
                 mode=mode,
                 cfg=cfg,
                 mesh=mesh,
-                tracers_meta=tracers_meta
+                tracers_meta=tracers_meta,
+                dev=dev
             ),
             dev=dev
         )

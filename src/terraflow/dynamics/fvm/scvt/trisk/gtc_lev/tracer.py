@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import equinox as eqx
 
 from terraflow.util import typing
+from terraflow.util.device import AbstractDevice, CPU
 from terraflow.util.pytree import tree_at
 from terraflow.model.abstract import ModelMode
 from terraflow.mesh.scvt.field import (
@@ -163,6 +164,7 @@ class Tracer(SCVTFields):
         cfg: UserConfig,
         mesh: SCVTMesh,
         tracers_meta: dict[str, TracerMeta],
+        dev: AbstractDevice = CPU(),
     ) -> Self:
         if cfg.adv_time_scheme == "wrfrk3":
             ntracer_tile = 3
@@ -178,6 +180,7 @@ class Tracer(SCVTFields):
             units="kg/kg",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             ntracers=ntracers,
             expand_dim0_len=ntracer_tile,
             output="h0",
@@ -188,6 +191,7 @@ class Tracer(SCVTFields):
             units="kg/kg",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="",
         )    
         if mode.is_nonhydrostatic():
@@ -197,6 +201,7 @@ class Tracer(SCVTFields):
                 units="kg/kg",
                 loc="lev",
                 mesh=mesh,
+                dev=dev,
                 output="",
             )
         self = cls.from_fields(
@@ -216,9 +221,10 @@ class Tracer(SCVTFields):
         mode: ModelMode,
         cfg : UserConfig,
         mesh: SCVTMesh,
-        tracers_meta: dict[str, TracerMeta]
+        tracers_meta: dict[str, TracerMeta],
+        dev: AbstractDevice = CPU(),
     ) -> Self:
-        return cls.initialize(mode=mode, cfg=cfg, mesh=mesh, tracers_meta=tracers_meta)
+        return cls.initialize(mode=mode, cfg=cfg, mesh=mesh, tracers_meta=tracers_meta, dev=dev)
 
 
 def tracer_catalog(tracer: Tracer) -> Tracer:

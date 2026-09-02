@@ -65,8 +65,8 @@ class State(SCVTFields):
     tq      : ScalarField = eqx.field(default_factory=lambda: ScalarField())
     
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh):
-        fields = state_init(mode, cfg, mesh)
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+        fields = state_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
 
@@ -82,8 +82,8 @@ class Tendency(SCVTFields):
     dundt_wedundeta : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh):
-        fields = tend_init(mode, cfg, mesh)
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+        fields = tend_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
 
@@ -99,8 +99,8 @@ class Static(SCVTFields):
     ref_ps_perb: SCVTField1D = eqx.field(default_factory=lambda: SCVTField1D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh):
-        fields = static_init(mode, cfg, mesh)
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+        fields = static_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
 
@@ -143,8 +143,8 @@ class Auxiliary(SCVTFields):
     dptdt_damp   : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
 
     @classmethod
-    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh):
-        fields = aux_init(mode, cfg, mesh)
+    def from_coord(cls, mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh, dev: AbstractDevice = CPU()):
+        fields = aux_init(mode, cfg, mesh, dev=dev)
         return cls.from_fields(fields=fields, mode=mode)
 
 
@@ -220,7 +220,12 @@ class EquationAuxDataset(AbstractEquationAuxiliaryDataset):
         )
 
 
-def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVTFieldLike | ScalarField]:
+def state_init(
+    mode: ModelMode,
+    cfg: UserConfig,
+    mesh: SCVTMesh,
+    dev: AbstractDevice = CPU()
+) -> dict[str, SCVTFieldLike | ScalarField]:
     fields: dict[str, SCVTFieldLike | ScalarField] = {}
     if cfg.time_scheme == "wrfrk3" or cfg.time_scheme == "pc2":
         nstate = 3
@@ -235,6 +240,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
         units="m/s",
         loc="edge",
         mesh=mesh,
+        dev=dev,
         is_expand_dim0=True,
         expand_dim0_len=nstate,
         output="h1"
@@ -245,6 +251,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
         units="m2 / s2",
         loc="cell",
         mesh=mesh,
+        dev=dev,
         is_expand_dim0=True,
         expand_dim0_len=nstate,
         output="h0"
@@ -255,6 +262,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
         units="m2 / s2",
         loc="lev",
         mesh=mesh,
+        dev=dev,
         is_expand_dim0=True,
         expand_dim0_len=nstate,
         output="h0"
@@ -265,6 +273,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
         units="Pa",
         loc="cell",
         mesh=mesh,
+        dev=dev,
         is_expand_dim0=True,
         expand_dim0_len=nstate,
         output="h1"
@@ -276,6 +285,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output=""
@@ -291,6 +301,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="K",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h0"
@@ -301,6 +312,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
         units="Pa",
         loc="cell",
         mesh=mesh,
+        dev=dev,
         is_expand_dim0=True,
         expand_dim0_len=nstate,
         output=""
@@ -312,6 +324,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output=""
@@ -323,6 +336,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             at_sfc=True,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
@@ -335,6 +349,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h0"
@@ -346,6 +361,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h1"
@@ -357,6 +373,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             at_sfc=True,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
@@ -369,6 +386,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="m s-1",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output=""
@@ -379,6 +397,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="m s-1",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h0"
@@ -390,6 +409,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h0" if mode.nonhydrostatic else ""
@@ -400,6 +420,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
             output="h1" if mode.nonhydrostatic else ""
@@ -410,6 +431,7 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             at_sfc=True,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
@@ -423,7 +445,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
     if mode.is_baroclinic() and mode.is_moist():
         fields["tqv"] = ScalarField.initialize(
@@ -433,7 +456,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
     if mode.is_barotropic() or mode.is_baroclinic():
         fields["tpe"] = ScalarField.initialize(
@@ -443,7 +467,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
         fields["te"] = ScalarField.initialize(
             name="te",
@@ -452,7 +477,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
         fields["te_ke"] = ScalarField.initialize(
             name="te_ke",
@@ -461,7 +487,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output=""
+            output="",
+            dev=dev
         )
         fields["te_pe"] = ScalarField.initialize(
             name="te_pe",
@@ -470,7 +497,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output=""
+            output="",
+            dev=dev
         )
     if mode.is_baroclinic():
         fields["te_ie"] = ScalarField.initialize(
@@ -480,7 +508,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output=""
+            output="",
+            dev=dev
         )
         fields["tpt"] = ScalarField.initialize(
             name="tpt",
@@ -489,7 +518,8 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
     if mode.is_advection():
         fields["tq"] = ScalarField.initialize(
@@ -499,12 +529,18 @@ def state_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SC
             is_static=False,
             is_expand_dim0=True,
             expand_dim0_len=nstate,
-            output="h0"
+            output="h0",
+            dev=dev
         )
     return fields
         
         
-def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVTFieldLike]:
+def tend_init(
+    mode: ModelMode,
+    cfg: UserConfig,
+    mesh: SCVTMesh,
+    dev: AbstractDevice = CPU()
+) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if mode.is_barotropic():
         fields["dgzdt"] = SCVTField2D.from_mesh(
@@ -513,6 +549,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m2 / s3",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if mode.is_baroclinic():
@@ -522,6 +559,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="Pa / s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
         fields["dptdt"] = SCVTField2D.from_mesh(
@@ -530,6 +568,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="K / s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if mode.is_barotropic() or mode.is_baroclinic():
@@ -539,6 +578,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
         fields["dundt_coriolis"] = SCVTField2D.from_mesh(
@@ -547,6 +587,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1" if cfg.output_h1_tend else ""
         )
         fields["dundt_grad_ke"] = SCVTField2D.from_mesh(
@@ -555,6 +596,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1" if cfg.output_h1_tend else ""
         )
         fields["dundt_pgf"] = SCVTField2D.from_mesh(
@@ -563,6 +605,7 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1" if cfg.output_h1_tend else ""
         )
     if mode.is_baroclinic():
@@ -572,12 +615,18 @@ def tend_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCV
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1" if cfg.output_h1_tend else ""
         )
     return fields
 
 
-def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVTFieldLike]:
+def static_init(
+    mode: ModelMode,
+    cfg: UserConfig,
+    mesh: SCVTMesh,
+    dev: AbstractDevice = CPU()
+) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if mode.is_barotropic() or mode.is_baroclinic() or mode.is_advection():
         fields["gzs"] = SCVTField1D.from_mesh(
@@ -586,6 +635,7 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="m2 / s2",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_static=True,
             output="h0"
         )
@@ -596,6 +646,7 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="1",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_static=True,
             output="h0"
         )
@@ -605,6 +656,7 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             is_static=True,
             output="h0"
         )
@@ -615,6 +667,7 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_static=False,
             output="h1"
         )
@@ -624,6 +677,7 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_static=False,
             output="h1"
         )
@@ -633,13 +687,19 @@ def static_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, S
             units="Pa",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             is_static=False,
             output="h1"
         )
     return fields
 
 
-def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVTFieldLike]:
+def aux_init(
+    mode: ModelMode,
+    cfg: UserConfig,
+    mesh: SCVTMesh,
+    dev: AbstractDevice = CPU()
+) -> dict[str, SCVTFieldLike]:
     fields: dict[str, SCVTFieldLike] = {}
     if cfg.use_smag_damp:
         fields["smag_coef"] = SCVTField2D.from_mesh(
@@ -648,6 +708,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units           ='s-2'                                ,
             loc             ='edge'                               ,
             mesh            =mesh                                 ,
+            dev             =dev                                  ,
         )
         if mode.is_nonhydrostatic():
             fields["smag_coef_lev"] = SCVTField2D.from_mesh(
@@ -655,7 +716,8 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
                 long_name       ='Coefficient for Smagorinsky damping at half lev' , 
                 units           ='s-2'                                             , 
                 loc             ='lev_edge'                                        , 
-                mesh            =mesh                                              
+                mesh            =mesh                                              ,
+                dev             =dev
             )
     if cfg.use_laplace_damp or cfg.use_div_damp or cfg.use_smag_damp:
         fields["dundt_damp"] = SCVTField2D.from_mesh(
@@ -664,6 +726,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m / s2",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if (cfg.use_laplace_damp or cfg.use_smag_damp) and mode.is_nonhydrostatic():
@@ -673,6 +736,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m / s2",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if cfg.use_smag_damp:
@@ -682,6 +746,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="K / s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     fields["g_1d"] = SCVTField1D.from_mesh(
@@ -690,6 +755,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="",
         loc="edge",
         mesh=mesh,
+        dev=dev,
         output=""
     )
     fields["fn_1d"] = SCVTField1D.from_mesh(
@@ -698,6 +764,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="",
         loc="edge",
         mesh=mesh,
+        dev=dev,
         output=""
     )
     fields["df_1d"] = SCVTField1D.from_mesh(
@@ -706,6 +773,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="",
         loc="cell",
         mesh=mesh,
+        dev=dev,
         output=""
     )
     if cfg.use_laplace_damp or cfg.use_smag_damp:
@@ -715,6 +783,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output=""
         )
         fields["fn_2d"] = SCVTField2D.from_mesh(
@@ -723,6 +792,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output=""
         )
     if mode.is_baroclinic() or mode.is_advection():
@@ -732,6 +802,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="K",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
     if mode.is_baroclinic() or mode.is_advection():
@@ -741,6 +812,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="K",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if mode.is_baroclinic():
@@ -750,6 +822,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="kg / m3",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     fields["we_lev"] = SCVTField2D.from_mesh(
@@ -758,6 +831,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="m/s",
         loc="lev",
         mesh=mesh,
+        dev=dev,
         output=""
     )
     if not mode.is_advection():
@@ -767,6 +841,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m/s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
         fields["v"] = SCVTField2D.from_mesh(
@@ -775,6 +850,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m/s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
         fields["ut"] = SCVTField2D.from_mesh(
@@ -783,6 +859,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m/s",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
         fields["ke"] = SCVTField2D.from_mesh(
@@ -791,6 +868,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m2 / s2",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h1" if not mode.is_advection() else ""
         )
         fields["ke_vtx"] = SCVTField2D.from_mesh(
@@ -799,6 +877,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m2 / s2",
             loc="vtx",
             mesh=mesh,
+            dev=dev,
             output="h1" if not mode.is_advection() else ""
         )
         fields["pv_edge"] = SCVTField2D.from_mesh(
@@ -807,6 +886,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="Pa-1 s-1",
             loc="edge",
             mesh=mesh,
+            dev=dev,
             output="h1" if not mode.is_advection() else ""
         )
     fields["dmg_edge"] = SCVTField2D.from_mesh(
@@ -815,6 +895,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="Pa",
         loc="edge",
         mesh=mesh,
+        dev=dev,
         output="h1"
     )
     fields["dmg_vtx"] = SCVTField2D.from_mesh(
@@ -823,6 +904,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="Pa",
         loc="vtx",
         mesh=mesh,
+        dev=dev,
         output=""
     )
     if mode.is_baroclinic() or mode.is_advection():
@@ -832,6 +914,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="Pa s-1",
             loc="lev",
             mesh=mesh,
+            dev=dev,
             output="h1"
         )
     if mode.is_nonhydrostatic():
@@ -841,6 +924,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="Pa s-1",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output=""
         )
     if mode.is_baroclinic():
@@ -850,6 +934,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="Pa s-1",
             loc="lev_edge",
             mesh=mesh,
+            dev=dev,
             output=""
         )
     fields["mfn"] = SCVTField2D.from_mesh(
@@ -858,6 +943,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="Pa m s-1",
         loc="edge",
         mesh=mesh,
+        dev=dev,
         output="h1"
     )
     if not mode.is_advection():
@@ -867,6 +953,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="1/s",
             loc="vtx",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
     fields["pv"] = SCVTField2D.from_mesh(
@@ -875,6 +962,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="Pa-1 s-1",
         loc="vtx",
         mesh=mesh,
+        dev=dev,
         output="h1" if not mode.is_advection() else ""
     )
     if not mode.is_advection():
@@ -884,6 +972,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="1/s",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
     if cfg.use_div_damp and cfg.div_damp_order == 4:
@@ -893,6 +982,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m-1 s-1",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )        
     if cfg.use_div_damp and cfg.div_damp_order == 4:
@@ -902,6 +992,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m-1 s-1",
             loc="cell",
             mesh=mesh,
+            dev=dev,
             output="h0"
         )
     fields["dmf"] = SCVTField2D.from_mesh(
@@ -910,6 +1001,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
         units="kg / (m s)",
         loc="cell",
         mesh=mesh,
+        dev=dev,
         output="h1"
     )       
     if mode.is_baroclinic() and cfg.uv_vert_adv_type == 1:
@@ -919,6 +1011,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m/s",
             loc="lev_edge",
             mesh=mesh,
+            dev=dev,
             output=""
         )
     if mode.is_nonhydrostatic():
@@ -928,6 +1021,7 @@ def aux_init(mode: ModelMode, cfg: UserConfig, mesh: SCVTMesh) -> dict[str, SCVT
             units="m/s",
             loc="lev_edge",
             mesh=mesh,
+            dev=dev,
             output=""
         )
         

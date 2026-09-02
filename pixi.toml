@@ -1,7 +1,14 @@
 [workspace]
 name = "terraflow"
 channels = ["pypi", "conda-forge"]
-platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
+requires-pixi = ">=0.71.0"
+platforms = [
+    "osx-arm64",
+    { name = "linux-64-glibc-2-27", platform = "linux-64", glibc = "2.27" },
+    { name = "linux-aarch64-glibc-2-27", platform = "linux-aarch64", glibc = "2.27" },
+    { name = "linux-64-cuda-12-glibc-2-27", platform = "linux-64", cuda = "12", glibc = "2.27" },
+    { name = "linux-aarch64-cuda-12-glibc-2-27", platform = "linux-aarch64", cuda = "12", glibc = "2.27" },
+]
 
 [dependencies]
 bokeh = ">=3.9.2,<4"
@@ -34,27 +41,31 @@ xarray = "*"
 pymetis = ">=2025.2.2, <2026"
 mpi4py = ">=4.1.2, <5"
 nanobind = ">=2.14.0, <3"
-mpi4jax = ">=0.9.1, <0.10"
+mpi4jax = "==0.9.1"
+
+[pypi-options]
+no-build-isolation = ["mpi4jax"]
 
 [feature.cpu]
-system-requirements = { libc = "2.27" }
-platforms = ["osx-arm64", "linux-64", "linux-aarch64"]
-dependencies = { jax = ">=0.10.2,<0.11" }
+platforms = ["osx-arm64", "linux-64-glibc-2-27", "linux-aarch64-glibc-2-27"]
+dependencies = { jax = "==0.10.2" }
 
 [feature.cpu.pypi-dependencies]
 jaxkd = ">=0.1.2, <0.2"
 
 [feature.cuda]
-system-requirements = { cuda = "12", libc = "2.27" }
-platforms = ["linux-64", "linux-aarch64"]
+platforms = ["linux-64-cuda-12-glibc-2-27", "linux-aarch64-cuda-12-glibc-2-27"]
 dependencies = { cuda = ">=12.1.1,<13" }
 
 [feature.cuda.pypi-dependencies]
-jax = { version = ">=0.10.2, <0.11", extras = ["cuda12"] }
+jax = { version = "==0.10.2", extras = ["cuda12"] }
+jaxlib = "==0.10.2"
+jax-cuda12-plugin = { version = "==0.10.2", extras = ["with-cuda"] }
+jax-cuda12-pjrt = "==0.10.2"
 jaxkd = ">=0.1.2, <0.2"
 
 [tasks]
-build-mpi4jax = "pip uninstall -y mpi4jax; pip install --no-build-isolation 'mpi4jax>=0.9.0.post1,<0.10'"
+build-mpi4jax = "pip uninstall -y mpi4jax; pip install --no-deps --no-build-isolation --no-cache-dir --no-binary=mpi4jax --force-reinstall 'mpi4jax==0.9.1'"
 
 [environments]
 default = { features = ["cpu"] }

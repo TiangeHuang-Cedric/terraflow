@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from terraflow.util import typing
+from terraflow.util.device import AbstractDevice, CPU
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
     SCVTFieldMeta,
@@ -42,23 +43,23 @@ class AdvBatchType(SCVTFields):
     dt         : float       = eqx.field(default=0    , static=True)
     nsteps     : int         = eqx.field(default=0    , static=True)
     istep      : int         = eqx.field(default=0                 )
-    idx        : list[int]   = eqx.field(default_factory=list, static=True     )
-    m          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )  # Dry-air weight at n time level
-    m_new      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )  # Dry-air weight at n+1 time level
-    mfn        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )  # Mass flux in normal direction
-    mfz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )  # Mass flux in z direction
-    un         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    w          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    qmfn       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    qmfz       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
+    idx        : list[int]   = eqx.field(default_factory=list, static=True    )
+    m          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())  # Dry-air weight at n time level
+    m_new      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())  # Dry-air weight at n+1 time level
+    mfn        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())  # Mass flux in normal direction
+    mfz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())  # Mass flux in z direction
+    un         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    w          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    qmfn       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    qmfz       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     # FCT variables
-    qmfn_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    qmfz_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    afn        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    afz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    td         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    r_in       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() )
-    r_out      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D() ) 
+    qmfn_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    qmfz_lo    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    afn        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    afz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    td         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    r_in       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    r_out      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D()) 
     
     @classmethod
     def from_mesh(
@@ -74,6 +75,7 @@ class AdvBatchType(SCVTFields):
         passive: bool,
         semilag: bool,
         idx: Optional[list[int]] = None,
+        dev: AbstractDevice = CPU(),
     ):
         if batch_loc not in {"cell", "lev", "vtx"}:
             raise ValueError(f"Unsupported batch_loc {batch_loc} for batch {batch_name}!")
@@ -110,6 +112,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa",
                 loc=loc0,
                 mesh=mesh,
+                dev=dev,
                 output="h0" if mode.is_advection() else "",
             )
             fields["m_new"] = SCVTField2D.from_mesh(
@@ -118,6 +121,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa",
                 loc=loc0,
                 mesh=mesh,
+                dev=dev,
                 output="",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -127,6 +131,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa",
                 loc=locn,
                 mesh=mesh,
+                dev=dev,
                 output="h1" if mode.is_advection() else "",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -136,6 +141,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa",
                 loc=locz,
                 mesh=mesh,
+                dev=dev,
                 output="h1" if mode.is_advection() else "",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -145,6 +151,7 @@ class AdvBatchType(SCVTFields):
                 units="m s-1",
                 loc=locn,
                 mesh=mesh,
+                dev=dev,
                 output="h0" if mode.is_advection() else "",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -154,6 +161,7 @@ class AdvBatchType(SCVTFields):
                 units="s-1",
                 loc=locz,
                 mesh=mesh,
+                dev=dev,
                 output="h0" if mode.is_advection() else "",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -163,6 +171,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locn,
                 mesh=mesh,
+                dev=dev,
                 output="h1",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -172,6 +181,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locz,
                 mesh=mesh,
+                dev=dev,
                 output="h1",
             )
         if mode.is_baroclinic() or mode.is_advection():
@@ -181,6 +191,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locn,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["qmfz_lo"] = SCVTField2D.from_mesh(
@@ -189,6 +200,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locz,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["afn"] = SCVTField2D.from_mesh(
@@ -197,6 +209,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locn,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["afz"] = SCVTField2D.from_mesh(
@@ -205,6 +218,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1 m s-1",
                 loc=locz,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["td"] = SCVTField2D.from_mesh(
@@ -213,6 +227,7 @@ class AdvBatchType(SCVTFields):
                 units="Pa kg kg-1",
                 loc=loc0,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["r_in"] = SCVTField2D.from_mesh(
@@ -221,6 +236,7 @@ class AdvBatchType(SCVTFields):
                 units="1",
                 loc=loc0,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
             fields["r_out"] = SCVTField2D.from_mesh(
@@ -229,6 +245,7 @@ class AdvBatchType(SCVTFields):
                 units="1",
                 loc=loc0,
                 mesh=mesh,
+                dev=dev,
                 output=""
             )
 
@@ -238,10 +255,10 @@ class AdvBatchType(SCVTFields):
             loc=batch_loc,
             dt=dt,
             nsteps=int(dt / dt_dyn),
-            istep=jnp.array(0),
+            istep=jnp.array(0, device=dev(), dtype=dev.int_type),
             idx=idx,
-            old=jnp.array(0),
-            new=jnp.array(1),
+            old=jnp.array(0, device=dev(), dtype=dev.int_type),
+            new=jnp.array(1, device=dev(), dtype=dev.int_type),
             scheme_h=scheme_h,
             scheme_v=scheme_v,
             dynamic=dynamic,

@@ -167,7 +167,8 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
             mode=mode,
             cfg=cfg,
             mesh=mesh,
-            tracers_meta=tracers_meta
+            tracers_meta=tracers_meta,
+            dev=dev
         )        
         block = Block.from_coord(
             mode=self.mode, 

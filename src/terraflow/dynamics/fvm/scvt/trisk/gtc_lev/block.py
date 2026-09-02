@@ -71,10 +71,10 @@ class Block(
         dev: AbstractDevice = CPU()
     ) -> Self:
         # ================================================
-        state  = State    .from_coord(mode=mode, cfg=cfg, mesh=mesh)
-        static = Static   .from_coord(mode=mode, cfg=cfg, mesh=mesh)
-        tend   = Tendency .from_coord(mode=mode, cfg=cfg, mesh=mesh)
-        aux    = Auxiliary.from_coord(mode=mode, cfg=cfg, mesh=mesh)
+        state  = State    .from_coord(mode=mode, cfg=cfg, mesh=mesh, dev=dev)
+        static = Static   .from_coord(mode=mode, cfg=cfg, mesh=mesh, dev=dev)
+        tend   = Tendency .from_coord(mode=mode, cfg=cfg, mesh=mesh, dev=dev)
+        aux    = Auxiliary.from_coord(mode=mode, cfg=cfg, mesh=mesh, dev=dev)
         # ================================================
         # Adv init
         adv_batch_bg = AdvBatchType.from_mesh(
@@ -87,7 +87,8 @@ class Block(
             dt_dyn=cfg.dt_dyn_seconds,
             dynamic=True,
             passive=False,
-            semilag=cfg.bg_adv_scheme=="ffsl"
+            semilag=cfg.bg_adv_scheme=="ffsl",
+            dev=dev
         )
         if mode.is_baroclinic():
             adv_batch_pt = AdvBatchType.from_mesh(
@@ -100,7 +101,8 @@ class Block(
                 dt_dyn=cfg.dt_dyn_seconds,
                 dynamic=True,
                 passive=True,
-                semilag=False
+                semilag=False,
+                dev=dev
             )
         else:
             adv_batch_pt = AdvBatchType()
@@ -130,7 +132,8 @@ class Block(
                     dynamic=False,
                     passive=True,
                     semilag=True,
-                    idx=batch_idx[bname]
+                    idx=batch_idx[bname],
+                    dev=dev
                 )
         else:
             # if tracers is not provided, initialize an empty adv_batches

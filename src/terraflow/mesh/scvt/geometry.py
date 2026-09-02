@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from functools import partial
 import equinox as eqx
 import jax.numpy as jnp
 import jax
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     Array = typing.Array
     
 
-@jax.jit(static_argnames="para")
+@partial(jax.jit, static_argnames="para")
 def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
     kite_area_cell = calc_kite_area_cell(para, mesh)
     kite_area_vtx  = calc_kite_area_vtx (para, mesh)
@@ -27,7 +28,7 @@ def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
     )
 
 
-@jax.jit(static_argnames="para")
+@partial(jax.jit, static_argnames="para")
 def correct_normal_vectors(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
     cell_nr = calc_nr_cell(para, mesh)
     vtx_nr  = calc_nr_vtx (para, mesh)
