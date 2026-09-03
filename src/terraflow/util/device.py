@@ -46,16 +46,22 @@ def has_openmpi() -> bool:
 
 
 def cluster_detection_method() -> str | None:
-    if has_slurm() or has_openmpi():
-        return None
+    method = os.environ.get("TERRAFLOW_CLUSTER_DETECTION_METHOD")
+    if method:
+        return method
     if MPI.COMM_WORLD.Get_size() > 1:
         return "mpi4py"
+    if has_slurm() or has_openmpi():
+        return None
     return None
 
 
 def distributed_initialize(
     proc: Proc,
+    use_jax_distributed: bool
 ) -> None:
+    if not use_jax_distributed:
+        return
     if proc.np_model <= 1 or jax.distributed.is_initialized():
         return
     if not proc.is_model():
@@ -64,6 +70,31 @@ def distributed_initialize(
     jax.distributed.initialize(
         cluster_detection_method=cluster_detection_method(),
     )
+
+
+def local_process_id(proc: Proc) -> int | None:
+    for name in (
+        "OMPI_COMM_WORLD_LOCAL_RANK",
+        "SLURM_LOCALID",
+        "MPI_LOCALRANKID",
+        "MV2_COMM_WORLD_LOCAL_RANK",
+    ):
+        value = os.environ.get(name)
+        if value is not None:
+            return int(value)
+
+    if (
+        MPI.Is_initialized()
+        and proc.comm_model is not None
+        and proc.comm_model != MPI.COMM_NULL
+        and proc.comm_model.Get_size() > 1
+    ):
+        local_comm = proc.comm_model.Split_type(MPI.COMM_TYPE_SHARED)
+        local_rank = local_comm.Get_rank()
+        local_comm.Free()
+        return int(local_rank)
+
+    return None
 
 
 class AbstractDevice:
@@ -87,6 +118,18 @@ class AbstractDevice:
     
     def is_root(self) -> bool:
         return self.proc.is_root()
+    
+    def is_distributed(self) -> bool:
+        return jax.distributed.is_initialized()
+    
+    def barrier(self) -> None:
+        if self.proc.comm_model is not None and self.proc.comm_model != MPI.COMM_NULL:
+            self.proc.comm_model.Barrier()        
+    
+    def shutdown(self) -> None:
+        self.barrier()
+        if self.is_distributed():
+            return jax.distributed.shutdown()
 
 
 class CPU(AbstractDevice):
@@ -98,14 +141,18 @@ class CPU(AbstractDevice):
         int_type: type = jnp.int64,
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
-        proc_io_stride: int = 0
+        proc_io_stride: int = 0,
+        use_jax_distributed: bool = False
     ):
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(proc)
+        distributed_initialize(
+            proc=proc, 
+            use_jax_distributed=use_jax_distributed
+        )
         ref = jax.local_devices(backend="cpu")[0]
         super().__init__(
             float_type, 
@@ -124,14 +171,28 @@ class GPU(AbstractDevice):
         int_type: type = jnp.int32,
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
-        proc_io_stride: int = 0
+        proc_io_stride: int = 0,
+        use_jax_distributed: bool = False
     ):
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(proc)
+        distributed_initialize(
+            proc=proc, 
+            use_jax_distributed=use_jax_distributed
+        )
+        if (
+            os.environ.get("CUDA_VISIBLE_DEVICES")
+            or os.environ.get("JAX_CUDA_VISIBLE_DEVICES")
+            or use_jax_distributed
+        ):
+            pass
+        else:
+            local_proc_id = local_process_id(proc)
+            if local_proc_id is not None:
+                jax.config.update("jax_cuda_visible_devices", str(local_proc_id))
         ref = jax.local_devices(backend="gpu")[0]
         super().__init__(
             float_type, 
@@ -157,7 +218,10 @@ class TPU(AbstractDevice):
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(proc)
+        distributed_initialize(
+            proc=proc, 
+            use_jax_distributed=True
+        )
         ref = jax.local_devices(backend="tpu")[0]
         super().__init__(
             float_type, 

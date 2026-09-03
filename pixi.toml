@@ -31,7 +31,6 @@ jaxtyping = ">=0.3.11, <0.4"
 jupytext = ">=1.19.5, <2"
 loguru = ">=0.7.3, <0.8"
 mpi4jax = "==0.9.1"
-mpi4py = ">=4.1.2,<5"
 nanobind = ">=2.14.0, <3"
 numpy = "*"
 polars = "*"
@@ -47,10 +46,15 @@ no-build-isolation = ["mpi4jax"]
 
 [feature.cpu]
 platforms = ["osx-arm64", "linux-64-glibc-2-27", "linux-aarch64-glibc-2-27"]
-dependencies = { jax = "==0.10.2" }
+dependencies = { jax = "==0.10.2", openmpi = ">=4.1.6,<5", mpi4py = ">=4.1.2,<5" }
 
 [feature.cpu.pypi-dependencies]
 jaxkd = ">=0.1.2, <0.2"
+
+[feature.cpu.tasks]
+build-mpi4jax = """
+MPI4JAX_USE_CUDA_MPI=${MPI4JAX_USE_CUDA_MPI:-0} MPICC=${MPICC:-$(which mpicc)} python -m pip install --no-deps --no-build-isolation --no-cache-dir --no-binary=mpi4jax --force-reinstall 'mpi4jax==0.9.1'
+"""
 
 [feature.cuda]
 platforms = ["linux-64-cuda-12-glibc-2-27", "linux-aarch64-cuda-12-glibc-2-27"]
@@ -62,8 +66,9 @@ jaxlib = "==0.10.2"
 jax-cuda12-plugin = { version = "==0.10.2", extras = ["with-cuda"] }
 jax-cuda12-pjrt = "==0.10.2"
 jaxkd = ">=0.1.2, <0.2"
+mpi4py = ">=4.1.2,<5"
 
-[tasks]
+[feature.cuda.tasks]
 build-mpi4jax = """
 python -m pip uninstall -y mpi4jax mpi4py
 MPICC=${MPICC:-$(which mpicc)} python -m pip install --no-cache-dir --no-binary=mpi4py --force-reinstall 'mpi4py>=4.1.2,<5'
