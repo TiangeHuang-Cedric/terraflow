@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import time
 import jax
 import jax.numpy as jnp
 import terraflow.core as tf
@@ -38,10 +39,10 @@ config = tf.model.UserConfig(
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
-    run_time="50 seconds",
-    dt_dyn="50 seconds",
-    dt_adv="50 seconds",
-    save_interval="50 seconds"
+    run_time="1 hours",
+    dt_dyn="300 seconds",
+    dt_adv="300 seconds",
+    save_interval="300 seconds"
 )
 
 model = tf.model.build_hydrostatic_model(
@@ -63,9 +64,12 @@ integrate_fn = tf.model.compiled_with_model(
     fun=model.integrate(),
 )
 
-jax.profiler.start_trace("../../.profile_data")
+jax.profiler.start_trace("../../.profile_data", create_perfetto_trace=True)
 
-final = integrate_fn(model)
-tf.model.block_until_ready(final)
+t0 = time.perf_counter()
+with jax.profiler.StepTraceAnnotation("integrate", step_num=0):
+    final = integrate_fn(model)
+    final = tf.model.block_until_ready(final)
+print(f"Integrate runtime: {time.perf_counter() - t0:.6f} s")
 
 jax.profiler.stop_trace()

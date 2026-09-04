@@ -48,10 +48,10 @@ def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) ->
                 at_idxes=(itime, itime)
             )
     if mode.is_baroclinic():
-        block = calc_t(block, itime                   )
-    block = calc_mf   (block, itime, dt                )
+        block = calc_t(block, itime                          )
+    block = calc_mf   (block, itime, dt                      )
     block = calc_ke   (block, itime,     const.total_substeps)
-    block = calc_ut   (block, itime                    )
+    block = calc_ut   (block, itime                          )
     block = calc_pv   (block, itime,     const.total_substeps)
     block = interp_pv (block, itime, dt, const.total_substeps)
     if mode.is_baroclinic() and (mode.is_hydrostatic() or cfg.init_hydrostatic_gz):
@@ -99,6 +99,7 @@ def operators_prepare_2(
     return block
 
 
+@jax.named_scope("calc_mg")
 def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -131,7 +132,9 @@ def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         at_dims=(0, 0),
         at_idxes=(star_idx, star_idx)
     )
-    
+
+
+@jax.named_scope("calc_ph")
 def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -190,7 +193,8 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             at_idxes=(star_idx, star_idx, star_idx)
         )
     
-    
+
+@jax.named_scope("calc_t")
 def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -241,6 +245,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     )
 
 
+@jax.named_scope("calc_rhod")
 def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -260,7 +265,8 @@ def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         replace=rhod
     )
     
-    
+
+@jax.named_scope("calc_mfz")
 def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     half_kds = mesh.half_kds
@@ -294,7 +300,8 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         replace=mfz_lev,
     )
     
-    
+
+@jax.named_scope("calc_ke")    
 def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
     mesh = block.mesh
     cell_ids, cell_ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -371,7 +378,8 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         replace=(ke, ke_vtx),
     )
     
-    
+
+@jax.named_scope("calc_div")
 def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     un   = block.state.un  .unwrap()[star_idx, :, :]
@@ -415,7 +423,8 @@ def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         replace=(div, div2),
     )
     
-    
+
+@jax.named_scope("calc_gz")
 def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
@@ -465,7 +474,8 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         at_idxes=(star_idx, star_idx)
     )
     
-    
+
+@jax.named_scope("calc_dmg")
 def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids     , ihe      = mesh.cell_ids, mesh.cell_ihe[0]
@@ -587,7 +597,8 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             at_idxes=(star_idx, None, None)
         )
     
-    
+
+@jax.named_scope("calc_mf")
 def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
@@ -606,7 +617,8 @@ def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
         replace=mfn
     )
     
-    
+
+@jax.named_scope("calc_ut")
 def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -643,6 +655,7 @@ def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     )
 
 
+@jax.named_scope("calc_vor")
 def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = False) -> Block:
     un = block.state.un.unwrap()[star_idx, :, :]
     vor = block.aux.vor.unwrap()
@@ -661,7 +674,8 @@ def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = Fal
         replace=vor,
     )
     
-    
+
+@jax.named_scope("calc_pv")
 def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
     mesh = block.mesh
     ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
@@ -686,8 +700,9 @@ def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         pytree=block,
         replace=pv,
     )
-    
-    
+
+
+@jax.named_scope("interp_pv_midpoint")
 def interp_pv_midpoint(
     block: Block, 
     star_idx: INT[Array, ""] | int, 
@@ -715,8 +730,9 @@ def interp_pv_midpoint(
         pytree=block,
         replace=pv_edge
     )
-    
-    
+
+
+@jax.named_scope("interp_pv_upwind")
 def interp_pv_upwind(
     block: Block, 
     star_idx: INT[Array, ""] | int, 
@@ -801,8 +817,8 @@ def interp_pv_upwind(
         pytree=block,
         replace=pv_edge
     )
-    
-    
+
+
 def interp_pv(
     block: Block, 
     star_idx: INT[Array, ""] | int, 
@@ -815,8 +831,9 @@ def interp_pv(
         return interp_pv_upwind  (block, star_idx, dt, substep)
     else:
         raise ValueError(f"interp_pv: unsupported pv_adv_scheme {block.cfg.pv_adv_scheme}!")
-    
-    
+
+
+@jax.named_scope("calc_coriolis")
 def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, substep: int) -> Block:
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -867,8 +884,9 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
         pytree=block,
         replace=(dundt, dundt_coriolis)
     )
-    
-    
+
+
+@jax.named_scope("calc_grad_ke")
 def calc_grad_ke(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     mesh = block.mesh
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -892,8 +910,9 @@ def calc_grad_ke(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Blo
         pytree=block,
         replace=(dundt, dundt_grad_ke)
     )
-    
-    
+
+
+@jax.named_scope("calc_grad_mf")
 def calc_grad_mf(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mfn = block.aux.mfn.unwrap()
     dmf = block.aux.dmf.unwrap()
@@ -910,8 +929,9 @@ def calc_grad_mf(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         pytree=block,
         replace=dmf,
     )
-    
-    
+
+
+@jax.named_scope("calc_grad_ptf")
 def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -967,8 +987,9 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         pytree=block,
         replace=(ptfn, ptfz, dptdt)
     )
-    
 
+
+@jax.named_scope("calc_dmgsdt")
 def calc_dmgsdt(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -986,8 +1007,9 @@ def calc_dmgsdt(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         pytree=block,
         replace=dmgsdt
     )
-    
-    
+
+
+@jax.named_scope("calc_wedundlev")
 def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     mesh     = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 
 
+@jax.named_scope("upwind_calc_mass_hflx")
 def upwind_calc_mass_hflx(
     batch: batch.AdvBatchType, 
     block: Block,
@@ -109,6 +110,7 @@ def upwind_calc_mass_hflx(
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
 
+@jax.named_scope("upwind_calc_tracer_hflx")
 def upwind_calc_tracer_hflx(
     batch: batch.AdvBatchType, 
     block: Block,
@@ -184,6 +186,7 @@ def upwind_calc_tracer_hflx(
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
 
+@jax.named_scope("upwind_calc_tracer_vflx")
 def upwind_calc_tracer_vflx(
     batch: batch.AdvBatchType,
     block: Block, 

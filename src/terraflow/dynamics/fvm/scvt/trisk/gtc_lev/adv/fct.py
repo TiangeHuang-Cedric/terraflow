@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     Array = typing.Array
 
 
+@jax.named_scope("fct_calc_hflx")
 def fct_calc_hflx(
     batch: batch.AdvBatchType,
     block: Block,
@@ -239,6 +240,7 @@ def fct_calc_hflx(
     )
 
 
+@jax.named_scope("fct_calc_vflx")
 def fct_calc_vflx(
     batch: batch.AdvBatchType,
     block: Block,
