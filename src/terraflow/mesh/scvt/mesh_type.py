@@ -773,8 +773,8 @@ class SCVTMesh(AbstractUnstructuredMesh):
             dtype=int_type
         )
         self = cls(**fields)
-        self = calc_kite_area(para, self)
-        self = correct_normal_vectors(para, self)
+        self = calc_kite_area(para, self, dev)
+        self = correct_normal_vectors(para, self, dev)
         return self
     
     @classmethod

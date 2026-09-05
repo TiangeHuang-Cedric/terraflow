@@ -1035,7 +1035,7 @@ class ESMFRegridder:
             else:
                 out = out.reshape(-1, nlev).T
         # ========================================================
-        return jnp.asarray(out)
+        return jnp.asarray(out, device=src_data.device)
 
     @staticmethod
     def create_latlon_grid(lon: np.ndarray, lat: np.ndarray) -> esmpy.Grid:

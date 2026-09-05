@@ -6,10 +6,12 @@ import jax.numpy as jnp
 import jax
 
 from terraflow.util import math, sphere_geometry
+from terraflow.util.pytree import error_if
 from terraflow.mesh.scvt.parallel import fill_raw_array_halo as fill_halo
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.device import AbstractDevice
     from terraflow.util.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     
@@ -17,10 +19,10 @@ if TYPE_CHECKING:
     Array = typing.Array
     
 
-@partial(jax.jit, static_argnames="para")
-def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
-    kite_area_cell = calc_kite_area_cell(para, mesh)
-    kite_area_vtx  = calc_kite_area_vtx (para, mesh)
+@partial(jax.jit, static_argnames=("para", "dev"))
+def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> SCVTMesh:
+    kite_area_cell = calc_kite_area_cell(para, mesh, dev)
+    kite_area_vtx  = calc_kite_area_vtx (para, mesh, dev)
     return eqx.tree_at(
         lambda mesh: (mesh.kite_area_cell, mesh.kite_area_vtx),
         mesh,
@@ -28,10 +30,10 @@ def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
     )
 
 
-@partial(jax.jit, static_argnames="para")
-def correct_normal_vectors(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh:
-    cell_nr = calc_nr_cell(para, mesh)
-    vtx_nr  = calc_nr_vtx (para, mesh)
+@partial(jax.jit, static_argnames=("para", "dev"))
+def correct_normal_vectors(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> SCVTMesh:
+    cell_nr = calc_nr_cell(para, mesh, dev)
+    vtx_nr  = calc_nr_vtx (para, mesh, dev)
     edptg_eddnr = calc_edptg_eddnr(mesh)
     edpnr_eddtg = calc_edpnr_eddtg(mesh)
     edp12_edptg = calc_edp12_edptg(mesh)
@@ -45,49 +47,47 @@ def correct_normal_vectors(para: PlanetParameterSet, mesh: SCVTMesh) -> SCVTMesh
     )
 
 
-def check_kite_area_cell(radius: FloatType, kite_area: Array, area: Array):
+def check_kite_area_cell(
+    radius: FloatType, 
+    kite_area: Array, 
+    area: Array,
+    dev: AbstractDevice
+) -> Array:
     """Check if the sum of cell kite areas matches the cell area."""
-    def raise_error(_):
-        jax.debug.print("Sum of kite_area_cell does not match area_cell.")
-
-    def do_nothing(_):
-        return None
-
-    jax.lax.cond(
-        jnp.allclose(
-            jnp.sum(kite_area / radius ** 2, dtype=jnp.float64, axis=-1),
+    return error_if(
+        x=kite_area,
+        pred=jnp.allclose(
+            jnp.sum(kite_area / radius ** 2, dtype=area.dtype, axis=-1),
             area / radius ** 2,
             rtol=1e-5,
             atol=1e-5
-        ),
-        do_nothing,
-        raise_error,
-        None
+        ) * False,
+        msg="Sum of kite_area_cell does not match area_cell.",
+        is_metal=dev.is_metal()
     )
 
-   
-def check_kite_area_vtx(radius: FloatType, kite_area: Array, area: Array):
+
+def check_kite_area_vtx(
+    radius: FloatType, 
+    kite_area: Array, 
+    area: Array, 
+    dev: AbstractDevice
+) -> Array:
     """Check if the sum of vtx kite areas matches the vtx area."""
-    def raise_error(_):
-        jax.debug.print("Sum of kite_area_vtx does not match area_vtx.")
-
-    def do_nothing(_):
-        return None
-
-    jax.lax.cond(
-        jnp.allclose(
-            jnp.sum(kite_area / radius ** 2, dtype=jnp.float64, axis=-1),
+    return error_if(
+        x=kite_area,
+        pred=jnp.allclose(
+            jnp.sum(kite_area / radius ** 2, dtype=area.dtype, axis=-1),
             area / radius ** 2,
             rtol=1e-5,
             atol=1e-5
-        ),
-        do_nothing,
-        raise_error,
-        None
+        ) * False,
+        msg="Sum of kite_area_vtx does not match area_vtx.",
+        is_metal=dev.is_metal()
     )
 
 
-def calc_kite_area_cell(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
+def calc_kite_area_cell(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> Array:
     radius = para.radius.unwrap()
     ids, ide = mesh.cell_ids, mesh.cell_ide
     kite_area_cell = mesh.kite_area_cell
@@ -132,16 +132,18 @@ def calc_kite_area_cell(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     kite_area_cell = kite_area_cell.at[ids:ide+1, :].set(kite_area)
-    check_kite_area_cell(
-        radius, 
-        kite_area_cell[ids:ide+1,:], 
-        area_cell[ids:ide+1]
+    kite_area_cell = kite_area_cell.at[ids:ide+1, :].set(
+        check_kite_area_cell(
+            radius=radius, 
+            kite_area=kite_area_cell[ids:ide+1,:], 
+            area=area_cell[ids:ide+1],
+            dev=dev
+        )
     )
     return fill_halo(mesh.halo, kite_area_cell, "cell")
 
 
-
-def calc_kite_area_vtx(para: PlanetParameterSet, mesh: SCVTMesh) -> math.ArrayWithUnits:
+def calc_kite_area_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> math.ArrayWithUnits:
     radius = para.radius.unwrap()
     ids, ide = mesh.vtx_ids, mesh.vtx_ide
     kite_area_vtx = mesh.kite_area_vtx
@@ -186,15 +188,18 @@ def calc_kite_area_vtx(para: PlanetParameterSet, mesh: SCVTMesh) -> math.ArrayWi
     kite_area = area1 + area2  # (n_vtx, maxnnb)
     kite_area = jnp.where(mask, kite_area, 0.0)
     kite_area_vtx = kite_area_vtx.at[ids:ide+1, :].set(kite_area)
-    check_kite_area_vtx(
-        radius, 
-        kite_area_vtx[ids:ide+1, :], 
-        area_vtx[ids:ide+1]
+    kite_area_vtx = kite_area_vtx.at[ids:ide+1, :].set(
+        check_kite_area_vtx(
+            radius=radius, 
+            kite_area=kite_area_vtx[ids:ide+1, :], 
+            area=area_vtx[ids:ide+1],
+            dev=dev
+        )
     )
     return fill_halo(mesh.halo, kite_area_vtx, "vtx")
 
 
-def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
+def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> Array:
     r"""
     Correct the normal vectors of edges:
     For a polygon:
@@ -235,17 +240,11 @@ def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
     )  # (n_cell, maxnnb)
     product = jnp.where(mask, product, 0.0)
 
-    def error_msg_1(_):
-        jax.debug.print("Vector has problem in calculating cell nr.")
-
-    def do_nothing(_):
-        return None
-
-    jax.lax.cond(
-        jnp.any((product > jnp.finfo(p0.dtype).eps * 10) == True),
-        error_msg_1,
-        do_nothing,
-        None
+    product = error_if(
+        x=product,
+        pred=jnp.any((product > jnp.finfo(p0.dtype).eps * 10) == True),
+        msg="Vector has problem in calculating cell nr.",
+        is_metal=dev.is_metal()
     )
 
     tmp = jnp.sum(
@@ -261,24 +260,20 @@ def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
     )  # (n_cell, maxnnb)
     nr = jnp.where(tmp < -jnp.finfo(p0.dtype).eps * 100, -1, nr)
 
-    def error_msg_2(_):
-        jax.debug.print(
-            "There are non-zeros in padding values of calculated cell nr."
-        )
-
-    jax.lax.cond(
-        jnp.sum(jnp.abs(jnp.where(mask == False, nr, 0))) > 0,
-        error_msg_2,
-        do_nothing,
-        None
+    nr = error_if(
+        x=nr,
+        pred=jnp.sum(jnp.abs(jnp.where(mask == False, nr, 0))) > 0,
+        msg="There are non-zeros in padding values of calculated cell nr.",
+        is_metal=dev.is_metal()
     )
+    
     nr = jnp.where(mask, nr, 0).astype(mesh.vtx_of_cell.dtype)
     cell_nr = cell_nr.at[ids:ide+1, :].set(nr)
     # =============================================
     return fill_halo(mesh.halo, cell_nr, "cell")
 
 
-def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
+def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> Array:
     r"""
         For a triangle:
                  local_v1
@@ -318,18 +313,12 @@ def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
         axis=-1
     )  # (n_vtx, maxnnb)
     product = jnp.where(mask, product, 0.0)
-
-    def error_msg_1(_):
-        jax.debug.print("Vector has problem in calculating vtx nr.")
-
-    def do_nothing(_):
-        return None
-
-    jax.lax.cond(
-        jnp.any((product > jnp.finfo(p0.dtype).eps * 10) == True),
-        error_msg_1,
-        do_nothing,
-        None
+    
+    product = error_if(
+        x=product,
+        pred=jnp.any((product > jnp.finfo(p0.dtype).eps * 10) == True),
+        msg="Vector has problem in calculating vtx nr.",
+        is_metal=dev.is_metal()
     )
 
     tmp = jnp.sum(
@@ -344,18 +333,14 @@ def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh) -> Array:
         0
     )  # (n_cell, maxnnb)
     nr = jnp.where(tmp < -jnp.finfo(p0.dtype).eps * 100, -1, nr)
-
-    def error_msg_2(_):
-        jax.debug.print(
-            "There are non-zeros in padding values of calculated vtx nr."
-        )
-
-    jax.lax.cond(
-        jnp.sum(jnp.abs(jnp.where(mask == False, nr, 0))) > 0,
-        error_msg_2,
-        do_nothing,
-        None
+    
+    nr = error_if(
+        x=nr,
+        pred=jnp.sum(jnp.abs(jnp.where(mask == False, nr, 0))) > 0,
+        msg="There are non-zeros in padding values of calculated vtx nr.",
+        is_metal=dev.is_metal()
     )
+    
     nr = jnp.where(mask, nr, 0).astype(mesh.cell_of_vtx.dtype)
     vtx_nr = vtx_nr.at[ids:ide+1, :].set(nr)
     # =============================================

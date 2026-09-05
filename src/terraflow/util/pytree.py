@@ -1,22 +1,20 @@
-from __future__ import annotations
 from typing import (
     Union,
     Callable,
     Sequence,
-    Any,
-    TYPE_CHECKING
+    Any
 )
 from equinox._custom_types import sentinel
 import equinox as eqx
 
+
 from terraflow.util import typing
 
-Array = typing.Array
 
-if TYPE_CHECKING:
-    PyTree = typing.PyTree
-    
-    
+Array = typing.Array
+PyTree = typing.PyTree
+
+
 def tree_at(
     where: Callable[[PyTree], Any | Sequence[Any]],
     pytree: PyTree,
@@ -76,3 +74,25 @@ def tree_at(
             replace=fields_rep,
             is_leaf=is_leaf
         ) 
+
+
+def error_if(
+    x: PyTree,
+    pred: Array,
+    msg: str,
+    is_metal: bool = False
+) -> PyTree:
+    if is_metal:
+        return eqx.error_if(
+            x=x,
+            pred=pred,
+            msg=msg,
+            on_error="nan"
+        )
+    else:
+        return eqx.error_if(
+            x=x,
+            pred=pred,
+            msg=msg,
+            on_error="raise"
+        )

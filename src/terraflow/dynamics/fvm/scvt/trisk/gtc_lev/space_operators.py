@@ -2,13 +2,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import jax
 import jax.numpy as jnp
-import equinox as eqx
+
 
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.util import formula
-from terraflow.util.pytree import tree_at
+from terraflow.util.pytree import tree_at, error_if
 from terraflow.mesh.scvt import operators as op
 from terraflow.mesh.scvt import interp
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import tracer_calc_qm
@@ -496,17 +496,17 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             mg_lev[kds+1:kde+2, ids:ihe+1] - mg_lev[kds:kde+1  , ids:ihe+1]
         )
         dmg_valid = dmg[kds:kde+1, ids:ihe+1]
-        dmg = eqx.error_if(
+        dmg = error_if(
             x=dmg,
             pred=jnp.any(dmg_valid <= 0),
             msg="The dry-air weight levels are not monotonic!",
-            on_error="raise"
+            is_metal=block.dev.is_metal()
         )
-        dmg = eqx.error_if(
+        dmg = error_if(
             x=dmg,
             pred=jnp.any(jnp.isnan(dmg_valid)),
             msg="The dry-air weight levels contain NaN values!",
-            on_error="raise"
+            is_metal=block.dev.is_metal()
         )
         # ======================================================
         # half_kds + 1 <= k <= half_kde - 1

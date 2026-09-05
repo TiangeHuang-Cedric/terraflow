@@ -985,7 +985,7 @@ def calc_hx_4th_stencil(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "ncell"]
         return None, stencil_idx
 
     _, stencil_idx_tmp = jax.lax.scan(cell_body, init=None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1)
+    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
     # ==========================================================================
     stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
     stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
@@ -1026,7 +1026,7 @@ def calc_tri_2nd_stencil_1(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx
         return None, stencil_idx
 
     _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1)
+    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
     # ==========================================================================
     stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
     stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)   
@@ -1059,7 +1059,7 @@ def calc_tri_2nd_stencil_2(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx
         return None, stencil_idx
 
     _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1)
+    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
     # ==========================================================================
     stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
     stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
@@ -1127,7 +1127,7 @@ def calc_tri_4th_stencil_1(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx
         return None, stencil_idx
 
     _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1)
+    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
     # ==========================================================================
     stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
     stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
@@ -1164,7 +1164,7 @@ def calc_tri_4th_stencil_2(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx
         return None, stencil_idx
 
     _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1)
+    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
     # ==========================================================================
     stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
     stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)

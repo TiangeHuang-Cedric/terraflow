@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import time
-import jax
-import jax.numpy as jnp
 import terraflow.core as tf
 
 grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
@@ -10,8 +8,8 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
-    float_type=jnp.float64,
-    int_type=jnp.int64,
+    float_type="r8",
+    int_type="i4",
     use_async_io=False,
     proc_io_stride=0
 )
@@ -64,12 +62,13 @@ integrate_fn = tf.model.compiled_with_model(
     fun=model.integrate(),
 )
 
-jax.profiler.start_trace("../../.profile_data", create_perfetto_trace=True)
-
-t0 = time.perf_counter()
-with jax.profiler.StepTraceAnnotation("integrate", step_num=0):
-    final = integrate_fn(model)
-    final = tf.model.block_until_ready(final)
-print(f"Integrate runtime: {time.perf_counter() - t0:.6f} s")
-
-jax.profiler.stop_trace()
+if dev.is_root():
+    tf.util.log.logger.info("Start integrate.")
+for _ in range(20):
+    t0 = time.perf_counter()
+    model = integrate_fn(model)
+    model = tf.model.block_until_ready(model)
+    t1 = time.perf_counter()
+    tf.util.log.logger.info(f"Time cost: {(t1 - t0):.6f} s")
+if dev.is_root():
+    tf.util.log.logger.success("Successfully run integration.")

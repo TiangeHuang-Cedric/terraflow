@@ -15,8 +15,8 @@ grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
-    float_type=jnp.float64, 
-    int_type=jnp.int64,
+    float_type="r8",
+    int_type="i4",
     use_async_io=False, 
     proc_io_stride=0
 )
@@ -88,7 +88,7 @@ model = tf.model.build_hydrostatic_model(
     bkg_reader=bkg_reader,
     topo_reader=topo_reader,
     dev=dev,
-    ideal_dry_core=True,
+    ideal_dry_core=False,
     restart=False
 )
 

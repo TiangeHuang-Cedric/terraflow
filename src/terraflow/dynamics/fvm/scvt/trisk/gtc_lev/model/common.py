@@ -145,7 +145,7 @@ def diagnose(block: Block, itime_str: str) -> Block:
             replace=(u, v),
         )
 
-    def diagnose_tm(block: Block,itime_str: str) -> FLT[Array, ""]:
+    def diagnose_tm(block: Block, itime_str: str) -> FLT[Array, ""]:
         # =============================================
         itime = block.get_time_idx(itime_str=itime_str)
         mesh = block.mesh
@@ -154,7 +154,7 @@ def diagnose(block: Block, itime_str: str) -> Block:
         dmg = block.state.dmg.unwrap()[itime, kds:kde+1, ids:ide+1]
         area_cell = mesh.area_cell[ids:ide+1]
         # =============================================
-        tm = jnp.array(0.0, dtype=jnp.float64)
+        tm = jnp.array(0.0, dtype=block.dev.float_type)
         return tm + jnp.sum(dmg * area_cell[None, :])
 
     def diagnose_tqv(block: Block, itime_str: str) -> FLT[Array, ""]:
@@ -169,7 +169,7 @@ def diagnose(block: Block, itime_str: str) -> Block:
             qv = block.tracers.q.unwrap()[itime_qv, idx_qv, kds:kde+1, ids:ide+1]
             return jnp.sum(m * qv * area_cell[None, :])
         else:
-            return jnp.array(0.0, dtype=jnp.float64)
+            return jnp.array(0.0, dtype=block.dev.float_type)
 
     def diagnose_te(
         block: Block,

@@ -1,14 +1,25 @@
 import jax
 import jax.numpy as jnp
 import os
+import sys
+import platform
 from mpi4py import MPI
 
 
 from terraflow.util.parallel_types import Proc
 
 
+TYPE_REMAPPING = {
+    "r4": jnp.float32,
+    "r8": jnp.float64,
+    "i4": jnp.int32,
+    "i8": jnp.int64,
+}
+
+
 class Backend:
     """Base class for computational backends."""
+    device_string: str
 
     def __init__(self):
         raise NotImplementedError("Children class must implement __init__")
@@ -130,20 +141,43 @@ class AbstractDevice:
         self.barrier()
         if self.is_distributed():
             return jax.distributed.shutdown()
+        
+    def is_apple_sys(self) -> bool:
+        if sys.platform == "darwin":
+            arch = platform.machine()
+            if arch == "arm64":
+                return True
+            else:
+                return False
+        else:
+            return False
+        
+    def is_cpu(self) -> bool:
+        return self.backend.device_string == "cpu"
 
+    def is_metal(self) -> bool:
+        return self.backend.device_string == "mps"
+    
+    def is_gpu(self) -> bool:
+        return self.backend.device_string == "gpu"
+    
+    def is_tpu(self) -> bool:
+        return self.backend.device_string == "tpu"
 
 class CPU(AbstractDevice):
     """CPU device for computations."""
 
     def __init__(
         self, 
-        float_type: type = jnp.float64, 
-        int_type: type = jnp.int64,
+        float_type: type | str = jnp.float64, 
+        int_type: type | str = jnp.int32,
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_jax_distributed: bool = False
     ):
+        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
+        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
@@ -153,10 +187,12 @@ class CPU(AbstractDevice):
             proc=proc, 
             use_jax_distributed=use_jax_distributed
         )
+        if self.is_apple_sys():
+            jax.config.update("jax_platforms", "cpu")
         ref = jax.local_devices(backend="cpu")[0]
         super().__init__(
-            float_type, 
-            int_type, 
+            float_type_opt, 
+            int_type_opt, 
             proc,
             JaxBackend("cpu", ref)
         )
@@ -167,13 +203,15 @@ class GPU(AbstractDevice):
 
     def __init__(
         self, 
-        float_type: type = jnp.float32, 
-        int_type: type = jnp.int32,
+        float_type: type | str = jnp.float32, 
+        int_type: type | str = jnp.int32,
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_jax_distributed: bool = False
     ):
+        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
+        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
@@ -193,12 +231,17 @@ class GPU(AbstractDevice):
             local_proc_id = local_process_id(proc)
             if local_proc_id is not None:
                 jax.config.update("jax_cuda_visible_devices", str(local_proc_id))
-        ref = jax.local_devices(backend="gpu")[0]
+        if self.is_apple_sys():
+            jax.config.update("jax_platforms", "mps,cpu")
+            backend = "mps"
+        else:
+            backend = "gpu"
+        ref = jax.local_devices(backend=backend)[0]
         super().__init__(
-            float_type, 
-            int_type, 
+            float_type_opt, 
+            int_type_opt, 
             proc,
-            JaxBackend("gpu", ref)
+            JaxBackend(backend, ref)
         )
 
 
@@ -207,12 +250,14 @@ class TPU(AbstractDevice):
 
     def __init__(
         self, 
-        float_type: type = jnp.float32, 
-        int_type: type = jnp.int32,
+        float_type: type | str = jnp.float32, 
+        int_type: type | str = jnp.int32,
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
+        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
+        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
@@ -224,8 +269,8 @@ class TPU(AbstractDevice):
         )
         ref = jax.local_devices(backend="tpu")[0]
         super().__init__(
-            float_type, 
-            int_type, 
+            float_type_opt, 
+            int_type_opt, 
             proc,
             JaxBackend("tpu", ref),
         )

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 import gc
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 
 from terraflow.util import typing, log, formula
@@ -106,81 +107,25 @@ class ERA5Reader(AbstractBackgroundReader):
                 f"No valid time information in ERA5 file '{self.bkg_file}'!"
             )
         self.time_str = str(ds[self.time_name].values[0])
-        self.lon = jnp.array(
-            ds["longitude"].values,
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.lat = jnp.array(
-            ds["latitude"].values,
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.plev = jnp.array(
-            ds[self.level_name].values,
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.lev = self.plev
-        self.u = jnp.array(
-            ds["u"].values[0, :, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.v = jnp.array(
-            ds["v"].values[0, :, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.t = jnp.array(
-            ds["t"].values[0, :, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.z = jnp.array(
-            ds["z"].values[0, :, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.qv = jnp.array(
-            ds["q"].values[0, :, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.ps = jnp.array(
-            ds["sp"].values[0, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
-        self.zs = jnp.array(
-            ds["zs"].values[0, :, :],
-            device=jax.local_devices(backend="cpu")[0],
-            dtype=float_type
-        )
+        self.lon  = self.to_jax(ds["longitude"    ].values)
+        self.lat  = self.to_jax(ds["latitude"     ].values)
+        self.plev = self.to_jax(ds[self.level_name].values)
+        self.lev  = self.plev
+        self.u    = self.to_jax(ds["u" ].values[0, :, :, :])
+        self.v    = self.to_jax(ds["v" ].values[0, :, :, :])
+        self.t    = self.to_jax(ds["t" ].values[0, :, :, :])
+        self.z    = self.to_jax(ds["z" ].values[0, :, :, :])
+        self.qv   = self.to_jax(ds["q" ].values[0, :, :, :])
+        self.ps   = self.to_jax(ds["sp"].values[0, :, :   ])
+        self.zs   = self.to_jax(ds["zs"].values[0, :, :   ])
         if "clwc" in ds:
-            self.qc = jnp.array(
-                ds["clwc"].values[0, :, :, :],
-                device=jax.local_devices(backend="cpu")[0],
-                dtype=float_type
-            )
+            self.qc = self.to_jax(ds["clwc"].values[0, :, :, :])
         if "ciwc" in ds:
-            self.qi = jnp.array(
-                ds["ciwc"].values[0, :, :, :],
-                device=jax.local_devices(backend="cpu")[0],
-                dtype=float_type
-            )
+            self.qi = self.to_jax(ds["ciwc"].values[0, :, :, :])
         if "crwc" in ds:
-            self.qr = jnp.array(
-                ds["crwc"].values[0, :, :, :],
-                device=jax.local_devices(backend="cpu")[0],
-                dtype=float_type
-            )
+            self.qr = self.to_jax(ds["crwc"].values[0, :, :, :])
         if "cswc" in ds:
-            self.qs = jnp.array(
-                ds["cswc"].values[0, :, :, :],
-                device=jax.local_devices(backend="cpu")[0],
-                dtype=float_type
-            )
+            self.qs = self.to_jax(ds["cswc"].values[0, :, :, :])
         ds.close()
         # ===================================================
         # Reverse vertical order
@@ -224,25 +169,25 @@ class ERA5Reader(AbstractBackgroundReader):
         if not hasattr(self, "qc"):
             self.qc = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.local_devices(backend="cpu")[0],
+                device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qi"):
             self.qi = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.local_devices(backend="cpu")[0],
+                device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qr"):
             self.qr = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.local_devices(backend="cpu")[0],
+                device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qs"):
             self.qs = jnp.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
-                device=jax.local_devices(backend="cpu")[0],
+                device=self.dev(),
                 dtype=float_type
             )
         # ===================================================
@@ -277,3 +222,11 @@ class ERA5Reader(AbstractBackgroundReader):
         self.loaded = False
         gc.collect()
         jax.clear_caches()
+
+
+    def to_jax(self, values: np.ndarray):
+        return jnp.array(
+            np.ascontiguousarray(values),
+            device=self.dev(),
+            dtype=self.dev.float_type,
+        )

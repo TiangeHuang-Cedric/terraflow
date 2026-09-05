@@ -20,7 +20,6 @@ from matplotlib import pyplot as plt
 import cartopy.feature as cfeature
 import cartopy.crs as ccrs
 import numpy as np
-import jax.numpy as jnp
 
 import terraflow.core as tf
 
@@ -29,7 +28,7 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
-dev = tf.util.device.CPU(float_type=jnp.float64, int_type=jnp.int64)
+dev = tf.util.device.CPU(float_type="r8", int_type="i4")
 
 # %%
 para = tf.planet.PlanetParameterSet.from_si(
