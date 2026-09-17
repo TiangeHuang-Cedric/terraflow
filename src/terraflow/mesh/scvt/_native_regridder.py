@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from numba import UnsupportedError
 
 from terraflow.util import typing
 from terraflow.util.backend.abstract import AbstractBackend
@@ -22,6 +21,7 @@ class NativeRegridder:
 
     def __init__(
         self,
+        backend: AbstractBackend,
         src_lon: Float[Array, "nlon"],
         src_lat: Float[Array, "nlat"],
         dst_lon: Float[Array, "npoint_dst"],
@@ -29,8 +29,7 @@ class NativeRegridder:
         method: str = "bilinear",
         *,
         extrap: bool = True,
-        precompute_weights: bool = True,
-        backend: AbstractBackend | None = None,
+        precompute_weights: bool = True
     ):
         self.src_lon = src_lon
         self.src_lat = src_lat
@@ -49,26 +48,26 @@ class NativeRegridder:
         self._cache: dict[str, object] | None = None
         if precompute_weights:
             self._cache = latlon_interp_bilinear_init(
+                bkd=self.backend,
                 src_lon=self.src_lon,
                 src_lat=self.src_lat,
                 dst_lon=self.dst_lon,
                 dst_lat=self.dst_lat,
-                extrap=self.extrap,
-                bkd=self.backend,
+                extrap=self.extrap
             )
 
     def regrid(self, src_data: Float[Array, "nlev nlat nlon"]):
         if self._cache is None:
             return latlon_interp_bilinear_column(
+                bkd=self.backend,
                 src_lon=self.src_lon,
                 src_lat=self.src_lat,
                 src_data=src_data,
                 dst_lon=self.dst_lon,
                 dst_lat=self.dst_lat,
-                extrap=self.extrap,
-                bkd=self.backend,
+                extrap=self.extrap
             )
-        return latlon_interp_bilinear_apply(src_data, self._cache, bkd=self.backend)
+        return latlon_interp_bilinear_apply(self.backend, src_data, self._cache)
 
     def __call__(self, src_data: Float[Array, "nlev nlat nlon"]):
         return self.regrid(src_data)

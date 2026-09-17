@@ -4,10 +4,10 @@ channels = ["pypi", "conda-forge"]
 requires-pixi = ">=0.71.0"
 platforms = [
     { name = "osx-arm64-macos-14", platform = "osx-arm64", macos = "14.0" },
-    { name = "linux-64-glibc-2-28", platform = "linux-64", glibc = "2.28" },
-    { name = "linux-aarch64-glibc-2-28", platform = "linux-aarch64", glibc = "2.28" },
     { name = "linux-64-cuda-12-glibc-2-28", platform = "linux-64", cuda = "12", glibc = "2.28" },
     { name = "linux-aarch64-cuda-12-glibc-2-28", platform = "linux-aarch64", cuda = "12", glibc = "2.28" },
+    { name = "linux-64-glibc-2-28", platform = "linux-64", glibc = "2.28" },
+    { name = "linux-aarch64-glibc-2-28", platform = "linux-aarch64", glibc = "2.28" },
 ]
 
 [dependencies]
@@ -93,8 +93,26 @@ build-mpi4jax = { cmd = "MPI4JAX_USE_CUDA_MPI=${MPI4JAX_USE_CUDA_MPI:-1} python 
 build-deps = { depends-on = ["build-esmpy", "build-mpi4py", "build-mpi4jax", "build-dev"] }
 
 [feature.torch]
-platforms = ["osx-arm64-macos-14", "linux-64-glibc-2-28", "linux-aarch64-glibc-2-28"]
+platforms = [
+    "osx-arm64-macos-14",
+    "linux-64-cuda-12-glibc-2-28",
+    "linux-aarch64-cuda-12-glibc-2-28",
+    "linux-64-glibc-2-28",
+    "linux-aarch64-glibc-2-28"
+]
 dependencies = { pytorch = ">=2.5, <3", torchquad = ">=0.6.0,<0.7" }
+
+[feature.torch.target."*-cuda-*".dependencies]
+pytorch-gpu = "*"
+cuda-version = "12.*"
+
+[feature.torch.target."linux-64-cuda-*".dependencies]
+cuda-driver-dev_linux-64 = ">=12,<13"
+cuda-cudart-dev_linux-64 = ">=12,<13"
+
+[feature.torch.target."linux-aarch64-cuda-*".dependencies]
+cuda-driver-dev_linux-aarch64 = ">=12,<13"
+cuda-cudart-dev_linux-aarch64 = ">=12,<13"
 
 [feature.torch.tasks]
 build-deps = { depends-on = ["build-esmpy", "build-mpi4py", "build-dev"] }

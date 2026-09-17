@@ -38,10 +38,10 @@ config = tf.model.UserConfig(
     upwind_order_pv=3,
     pt_adv_scheme="upwind",
     upwind_order=3,
-    run_time="1 hours",
-    dt_dyn="300 seconds",
-    dt_adv="300 seconds",
-    save_interval="300 seconds"
+    run_time="50 seconds",
+    dt_dyn="50 seconds",
+    dt_adv="50 seconds",
+    save_interval="50 seconds"
 )
 
 model = tf.model.build_hydrostatic_model(

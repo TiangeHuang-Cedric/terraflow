@@ -1,7 +1,6 @@
 import numpy as np
 
 from terraflow.util import typing
-from terraflow.util.backend import infer_backend_from_array
 from terraflow.util.backend.abstract import AbstractBackend
 
 Float = typing.Float
@@ -32,16 +31,6 @@ def cache_get_int(cache: dict[str, object], key: str) -> int:
     raise ValueError(f"remap_cache[{key!r}] must be int, got {type(value)}")
 
 
-def require_backend(*values, bkd: AbstractBackend | None = None) -> AbstractBackend:
-    if bkd is not None:
-        return bkd
-    for value in values:
-        inferred = infer_backend_from_array(value)
-        if inferred is not None:
-            return inferred
-    raise ValueError("A backend is required and could not be inferred from the input arrays.")
-
-
 def cache_get_array(cache: dict[str, object], key: str, bkd: AbstractBackend):
     value = cache.get(key)
     if value is None:
@@ -59,15 +48,14 @@ def normalize_lon_to_source(bkd: AbstractBackend, lon, start_lon):
 # - Precompute + apply: latlon_interp_bilinear_init()/latlon_interp_bilinear_apply()
 # ===================================================
 def latlon_interp_bilinear_column(
+    bkd: AbstractBackend,
     src_lon: Float[Array, "nlon"],
     src_lat: Float[Array, "nlat"],
     src_data: Float[Array, "nlev nlat nlon"],
     dst_lon: Float[Array, "npoint_dst"],
     dst_lat: Float[Array, "npoint_dst"],
     extrap: bool = True,
-    bkd: AbstractBackend | None = None,
 ) -> Float[Array, "nlev npoint_dst"]:
-    bkd = require_backend(src_data, src_lon, src_lat, dst_lon, dst_lat, bkd=bkd)
     src_lon = bkd.asarray(src_lon)
     src_lat = bkd.asarray(src_lat)
     src_data = bkd.asarray(src_data)
@@ -178,14 +166,13 @@ def _latlon_interp_bilinear_column(
 
 
 def latlon_interp_bilinear_init(
+    bkd: AbstractBackend,
     src_lon: Float[Array, "nlon"],
     src_lat: Float[Array, "nlat"],
     dst_lon: Float[Array, "npoint_dst"],
     dst_lat: Float[Array, "npoint_dst"],
     extrap: bool = True,
-    bkd: AbstractBackend | None = None,
 ) -> dict[str, object]:
-    bkd = require_backend(src_lon, src_lat, dst_lon, dst_lat, bkd=bkd)
     check_strictly_increasing_if_concrete("src_lon", src_lon)
     check_strictly_increasing_if_concrete("src_lat", src_lat)
 
@@ -265,11 +252,10 @@ def latlon_interp_bilinear_init(
 
 
 def latlon_interp_bilinear_apply(
+    bkd: AbstractBackend,
     src_data: Float[Array, "nlev nlat nlon"],
-    remap_cache: dict[str, object],
-    bkd: AbstractBackend | None = None,
+    remap_cache: dict[str, object]
 ) -> Float[Array, "nlev npoint_dst"]:
-    bkd = require_backend(src_data, bkd=bkd)
     src_data = bkd.asarray(src_data)
     if src_data.ndim == 2:
         src_data_3d = src_data[None, ...]
