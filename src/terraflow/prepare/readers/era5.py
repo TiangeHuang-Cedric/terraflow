@@ -1,8 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import gc
-import jax
-import jax.numpy as jnp
 import numpy as np
 
 
@@ -70,6 +68,7 @@ class ERA5Reader(AbstractBackgroundReader):
         max_lon: float = 360.0,
         max_lat: float = 90
     ):
+        bkd = self.dev.backend
         # ===================================================
         # Load data
         float_type = self.dev.float_type
@@ -107,25 +106,25 @@ class ERA5Reader(AbstractBackgroundReader):
                 f"No valid time information in ERA5 file '{self.bkg_file}'!"
             )
         self.time_str = str(ds[self.time_name].values[0])
-        self.lon  = self.to_jax(ds["longitude"    ].values)
-        self.lat  = self.to_jax(ds["latitude"     ].values)
-        self.plev = self.to_jax(ds[self.level_name].values)
+        self.lon  = self.to_backend(ds["longitude"    ].values)
+        self.lat  = self.to_backend(ds["latitude"     ].values)
+        self.plev = self.to_backend(ds[self.level_name].values)
         self.lev  = self.plev
-        self.u    = self.to_jax(ds["u" ].values[0, :, :, :])
-        self.v    = self.to_jax(ds["v" ].values[0, :, :, :])
-        self.t    = self.to_jax(ds["t" ].values[0, :, :, :])
-        self.z    = self.to_jax(ds["z" ].values[0, :, :, :])
-        self.qv   = self.to_jax(ds["q" ].values[0, :, :, :])
-        self.ps   = self.to_jax(ds["sp"].values[0, :, :   ])
-        self.zs   = self.to_jax(ds["zs"].values[0, :, :   ])
+        self.u    = self.to_backend(ds["u" ].values[0, :, :, :])
+        self.v    = self.to_backend(ds["v" ].values[0, :, :, :])
+        self.t    = self.to_backend(ds["t" ].values[0, :, :, :])
+        self.z    = self.to_backend(ds["z" ].values[0, :, :, :])
+        self.qv   = self.to_backend(ds["q" ].values[0, :, :, :])
+        self.ps   = self.to_backend(ds["sp"].values[0, :, :   ])
+        self.zs   = self.to_backend(ds["zs"].values[0, :, :   ])
         if "clwc" in ds:
-            self.qc = self.to_jax(ds["clwc"].values[0, :, :, :])
+            self.qc = self.to_backend(ds["clwc"].values[0, :, :, :])
         if "ciwc" in ds:
-            self.qi = self.to_jax(ds["ciwc"].values[0, :, :, :])
+            self.qi = self.to_backend(ds["ciwc"].values[0, :, :, :])
         if "crwc" in ds:
-            self.qr = self.to_jax(ds["crwc"].values[0, :, :, :])
+            self.qr = self.to_backend(ds["crwc"].values[0, :, :, :])
         if "cswc" in ds:
-            self.qs = self.to_jax(ds["cswc"].values[0, :, :, :])
+            self.qs = self.to_backend(ds["cswc"].values[0, :, :, :])
         ds.close()
         # ===================================================
         # Reverse vertical order
@@ -147,13 +146,13 @@ class ERA5Reader(AbstractBackgroundReader):
                 self.qs = self.qs[::-1, :, :]
         # ===================================================
         # Set u and v to zero at the poles
-        self.u = jnp.where(
-            jnp.abs(jnp.abs(self.lat[None, :, None]) - 90) < 1e-10,
+        self.u = bkd.where(
+            bkd.abs(bkd.abs(self.lat[None, :, None]) - 90) < 1e-10,
             0.0,
             self.u
         )
-        self.v = jnp.where(
-            jnp.abs(jnp.abs(self.lat[None, :, None]) - 90) < 1e-10,
+        self.v = bkd.where(
+            bkd.abs(bkd.abs(self.lat[None, :, None]) - 90) < 1e-10,
             0.0,
             self.v
         )
@@ -167,25 +166,25 @@ class ERA5Reader(AbstractBackgroundReader):
         # ===================================================
         # Initialize missing variables
         if not hasattr(self, "qc"):
-            self.qc = jnp.zeros(
+            self.qc = bkd.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qi"):
-            self.qi = jnp.zeros(
+            self.qi = bkd.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qr"):
-            self.qr = jnp.zeros(
+            self.qr = bkd.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=self.dev(),
                 dtype=float_type
             )
         if not hasattr(self, "qs"):
-            self.qs = jnp.zeros(
+            self.qs = bkd.zeros(
                 (self.plev.shape[0], self.lat.shape[0], self.lon.shape[0]),
                 device=self.dev(),
                 dtype=float_type
@@ -221,12 +220,13 @@ class ERA5Reader(AbstractBackgroundReader):
         delattr(self, "zs"        )
         self.loaded = False
         gc.collect()
-        jax.clear_caches()
+        self.dev.backend.clear_caches()
 
 
-    def to_jax(self, values: np.ndarray):
-        return jnp.array(
-            np.ascontiguousarray(values),
+    def to_backend(self, values: np.ndarray):
+        bkd = self.dev.backend
+        return bkd.array(
+            np.array(values, copy=True, order="C"),
             device=self.dev(),
             dtype=self.dev.float_type,
         )

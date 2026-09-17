@@ -9,8 +9,7 @@ from typing import (
     Union,
     Self
 )
-import equinox as eqx
-import jax.numpy as jnp
+import terraflow.util.equinox as eqx
 import numpy as np
 import netCDF4 as nc4
 
@@ -31,6 +30,7 @@ from terraflow.vert_coord.gtc.onelayer import OneLayerVertCoordinate
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
+    from terraflow.util.backend import AbstractBackend
     from terraflow.vert_coord.gtc.hybrid_coord import AbstractGeneralizedTerrainFollowingCoordinate
 
     
@@ -42,6 +42,7 @@ FloatType = typing.FloatType
 
 
 class SCVTMesh(AbstractUnstructuredMesh):
+    dev              : device.AbstractDevice = eqx.field(default=None, static=True)
     parent           : SCVTMesh = eqx.field(default=None)
     halo             : SCVTHalo = eqx.field(default=None)
     id               : int = eqx.field(default=0, static=True)
@@ -93,91 +94,91 @@ class SCVTMesh(AbstractUnstructuredMesh):
     vtx_ihe          : tuple[int, ...] = eqx.field(default=(0,0,0), static=True)
     edge_ihs         : tuple[int, ...] = eqx.field(default=(0,0,0), static=True)
     edge_ihe         : tuple[int, ...] = eqx.field(default=(0,0,0), static=True)
-    full_dlev        : FLT[Array, "full_nlev-1"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    half_dlev        : FLT[Array, "half_nlev-1"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_lon         : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_lat         : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_xyz         : FLT[Array, "n_cell 3"   ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_lon          : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_lat          : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_xyz          : FLT[Array, "n_vtx 3"    ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_lon         : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_lat         : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_xyz         : FLT[Array, "n_edge 3"   ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_lon    : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_lat    : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_xyz    : FLT[Array, "n_edge 3"   ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    full_lev         : FLT[Array, "full_nlev"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    half_lev         : FLT[Array, "half_nlev"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_cos_lon     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_sin_lon     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_cos_lat     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_sin_lat     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_cos_lon      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_sin_lon      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_cos_lat      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_sin_lat      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_cos_lon     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_sin_lon     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_cos_lat     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_sin_lat     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_cos_lon: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_sin_lon: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_cos_lat: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_sin_lat: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    full_dlev        : FLT[Array, "full_nlev-1"] = eqx.field(default=None)
+    half_dlev        : FLT[Array, "half_nlev-1"] = eqx.field(default=None)
+    cell_lon         : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_lat         : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_xyz         : FLT[Array, "n_cell 3"   ] = eqx.field(default=None)
+    vtx_lon          : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_lat          : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_xyz          : FLT[Array, "n_vtx 3"    ] = eqx.field(default=None)
+    edge_lon         : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_lat         : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_xyz         : FLT[Array, "n_edge 3"   ] = eqx.field(default=None)
+    dual_edge_lon    : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_lat    : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_xyz    : FLT[Array, "n_edge 3"   ] = eqx.field(default=None)
+    full_lev         : FLT[Array, "full_nlev"  ] = eqx.field(default=None)
+    half_lev         : FLT[Array, "half_nlev"  ] = eqx.field(default=None)
+    cell_cos_lon     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_sin_lon     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_cos_lat     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_sin_lat     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    vtx_cos_lon      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_sin_lon      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_cos_lat      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_sin_lat      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    edge_cos_lon     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_sin_lon     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_cos_lat     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_sin_lat     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_cos_lon: FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_sin_lon: FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_cos_lat: FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_sin_lat: FLT[Array, "n_edge"     ] = eqx.field(default=None)
     # For output
-    cell_lon_deg     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_lat_deg     : FLT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_lon_deg      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_lat_deg      : FLT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_lon_deg     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_lat_deg     : FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_lon_deg: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_lat_deg: FLT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    global_cell_id   : INT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    global_vtx_id    : INT[Array, "n_vtx"      ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    global_edge_id   : INT[Array, "n_edge"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_proc_idmap  : INT[Array, "n_cell"     ] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    cell_lon_deg     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    cell_lat_deg     : FLT[Array, "n_cell"     ] = eqx.field(default=None)
+    vtx_lon_deg      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    vtx_lat_deg      : FLT[Array, "n_vtx"      ] = eqx.field(default=None)
+    edge_lon_deg     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    edge_lat_deg     : FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_lon_deg: FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    dual_edge_lat_deg: FLT[Array, "n_edge"     ] = eqx.field(default=None)
+    global_cell_id   : INT[Array, "n_cell"     ] = eqx.field(default=None)
+    global_vtx_id    : INT[Array, "n_vtx"      ] = eqx.field(default=None)
+    global_edge_id   : INT[Array, "n_edge"     ] = eqx.field(default=None)
+    cell_proc_idmap  : INT[Array, "n_cell"     ] = eqx.field(default=None)
     # Topology
-    cell_nnb         : INT[Array, "n_cell"            ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_nb          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_ed          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_nr          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_of_cell      : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    cell_nnb         : INT[Array, "n_cell"            ] = eqx.field(default=None)
+    cell_nb          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default=None)
+    cell_ed          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default=None)
+    cell_nr          : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default=None)
+    vtx_of_cell      : INT[Array, "n_cell maxnnb_cell"] = eqx.field(default=None)
     
-    vtx_nnb          : INT[Array, "n_vtx"             ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_nb           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_ed           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_nr           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_of_vtx      : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    vtx_nnb          : INT[Array, "n_vtx"             ] = eqx.field(default=None)
+    vtx_nb           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default=None)
+    vtx_ed           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default=None)
+    vtx_nr           : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default=None)
+    cell_of_vtx      : INT[Array, "n_vtx maxnnb_vtx"  ] = eqx.field(default=None)
     
-    edge_nr          : FLT[Array, "n_edge 3"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edge_tg          : FLT[Array, "n_edge 3"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
-    cell_of_edge     : INT[Array, "n_edge 2"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
+    edge_nr          : FLT[Array, "n_edge 3"]           = eqx.field(default=None)
+    edge_tg          : FLT[Array, "n_edge 3"]           = eqx.field(default=None)
+    cell_of_edge     : INT[Array, "n_edge 2"]           = eqx.field(default=None)
     
-    dual_edge_nr     : FLT[Array, "n_edge 3"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
-    dual_edge_tg     : FLT[Array, "n_edge 3"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
-    vtx_of_edge      : INT[Array, "n_edge 2"]           = eqx.field(default_factory=lambda: jnp.zeros(0))
+    dual_edge_nr     : FLT[Array, "n_edge 3"]           = eqx.field(default=None)
+    dual_edge_tg     : FLT[Array, "n_edge 3"]           = eqx.field(default=None)
+    vtx_of_edge      : INT[Array, "n_edge 2"]           = eqx.field(default=None)
     # Area for weighting
-    total_area       : FloatType                        = eqx.field(default_factory=lambda: jnp.zeros(0))
-    area_cell        : FLT[Array, "n_cell"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    area_vtx         : FLT[Array, "n_vtx" ]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    area_edge        : FLT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    kite_area_cell   : FLT[Array, "n_cell maxnnb_cell"] = eqx.field(default_factory=lambda: jnp.zeros(0))
-    kite_area_vtx    : FLT[Array, "n_vtx  maxnnb_vtx" ] = eqx.field(default_factory=lambda: jnp.zeros(0))
+    total_area       : FloatType                        = eqx.field(default=None)
+    area_cell        : FLT[Array, "n_cell"]             = eqx.field(default=None)
+    area_vtx         : FLT[Array, "n_vtx" ]             = eqx.field(default=None)
+    area_edge        : FLT[Array, "n_edge"]             = eqx.field(default=None)
+    kite_area_cell   : FLT[Array, "n_cell maxnnb_cell"] = eqx.field(default=None)
+    kite_area_vtx    : FLT[Array, "n_vtx  maxnnb_vtx" ] = eqx.field(default=None)
     # Area for global weighting operations
-    area_vtx_wgt     : FLT[Array, "n_vtx" ]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    area_edge_wgt    : FLT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
+    area_vtx_wgt     : FLT[Array, "n_vtx" ]             = eqx.field(default=None)
+    area_edge_wgt    : FLT[Array, "n_edge"]             = eqx.field(default=None)
     # Edge length
-    le               : FLT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    de               : FLT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
+    le               : FLT[Array, "n_edge"]             = eqx.field(default=None)
+    de               : FLT[Array, "n_edge"]             = eqx.field(default=None)
     # Aux indicators for operators
-    edpnr_eddtg      : INT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edptg_eddnr      : INT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edp12_edptg      : INT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
-    edp12_eddnr      : INT[Array, "n_edge"]             = eqx.field(default_factory=lambda: jnp.zeros(0))
+    edpnr_eddtg      : INT[Array, "n_edge"]             = eqx.field(default=None)
+    edptg_eddnr      : INT[Array, "n_edge"]             = eqx.field(default=None)
+    edp12_edptg      : INT[Array, "n_edge"]             = eqx.field(default=None)
+    edp12_eddnr      : INT[Array, "n_edge"]             = eqx.field(default=None)
     # Coriolis parameter
-    f_vtx            : FLT[Array, "n_vtx"]              = eqx.field(default_factory=lambda: jnp.zeros(0))
+    f_vtx            : FLT[Array, "n_vtx"]              = eqx.field(default=None)
 
     @staticmethod
     def alias_name() -> str:
@@ -317,8 +318,9 @@ class SCVTMesh(AbstractUnstructuredMesh):
         grist_mesh_0d_file: Optional[str] = None, 
         grist_mesh_2d_file: Optional[str] = None, 
     ) -> Self:
+        bkd      = dev.backend
         int_type = dev.int_type
-        radius = para.radius.unwrap()
+        radius   = para.radius.unwrap()
         # ====================================================
         # Initilize one layer hybrid vert coord if vert_coord is None
         if vert_coord is None:
@@ -374,6 +376,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
        
         # ====================================================
         # Global initialize
+        fields["dev"     ] = dev
         fields["id"      ] = 0
         fields["hori_hw" ] = hori_hw
         fields["lev_hw"  ] = lev_hw
@@ -417,19 +420,19 @@ class SCVTMesh(AbstractUnstructuredMesh):
         fields["half_kme"] = vert_coord.half_nlev - 1
         
         # Convert lon range from [-pi, pi] to [0, 2pi] if needed
-        fields["cell_lon"     ] = jnp.where(fields["cell_lon"     ] < 0, fields["cell_lon"     ] + jnp.pi*2, fields["cell_lon"     ])
-        fields["vtx_lon"      ] = jnp.where(fields["vtx_lon"      ] < 0, fields["vtx_lon"      ] + jnp.pi*2, fields["vtx_lon"      ])
-        fields["edge_lon"     ] = jnp.where(fields["edge_lon"     ] < 0, fields["edge_lon"     ] + jnp.pi*2, fields["edge_lon"     ])
-        fields["dual_edge_lon"] = jnp.where(fields["dual_edge_lon"] < 0, fields["dual_edge_lon"] + jnp.pi*2, fields["dual_edge_lon"]) 
+        fields["cell_lon"     ] = bkd.where(fields["cell_lon"     ] < 0, fields["cell_lon"     ] + bkd.pi*2, fields["cell_lon"     ])
+        fields["vtx_lon"      ] = bkd.where(fields["vtx_lon"      ] < 0, fields["vtx_lon"      ] + bkd.pi*2, fields["vtx_lon"      ])
+        fields["edge_lon"     ] = bkd.where(fields["edge_lon"     ] < 0, fields["edge_lon"     ] + bkd.pi*2, fields["edge_lon"     ])
+        fields["dual_edge_lon"] = bkd.where(fields["dual_edge_lon"] < 0, fields["dual_edge_lon"] + bkd.pi*2, fields["dual_edge_lon"]) 
       
-        fields["cell_lon_deg"     ] = jnp.rad2deg(fields["cell_lon"     ])
-        fields["cell_lat_deg"     ] = jnp.rad2deg(fields["cell_lat"     ])
-        fields["vtx_lon_deg"      ] = jnp.rad2deg(fields["vtx_lon"      ])
-        fields["vtx_lat_deg"      ] = jnp.rad2deg(fields["vtx_lat"      ])
-        fields["edge_lon_deg"     ] = jnp.rad2deg(fields["edge_lon"     ])
-        fields["edge_lat_deg"     ] = jnp.rad2deg(fields["edge_lat"     ])
-        fields["dual_edge_lon_deg"] = jnp.rad2deg(fields["dual_edge_lon"])
-        fields["dual_edge_lat_deg"] = jnp.rad2deg(fields["dual_edge_lat"])
+        fields["cell_lon_deg"     ] = bkd.rad2deg(fields["cell_lon"     ])
+        fields["cell_lat_deg"     ] = bkd.rad2deg(fields["cell_lat"     ])
+        fields["vtx_lon_deg"      ] = bkd.rad2deg(fields["vtx_lon"      ])
+        fields["vtx_lat_deg"      ] = bkd.rad2deg(fields["vtx_lat"      ])
+        fields["edge_lon_deg"     ] = bkd.rad2deg(fields["edge_lon"     ])
+        fields["edge_lat_deg"     ] = bkd.rad2deg(fields["edge_lat"     ])
+        fields["dual_edge_lon_deg"] = bkd.rad2deg(fields["dual_edge_lon"])
+        fields["dual_edge_lat_deg"] = bkd.rad2deg(fields["dual_edge_lat"])
 
         fields["full_nlev"] = vert_coord.full_nlev
         fields["half_nlev"] = vert_coord.half_nlev    
@@ -438,16 +441,16 @@ class SCVTMesh(AbstractUnstructuredMesh):
         fields["half_lev" ] = vert_coord.half_lev
         fields["half_dlev"] = vert_coord.half_dlev
 
-        fields["global_cell_id"] = jnp.arange(fields["n_cell"], dtype=int_type)
-        fields["global_vtx_id" ] = jnp.arange(fields["n_vtx" ], dtype=int_type)
-        fields["global_edge_id"] = jnp.arange(fields["n_edge"], dtype=int_type)
-        fields["vtx_nnb"       ] = jnp.full(
+        fields["global_cell_id"] = bkd.arange(fields["n_cell"], dtype=int_type)
+        fields["global_vtx_id" ] = bkd.arange(fields["n_vtx" ], dtype=int_type)
+        fields["global_edge_id"] = bkd.arange(fields["n_edge"], dtype=int_type)
+        fields["vtx_nnb"       ] = bkd.full(
             shape=(fields["n_vtx"],),
             fill_value=fields["maxnnb_vtx"],
             device=dev(),
             dtype=int_type,
         )
-        fields["total_area"       ] = jnp.sum(fields["area_cell"])
+        fields["total_area"       ] = bkd.sum(fields["area_cell"])
         # ====================================================
         return cls(**fields)
   
@@ -456,9 +459,10 @@ class SCVTMesh(AbstractUnstructuredMesh):
         cls,
         parent: "SCVTMesh",
         para: PlanetParameterSet,
-        dev: device.AbstractDevice,
         id: Optional[int] = None
     ) -> "SCVTMesh":
+        dev        = parent.dev
+        bkd        = dev.backend
         int_type   = dev.int_type
         float_type = dev.float_type
         omega = para.omega.unwrap()
@@ -471,20 +475,16 @@ class SCVTMesh(AbstractUnstructuredMesh):
         )
         halo = SCVTHalo(proc=scvt_proc, mesh=parent, dev=dev)
         
-        l2g_cell_id     = jnp.asarray(scvt_proc.l2g_cell_id    , device=dev(), dtype=int_type)
-        l2g_vtx_id      = jnp.asarray(scvt_proc.l2g_vtx_id     , device=dev(), dtype=int_type)
-        l2g_edge_id     = jnp.asarray(scvt_proc.l2g_edge_id    , device=dev(), dtype=int_type)
-        g2l_cell_id     = jnp.asarray(scvt_proc.g2l_cell_id    , device=dev(), dtype=int_type)
-        g2l_vtx_id      = jnp.asarray(scvt_proc.g2l_vtx_id     , device=dev(), dtype=int_type)
-        g2l_edge_id     = jnp.asarray(scvt_proc.g2l_edge_id    , device=dev(), dtype=int_type)
-        cell_proc_idmap = jnp.asarray(scvt_proc.cell_proc_idmap, device=dev(), dtype=int_type)
+        l2g_cell_id     = bkd.asarray(scvt_proc.l2g_cell_id    , device=dev(), dtype=int_type)
+        l2g_vtx_id      = bkd.asarray(scvt_proc.l2g_vtx_id     , device=dev(), dtype=int_type)
+        l2g_edge_id     = bkd.asarray(scvt_proc.l2g_edge_id    , device=dev(), dtype=int_type)
+        g2l_cell_id     = bkd.asarray(scvt_proc.g2l_cell_id    , device=dev(), dtype=int_type)
+        g2l_vtx_id      = bkd.asarray(scvt_proc.g2l_vtx_id     , device=dev(), dtype=int_type)
+        g2l_edge_id     = bkd.asarray(scvt_proc.g2l_edge_id    , device=dev(), dtype=int_type)
+        cell_proc_idmap = bkd.asarray(scvt_proc.cell_proc_idmap, device=dev(), dtype=int_type)
         # ====================================================
         # Prepare parent mesh
-        parent = eqx.tree_at(
-            where=lambda m: m.cell_proc_idmap,
-            pytree=parent,
-            replace=cell_proc_idmap
-        )
+        parent = parent.replace(cell_proc_idmap=cell_proc_idmap)
         # ====================================================
         # Determine domain indices
         # haloN -> haloN-1 -> ... -> halo1 -> bdry1 -> bdry2 -> ... -> bdryN -> inner 
@@ -539,7 +539,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
             assert vtx_ibe_list [0 ] == vtx_ide
             assert edge_ibe_list[0 ] == edge_ide
         
-        # Determine halo indices 
+        # Determine halo indices
         cell_ihs_list = [0] * parent.hori_hw
         cell_ihe_list = [0] * parent.hori_hw
         vtx_ihs_list  = [0] * parent.hori_hw
@@ -588,6 +588,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
             assert edge_ihe_list[-1] == edge_ime
         # ====================================================
         fields: dict[str, Any] = dict(
+            dev=dev,
             parent=parent,
             halo=halo,
             id=int(scvt_proc.id_model if id is None else id),
@@ -660,14 +661,14 @@ class SCVTMesh(AbstractUnstructuredMesh):
             dual_edge_xyz=parent.dual_edge_xyz[l2g_edge_id],
             cell_nnb=parent.cell_nnb[l2g_cell_id],
             vtx_nnb=parent.vtx_nnb[l2g_vtx_id],
-            cell_nb=remap_g2l(parent.cell_nb[l2g_cell_id], g2l_cell_id),
-            cell_ed=remap_g2l(parent.cell_ed[l2g_cell_id], g2l_edge_id),
-            vtx_of_cell=remap_g2l(parent.vtx_of_cell[l2g_cell_id], g2l_vtx_id),
-            vtx_nb=remap_g2l(parent.vtx_nb[l2g_vtx_id], g2l_vtx_id),
-            vtx_ed=remap_g2l(parent.vtx_ed[l2g_vtx_id], g2l_edge_id),
-            cell_of_vtx=remap_g2l(parent.cell_of_vtx[l2g_vtx_id], g2l_cell_id),
-            cell_of_edge=remap_g2l(parent.cell_of_edge[l2g_edge_id], g2l_cell_id),
-            vtx_of_edge=remap_g2l(parent.vtx_of_edge[l2g_edge_id], g2l_vtx_id),
+            cell_nb=remap_g2l(bkd, parent.cell_nb[l2g_cell_id], g2l_cell_id),
+            cell_ed=remap_g2l(bkd, parent.cell_ed[l2g_cell_id], g2l_edge_id),
+            vtx_of_cell=remap_g2l(bkd, parent.vtx_of_cell[l2g_cell_id], g2l_vtx_id),
+            vtx_nb=remap_g2l(bkd, parent.vtx_nb[l2g_vtx_id], g2l_vtx_id),
+            vtx_ed=remap_g2l(bkd, parent.vtx_ed[l2g_vtx_id], g2l_edge_id),
+            cell_of_vtx=remap_g2l(bkd, parent.cell_of_vtx[l2g_vtx_id], g2l_cell_id),
+            cell_of_edge=remap_g2l(bkd, parent.cell_of_edge[l2g_edge_id], g2l_cell_id),
+            vtx_of_edge=remap_g2l(bkd, parent.vtx_of_edge[l2g_edge_id], g2l_vtx_id),
             edge_nr=parent.edge_nr[l2g_edge_id],
             edge_tg=parent.edge_tg[l2g_edge_id],
             dual_edge_nr=parent.dual_edge_nr[l2g_edge_id],
@@ -685,34 +686,34 @@ class SCVTMesh(AbstractUnstructuredMesh):
             dual_edge_lon_deg=parent.dual_edge_lon_deg[l2g_edge_id],
             dual_edge_lat_deg=parent.dual_edge_lat_deg[l2g_edge_id],
         )
-        fields["cell_cos_lon"     ] = jnp.cos(fields["cell_lon"     ])
-        fields["cell_sin_lon"     ] = jnp.sin(fields["cell_lon"     ])
-        fields["cell_cos_lat"     ] = jnp.cos(fields["cell_lat"     ])
-        fields["cell_sin_lat"     ] = jnp.sin(fields["cell_lat"     ])
-        fields["vtx_cos_lon"      ] = jnp.cos(fields["vtx_lon"      ])
-        fields["vtx_sin_lon"      ] = jnp.sin(fields["vtx_lon"      ])
-        fields["vtx_cos_lat"      ] = jnp.cos(fields["vtx_lat"      ])
-        fields["vtx_sin_lat"      ] = jnp.sin(fields["vtx_lat"      ])
-        fields["edge_cos_lon"     ] = jnp.cos(fields["edge_lon"     ])
-        fields["edge_sin_lon"     ] = jnp.sin(fields["edge_lon"     ])
-        fields["edge_cos_lat"     ] = jnp.cos(fields["edge_lat"     ])
-        fields["edge_sin_lat"     ] = jnp.sin(fields["edge_lat"     ])
-        fields["dual_edge_cos_lon"] = jnp.cos(fields["dual_edge_lon"])
-        fields["dual_edge_sin_lon"] = jnp.sin(fields["dual_edge_lon"])
-        fields["dual_edge_cos_lat"] = jnp.cos(fields["dual_edge_lat"])
-        fields["dual_edge_sin_lat"] = jnp.sin(fields["dual_edge_lat"])
+        fields["cell_cos_lon"     ] = bkd.cos(fields["cell_lon"     ])
+        fields["cell_sin_lon"     ] = bkd.sin(fields["cell_lon"     ])
+        fields["cell_cos_lat"     ] = bkd.cos(fields["cell_lat"     ])
+        fields["cell_sin_lat"     ] = bkd.sin(fields["cell_lat"     ])
+        fields["vtx_cos_lon"      ] = bkd.cos(fields["vtx_lon"      ])
+        fields["vtx_sin_lon"      ] = bkd.sin(fields["vtx_lon"      ])
+        fields["vtx_cos_lat"      ] = bkd.cos(fields["vtx_lat"      ])
+        fields["vtx_sin_lat"      ] = bkd.sin(fields["vtx_lat"      ])
+        fields["edge_cos_lon"     ] = bkd.cos(fields["edge_lon"     ])
+        fields["edge_sin_lon"     ] = bkd.sin(fields["edge_lon"     ])
+        fields["edge_cos_lat"     ] = bkd.cos(fields["edge_lat"     ])
+        fields["edge_sin_lat"     ] = bkd.sin(fields["edge_lat"     ])
+        fields["dual_edge_cos_lon"] = bkd.cos(fields["dual_edge_lon"])
+        fields["dual_edge_sin_lon"] = bkd.sin(fields["dual_edge_lon"])
+        fields["dual_edge_cos_lat"] = bkd.cos(fields["dual_edge_lat"])
+        fields["dual_edge_sin_lat"] = bkd.sin(fields["dual_edge_lat"])
         fields["f_vtx"            ] = 2 * omega * fields["vtx_sin_lat"] 
         fields["area_edge"        ] = fields["le"] * fields["de"] * 0.5
         fields["total_area"       ] = parent.total_area
         fields["area_vtx_wgt"     ] = fields["area_vtx"]
         fields["area_edge_wgt"    ] = fields["area_edge"]
 
-        cell_owner = np.asarray(scvt_proc.cell_proc_idmap, dtype=np.int32)
-        local_cell_of_vtx = np.asarray(fields["cell_of_vtx"], dtype=np.int64)
-        local_cell_of_edge = np.asarray(fields["cell_of_edge"], dtype=np.int64)
-        global_cell_id = np.asarray(fields["global_cell_id"], dtype=np.int64)
-        area_vtx_wgt = np.asarray(fields["area_vtx_wgt"]).copy()
-        area_edge_wgt = np.asarray(fields["area_edge_wgt"]).copy()
+        cell_owner         = bkd.to_numpy(scvt_proc.cell_proc_idmap)
+        local_cell_of_vtx  = bkd.to_numpy(fields["cell_of_vtx"   ] )
+        local_cell_of_edge = bkd.to_numpy(fields["cell_of_edge"  ] )
+        global_cell_id     = bkd.to_numpy(fields["global_cell_id"] )
+        area_vtx_wgt       = bkd.to_numpy(fields["area_vtx_wgt"  ] ).copy()
+        area_edge_wgt      = bkd.to_numpy(fields["area_edge_wgt" ] ).copy()
         if scvt_proc.nngb > 0 and fields["vtx_ibs"]:
             start, end = fields["vtx_ibs"][0], fields["vtx_ibe"][0]
             for i in range(start, end + 1):
@@ -729,51 +730,53 @@ class SCVTMesh(AbstractUnstructuredMesh):
                 owners = cell_owner[global_cell_id[local_cells[valid]]]
                 divisor = 1 + int(np.count_nonzero(owners != scvt_proc.id_model))
                 area_edge_wgt[i] = area_edge_wgt[i] / divisor
-        fields["area_vtx_wgt"] = jnp.asarray(area_vtx_wgt, dtype=fields["area_vtx"].dtype)
-        fields["area_edge_wgt"] = jnp.asarray(area_edge_wgt, dtype=fields["area_edge"].dtype)
+        fields["area_vtx_wgt" ] = bkd.asarray(area_vtx_wgt , dtype=fields["area_vtx" ].dtype)
+        fields["area_edge_wgt"] = bkd.asarray(area_edge_wgt, dtype=fields["area_edge"].dtype)
         
-        fields["kite_area_cell"] = jnp.zeros(
+        fields["kite_area_cell"] = bkd.zeros(
             (cell_ime-cell_ims+1, fields["maxnnb_cell"]),
             device=dev(),
             dtype=float_type  
         )
-        fields["kite_area_vtx"] = jnp.zeros(
+        fields["kite_area_vtx"] = bkd.zeros(
             (vtx_ime-vtx_ims+1, fields["maxnnb_vtx"]),
             device=dev(),
             dtype=float_type  
         )        
-        fields["cell_nr"] = jnp.zeros(
+        fields["cell_nr"] = bkd.zeros(
             (cell_ime-cell_ims+1, fields["maxnnb_cell"]),
             device=dev(),
             dtype=int_type
         )
-        fields["vtx_nr"] = jnp.zeros(
+        fields["vtx_nr"] = bkd.zeros(
             (vtx_ime-vtx_ims+1, fields["maxnnb_vtx"]),
             device=dev(),
             dtype=int_type
         )
-        fields["edptg_eddnr"] = jnp.zeros(
+        fields["edptg_eddnr"] = bkd.zeros(
             (edge_ime-edge_ims+1),
             device=dev(),
             dtype=int_type
         )
-        fields["edpnr_eddtg"] = jnp.zeros(
+        fields["edpnr_eddtg"] = bkd.zeros(
             (edge_ime-edge_ims+1),
             device=dev(),
             dtype=int_type
         ) 
-        fields["edp12_edptg"] = jnp.zeros(
+        fields["edp12_edptg"] = bkd.zeros(
             (edge_ime-edge_ims+1),
             device=dev(),
             dtype=int_type
         )
-        fields["edp12_eddnr"] = jnp.zeros(
+        fields["edp12_eddnr"] = bkd.zeros(
             (edge_ime-edge_ims+1),
             device=dev(),
             dtype=int_type
         )
         self = cls(**fields)
+        if dev.is_root(): log.logger.info("Calculate kite areas.")
         self = calc_kite_area(para, self, dev)
+        if dev.is_root(): log.logger.info("Correct normal vectors.")
         self = correct_normal_vectors(para, self, dev)
         return self
     
@@ -801,11 +804,10 @@ class SCVTMesh(AbstractUnstructuredMesh):
         return cls.from_parent(
             parent=global_mesh,
             para=para,
-            id=0,
-            dev=dev,
         )
         
     def lon_range(self) -> tuple[float, ...]:
+        bkd = self.dev.backend
         
         min_lon = min(
             self.cell_lon_deg     .min(), 
@@ -820,24 +822,24 @@ class SCVTMesh(AbstractUnstructuredMesh):
             self.dual_edge_lon_deg.max()
         )
         
-        if bool(jnp.allclose(min_lon, 0)) and bool(jnp.allclose(max_lon, 360)):
+        if bool(bkd.allclose(min_lon, 0.0)) and bool(bkd.allclose(max_lon, 360.0)):
             # cyclic = True
-            cell_lon_deg = jnp.where(
+            cell_lon_deg = bkd.where(
                 self.cell_lon_deg >= 180.0, 
                 self.cell_lon_deg - 360.0, 
                 self.cell_lon_deg
             )
-            vtx_lon_deg = jnp.where(
+            vtx_lon_deg = bkd.where(
                 self.vtx_lon_deg >= 180.0, 
                 self.vtx_lon_deg - 360.0, 
                 self.vtx_lon_deg
             )
-            edge_lon_deg = jnp.where(
+            edge_lon_deg = bkd.where(
                 self.edge_lon_deg >= 180.0, 
                 self.edge_lon_deg - 360.0, 
                 self.edge_lon_deg
             )
-            dual_edge_lon_deg = jnp.where(
+            dual_edge_lon_deg = bkd.where(
                 self.dual_edge_lon_deg >= 180.0, 
                 self.dual_edge_lon_deg - 360.0, 
                 self.dual_edge_lon_deg
@@ -854,7 +856,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
                 edge_lon_deg     .max(),
                 dual_edge_lon_deg.max()
             )
-            if bool(jnp.allclose(min_lon, -180)) and bool(jnp.allclose(max_lon, 180)):
+            if bool(bkd.allclose(min_lon, -180)) and bool(bkd.allclose(max_lon, 180)):
                 min_lon = 0.0
                 max_lon = 360.0
             else:
@@ -883,10 +885,10 @@ class SCVTMesh(AbstractUnstructuredMesh):
         
     def output(
         self,
-        proc: Proc,
         output_path: str = "",
         file_name: str = "scvt_mesh"
     ):
+        proc      = self.dev.proc
         halo      = self.halo
         file_name = file_name + "." + str(proc.id_model) + ".nc"
         output_file = Path(output_path).joinpath(file_name)
@@ -1272,9 +1274,11 @@ class SCVTMesh(AbstractUnstructuredMesh):
             log.logger.success(f"Successfully output scvt mesh into netCDF file.")
         
 def remap_g2l(
+    backend: AbstractBackend,
     local_id: INT[Array, "npoints ..."], 
-    g2l_id: INT[Array, "npoints"]
+    g2l_id: INT[Array, "npoints"],
 ) -> Array:
     valid = local_id >= 0
-    mapped = g2l_id[local_id]
-    return jnp.where(valid, mapped, -1)
+    safe_local_id = backend.where(valid, local_id, 0)
+    mapped = g2l_id[safe_local_id]
+    return backend.where(valid, mapped, -1)

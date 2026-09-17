@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from numba import UnsupportedError
+
 from terraflow.util import typing
+from terraflow.util.backend.abstract import AbstractBackend
 from terraflow.mesh.scvt._native_interp import (
     latlon_interp_bilinear_apply,
     latlon_interp_bilinear_column,
@@ -12,7 +15,7 @@ Array = typing.Array
 
 
 class NativeRegridder:
-    """Native regridder (JAX).
+    """Native regridder.
 
     Only bilinear is supported.
     """
@@ -27,12 +30,14 @@ class NativeRegridder:
         *,
         extrap: bool = True,
         precompute_weights: bool = True,
+        backend: AbstractBackend | None = None,
     ):
         self.src_lon = src_lon
         self.src_lat = src_lat
         self.dst_lon = dst_lon
         self.dst_lat = dst_lat
         self.extrap = extrap
+        self.backend = backend
 
         method_norm = method.strip().lower()
         if method_norm != "bilinear":
@@ -49,6 +54,7 @@ class NativeRegridder:
                 dst_lon=self.dst_lon,
                 dst_lat=self.dst_lat,
                 extrap=self.extrap,
+                bkd=self.backend,
             )
 
     def regrid(self, src_data: Float[Array, "nlev nlat nlon"]):
@@ -60,8 +66,9 @@ class NativeRegridder:
                 dst_lon=self.dst_lon,
                 dst_lat=self.dst_lat,
                 extrap=self.extrap,
+                bkd=self.backend,
             )
-        return latlon_interp_bilinear_apply(src_data, self._cache)
+        return latlon_interp_bilinear_apply(src_data, self._cache, bkd=self.backend)
 
     def __call__(self, src_data: Float[Array, "nlev nlat nlon"]):
         return self.regrid(src_data)

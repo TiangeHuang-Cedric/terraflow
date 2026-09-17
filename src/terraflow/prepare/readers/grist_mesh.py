@@ -1,5 +1,4 @@
 from pathlib import Path
-import jax.numpy as jnp
 import xarray as xr
 
 from terraflow.util import device, log, typing
@@ -86,6 +85,7 @@ class GRISTRefMesh(AbstractRefMesh):
         dev: device.AbstractDevice
     ):
         """Initialize a GRIST reference mesh from 0d metadata and 2d mesh files."""
+        bkd  = dev.backend
         arch = dev()
         float_type = dev.float_type
         int_type = dev.int_type
@@ -114,122 +114,122 @@ class GRISTRefMesh(AbstractRefMesh):
         ds_0d.close()
 
         ds_2d = xr.open_dataset(mesh_2d_file)
-        vtx_ltln_nnb = jnp.array(
+        vtx_ltln_nnb = bkd.array(
             ds_2d["vtx_ltln_nnb"].values.T,
             dtype=float_type,
             device=arch
         )
-        tri_cc_ltln = jnp.array(
+        tri_cc_ltln = bkd.array(
             ds_2d["tri_cc_ltln"].values.T,
             dtype=float_type,
             device=arch
         )
-        edp_cc_ltln = jnp.array(
+        edp_cc_ltln = bkd.array(
             ds_2d["edp_cc_ltln"].values.T,
             dtype=float_type,
             device=arch
         )
-        edt_cc_ltln = jnp.array(
+        edt_cc_ltln = bkd.array(
             ds_2d["edt_cc_ltln"].values.T,
             dtype=float_type,
             device=arch
         )
-        vtx_p = jnp.array(
+        vtx_p = bkd.array(
             ds_2d["vtx_p"].values.T,
             dtype=float_type,
             device=arch
         )
-        tri_cc_p = jnp.array(
+        tri_cc_p = bkd.array(
             ds_2d["tri_cc_p"].values.T,
             dtype=float_type,
             device=arch
         )
-        edp_cc_p = jnp.array(
+        edp_cc_p = bkd.array(
             ds_2d["edp_cc_p"].values.T,
             dtype=float_type,
             device=arch
         )
-        edt_cc_p = jnp.array(
+        edt_cc_p = bkd.array(
             ds_2d["edt_cc_p"].values.T,
             dtype=float_type,
             device=arch
         )
-        vtx_ed = jnp.array(
+        vtx_ed = bkd.array(
             ds_2d["vtx_ed"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        vtx_nb = jnp.array(
+        vtx_nb = bkd.array(
             ds_2d["vtx_nb"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        vtx_tr = jnp.array(
+        vtx_tr = bkd.array(
             ds_2d["vtx_tr"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        tri_ed = jnp.array(
+        tri_ed = bkd.array(
             ds_2d["tri_ed"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        tri_nb = jnp.array(
+        tri_nb = bkd.array(
             ds_2d["tri_nb"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        tri_v = jnp.array(
+        tri_v = bkd.array(
             ds_2d["tri_v"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        edp_nr = jnp.array(
+        edp_nr = bkd.array(
             ds_2d["edp_nr"].values.T,
             dtype=float_type,
             device=arch
         )
-        edp_tg = jnp.array(
+        edp_tg = bkd.array(
             ds_2d["edp_tg"].values.T,
             dtype=float_type,
             device=arch
         )
-        edp_v = jnp.array(
+        edp_v = bkd.array(
             ds_2d["edp_v"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        edp_len_2d = jnp.array(
+        edp_len_2d = bkd.array(
             ds_2d["edp_len"].values.T,
             dtype=float_type,
             device=arch
         )
-        edt_nr = jnp.array(
+        edt_nr = bkd.array(
             ds_2d["edt_nr"].values.T,
             dtype=float_type,
             device=arch
         )
-        edt_tg = jnp.array(
+        edt_tg = bkd.array(
             ds_2d["edt_tg"].values.T,
             dtype=float_type,
             device=arch
         )
-        edt_v = jnp.array(
+        edt_v = bkd.array(
             ds_2d["edt_v"].values.T - 1,
             dtype=int_type,
             device=arch
         )
-        edt_len_2d = jnp.array(
+        edt_len_2d = bkd.array(
             ds_2d["edt_len"].values.T,
             dtype=float_type,
             device=arch
         )
-        plg_area_2d = jnp.array(
+        plg_area_2d = bkd.array(
             ds_2d["plg_area"].values.T,
             dtype=float_type,
             device=arch
         )
-        tri_area_2d = jnp.array(
+        tri_area_2d = bkd.array(
             ds_2d["tri_area"].values.T,
             dtype=float_type,
             device=arch
@@ -273,7 +273,7 @@ class GRISTRefMesh(AbstractRefMesh):
         self.edp_cc_p = edp_cc_p
         self.edt_cc_p = edt_cc_p
         self.vtx_ed = vtx_ed
-        self.vtx_nnb = jnp.array(
+        self.vtx_nnb = bkd.array(
             vtx_ltln_nnb[:, 2],
             dtype=int_type,
             device=arch

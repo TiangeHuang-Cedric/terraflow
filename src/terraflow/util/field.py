@@ -1,11 +1,19 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Union, TypeVar, Dict, Any, List
-from typing import Self, Generic, overload, Type, Optional
-import unxt as ux
-import equinox as eqx
-import jax.numpy as jnp
+from typing import TYPE_CHECKING, TypeVar, Dict, Any, List
+from typing import Self, Generic, Type, Optional
+import pint
 
-from terraflow.util import typing, device
+
+from terraflow.util import typing
+from terraflow.util import equinox as eqx
+from terraflow.util.backend import AbstractBackend
+from terraflow.util.planet import unit_registry
+
+
+if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
+
 
 Array = typing.Array
 ArrayWithUnits = typing.ArrayWithUnits
@@ -13,34 +21,38 @@ ArrayWithUnits = typing.ArrayWithUnits
 FMT = TypeVar("FMT", bound="AbstractMeta")
 
 
-def unit_convert(from_unit: str, usys: ux.AbstractUnitSystem) -> str:
-    """Convert the unit string to the specified unit system."""
-    quantity: ux.AbstractQuantity = ux.Quantity(1.0, from_unit) 
-    converted = quantity.uconvert(usys)
-    return converted.unit.to_string()
+def unit_convert(from_unit: str, unit: str = "SI") -> str:
+    """Convert the unit string to the specified unit or unit system."""
+    quantity = unit_registry.Quantity(1.0, from_unit)
+    if unit.lower() == "si":
+        converted = quantity.to_base_units()
+    else:
+        converted = quantity.to(unit)
+    return str(converted.units)
 
 
 class AbstractMeta(eqx.Module, ABC):
     """Abstract metadata for AbstractField."""
-    name           : str  = eqx.field(static=True, default=""   )
-    long_name      : str  = eqx.field(static=True, default=""   )
-    units          : str  = eqx.field(static=True, default=""   )
-    is_static      : bool = eqx.field(static=True, default=False)
-    is_expand_dim0 : bool = eqx.field(static=True, default=False)
-    expand_dim0_len: int  = eqx.field(static=True, default=1    )
-    output         : str  = eqx.field(static=True, default=""   )
+    name           : str      = eqx.field(static=True, default=""   )
+    long_name      : str      = eqx.field(static=True, default=""   )
+    units          : str      = eqx.field(static=True, default=""   )
+    is_static      : bool     = eqx.field(static=True, default=False)
+    is_expand_dim0 : bool     = eqx.field(static=True, default=False)
+    expand_dim0_len: int      = eqx.field(static=True, default=1    )
+    output         : str      = eqx.field(static=True, default=""   )
+    backend        : AbstractBackend  = eqx.field(static=True, default=None )
     
     def is_empty(self) -> bool:
         """Check if the metadata indicates an empty field."""
         return self.name == "" and self.long_name == "" and self.units == ""
 
-    def wrap_unit(self, usys: Union[ux.AbstractUnitSystem, str]) -> Self:
-        """Return a copy of the metadata with its unit converted to ``usys``."""
+    def wrap_unit(self, unit: str) -> Self:
+        """Return a copy of the metadata with its unit converted to ``unit``."""
         meta = self.to_dict()
-        if isinstance(usys, str):
-            meta["units"] = usys
+        if unit.lower() == "si":
+            meta["units"] = unit_convert(self.units, unit)
         else:
-            meta["units"] = unit_convert(self.units, usys)
+            meta["units"] = unit
         return type(self).from_dict(meta)
 
     @classmethod
@@ -56,13 +68,14 @@ class AbstractMeta(eqx.Module, ABC):
 
 class ScalarFieldMeta(AbstractMeta):
     """Metadata for numeric fields that can be directly converted to arrays."""
-    name           : str  = eqx.field(static=True, default=""   )
-    long_name      : str  = eqx.field(static=True, default=""   )
-    units          : str  = eqx.field(static=True, default=""   )
-    is_static      : bool = eqx.field(static=True, default=False)
-    is_expand_dim0 : bool = eqx.field(static=True, default=False)
-    expand_dim0_len: int  = eqx.field(static=True, default=1    )
-    output         : str  = eqx.field(static=True, default=""   )
+    name           : str     = eqx.field(static=True, default=""   )
+    long_name      : str     = eqx.field(static=True, default=""   )
+    units          : str     = eqx.field(static=True, default=""   )
+    is_static      : bool    = eqx.field(static=True, default=False)
+    is_expand_dim0 : bool    = eqx.field(static=True, default=False)
+    expand_dim0_len: int     = eqx.field(static=True, default=1    )
+    output         : str     = eqx.field(static=True, default=""   )
+    backend        : AbstractBackend = eqx.field(static=True, default=None )
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -73,6 +86,7 @@ class ScalarFieldMeta(AbstractMeta):
             "is_expand_dim0": self.is_expand_dim0,
             "expand_dim0_len": self.expand_dim0_len,
             "output": self.output,
+            "backend": self.backend,
         }
 
 
@@ -84,8 +98,8 @@ class AbstractField(eqx.Module, Generic[FMT]):
     and equinox's immutable Module system. All operations return new AbstractField
     instances rather than modifying in place.
     """
-    d   : Array
-    meta: FMT   = eqx.field(static=True)
+    d      : Array
+    meta   : FMT     = eqx.field(static=True)
 
     def __jax_array__(self):
         """Support JAX array protocol."""
@@ -106,14 +120,15 @@ class AbstractField(eqx.Module, Generic[FMT]):
         """Support indexing, returns a new AbstractField with indexed data."""
         return self._wrap(self.d[index])
 
-    def _wrap(self, value: Union[Array, ux.AbstractQuantity]) -> Self:
+    def _wrap(self, value: ArrayWithUnits) -> Self:
         """Wrap a value in a new AbstractField instance with same metadata."""
-        if isinstance(value, ux.AbstractQuantity):
-            array_value = value.to(self.meta.units).value
+        if isinstance(value, pint.Quantity):
+            array_value = value.to(self.meta.units).magnitude
+            array_value = self.meta.backend.from_dlpack(array_value)
         else:
-            array_value = jnp.asarray(value)
+            array_value = self.meta.backend.from_dlpack(value      )
 
-        return eqx.tree_at(
+        return self.meta.backend.tree_at(
             lambda f: f.d,
             self,
             array_value
@@ -121,8 +136,8 @@ class AbstractField(eqx.Module, Generic[FMT]):
 
     def _wrap_with_unit(
         self,
-        value: Union[Array, ux.AbstractQuantity],
-        unit: Union[ux.AbstractUnitSystem, str]
+        value: ArrayWithUnits,
+        unit: str
     ) -> Self:
         """Wrap a value in a new AbstractField instance with specified unit."""
         meta = self.meta.wrap_unit(unit)
@@ -134,15 +149,27 @@ class AbstractField(eqx.Module, Generic[FMT]):
 
     def isel(self, index: int, axis: int) -> Self:
         """Index along a specified axis."""
-        return self._wrap(jnp.take(self.d, indices=index, axis=axis))
+        backend = self.meta.backend
+        if backend is not None:
+            return self._wrap(backend.take(self.d, indices=index, axis=axis))
+        else:
+            raise ValueError(f"{self.meta.name} is an empty field!")
 
     def reshape(self, new_shape: tuple[int, ...]) -> Self:
         """Reshape the underlying data array."""
-        return self._wrap(jnp.reshape(self.d, new_shape))
+        backend = self.meta.backend
+        if backend is not None:
+            return self._wrap(backend.reshape(self.d, new_shape))
+        else:
+            raise ValueError(f"{self.meta.name} is an empty field!")
 
     def zeros_like(self) -> Self:
         """Return a new AbstractField with the same shape and metadata but filled with zeros."""
-        zero_data = jnp.zeros_like(self.d)
+        backend = self.meta.backend
+        if backend is not None:
+            zero_data = backend.zeros_like(self.d)
+        else:
+            raise ValueError(f"{self.meta.name} is an empty field!")
         return self._wrap(zero_data)
     
     @staticmethod
@@ -154,7 +181,7 @@ class AbstractField(eqx.Module, Generic[FMT]):
     def empty(cls) -> Self:
         """Create an empty AbstractField instance with default metadata."""
         meta = cls.get_meta_cls()()
-        return cls(d=jnp.array([]), meta=meta)
+        return cls(d=None, meta=meta)
 
     def is_empty(self) -> bool:
         """Check if the field is empty (i.e., has no data)."""
@@ -170,38 +197,23 @@ class AbstractField(eqx.Module, Generic[FMT]):
     @classmethod
     def create(
         cls,
-        data: Union[Array, ux.AbstractQuantity],
+        data: ArrayWithUnits,
         meta: FMT,
     ) -> Self:
         """Create a new AbstractField instance with the same metadata."""
-        if isinstance(data, ux.AbstractQuantity):
-            array_data = data.to(meta.units).value
-            return cls(d=jnp.asarray(array_data), meta=meta)
-        elif isinstance(data, Array):
-            return cls(d=jnp.asarray(data), meta=meta)
+        backend = meta.backend
+        if isinstance(data, pint.Quantity):
+            array_data = data.to(meta.units).magnitude
+            return cls(d=meta.backend.from_dlpack(array_data), meta=meta)
+        elif backend is not None:
+            return cls(d=meta.backend.from_dlpack(data      ), meta=meta)
         else:
-            raise ValueError(f"Unsupported data type for field {meta.name}!")
-
-    @overload
-    def update(
-        self,
-        data: Array,
-        unit: Union[str, ux.AbstractUnitSystem] = ""
-    ) -> Self: 
-        ...
-
-    @overload
-    def update(
-        self,
-        data: ux.AbstractQuantity,
-        unit: Union[str, ux.AbstractUnitSystem] = ""
-    ) -> Self:
-        ...
+            return cls(d=meta.backend.asarray(data), meta=meta)
 
     def update(
         self,
-        data: Union[Array, ux.AbstractQuantity],
-        unit: Union[str, ux.AbstractUnitSystem] = ""
+        data: ArrayWithUnits,
+        unit: str = ""
     ) -> Self:
         """Update the field data and unit."""
         if unit:
@@ -214,35 +226,39 @@ class AbstractField(eqx.Module, Generic[FMT]):
         return self.d
 
     def to(self, unit: str) -> Self:
-        """Convert the parameter value to the specified unit and return it."""
-        quantity: ux.AbstractQuantity = ux.Quantity(
-            jnp.asarray(self.d),
-            self.meta.units
-        ) 
-        new_data = quantity.to(unit)
+        """Convert the field value to the specified unit and return it."""
+        quantity = unit_registry.Quantity(self.d, self.meta.units)
+        new_data = quantity.to(unit).magnitude
         return self.update(new_data, unit)
 
-    def uconvert(self, usys: ux.AbstractUnitSystem) -> Self:
-        """Convert the parameter value to specified unit system and return it."""
-        quantity: ux.AbstractQuantity = ux.Quantity(
-            jnp.asarray(self.d),
-            self.meta.units
-        ) 
-        new_data = quantity.uconvert(usys)
-        return self.update(new_data, usys)
+    def to_base_units(self) -> Self:
+        """Convert the field value to base units and return it."""
+        quantity = unit_registry.Quantity(self.d, self.meta.units)
+        new_data = quantity.to_base_units()
+        return self.update(new_data.magnitude, str(new_data.units))
+
+    def to_reduced_units(self) -> Self:
+        """Convert the field value to reduced units and return it."""
+        quantity = unit_registry.Quantity(self.d, self.meta.units)
+        new_data = quantity.to_reduced_units()
+        return self.update(new_data.magnitude, str(new_data.units))
+
+    def uconvert(self, usys: str = "SI") -> Self:
+        """Compatibility wrapper for previous unit-system conversion calls."""
+        if isinstance(usys, str) and usys.lower() == "si":
+            return self.to_base_units()
+        raise ValueError(
+            "AbstractField.uconvert only supports 'SI' after migrating to pint; "
+            "use to(unit), to_base_units(), or to_reduced_units()."
+        )
 
     def to_si(self) -> Self:
-        """Convert the parameter value to SI unit and return it."""
-        quantity: ux.AbstractQuantity = ux.Quantity(
-            jnp.asarray(self.d),
-            self.meta.units
-        )
-        new_data = quantity.uconvert(ux.unitsystems.si)
-        return self.update(new_data, ux.unitsystems.si)
+        """Convert the field value to SI base units and return it."""
+        return self.to_base_units()
 
 
 class ScalarField(AbstractField[ScalarFieldMeta]):
-    d   : Array           = eqx.field(default_factory=lambda: jnp.zeros(0)                  )
+    d   : Array           = eqx.field(default=0)
     meta: ScalarFieldMeta = eqx.field(default_factory=lambda: ScalarFieldMeta(), static=True)
      
     @staticmethod
@@ -255,13 +271,13 @@ class ScalarField(AbstractField[ScalarFieldMeta]):
         name: str,
         long_name: str,
         units: str,
-        dev: device.AbstractDevice,
+        dev: AbstractDevice,
         is_static: bool = False,
         is_expand_dim0: bool = False,
         expand_dim0_len: int = 1,
         output: str = ""
     ) -> Self:
-        d    = jnp.zeros(expand_dim0_len, device=dev(), dtype=dev.float_type)
+        d    = dev.backend.zeros(expand_dim0_len, device=dev(), dtype=dev.float_type)
         meta = ScalarFieldMeta(
             name=name,
             long_name=long_name,
@@ -269,7 +285,8 @@ class ScalarField(AbstractField[ScalarFieldMeta]):
             is_static=is_static,
             is_expand_dim0=is_expand_dim0,
             expand_dim0_len=expand_dim0_len,
-            output=output
+            output=output,
+            backend=dev.backend,
         )
         return cls(d=d, meta=meta)
     

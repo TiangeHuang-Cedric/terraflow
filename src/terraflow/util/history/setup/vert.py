@@ -2,7 +2,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import netCDF4 as nc4
 
+
 from terraflow.util.history.setup.base import AbstractHistorySetup
+
 
 if TYPE_CHECKING:
     from terraflow.vert_coord.gtc.onelayer import OneLayerVertCoordinate
@@ -43,16 +45,17 @@ class OneLayerVerticalCoordinateSetup(AbstractVertHistorySetup):
         ds.createVariable("lev", "f8", ("lev",))
         ds.createVariable("ilev", "f8", ("ilev",))
         # Assign data
-        lev = ds.variables["lev"]
-        lev[:] = self.vert.full_lev
-        lev.long_name = "Full vertical level"
-        lev.units = "Pa"
-        lev.positive = "down"
-        ilev = ds.variables["ilev"]
-        ilev[:] = self.vert.half_lev
+        dev = self.vert.dev
+        lev            = ds.variables["lev"]
+        lev[:]         = dev.to_host(self.vert.full_lev)
+        lev.long_name  = "Full vertical level"
+        lev.units      = "Pa"
+        lev.positive   = "down"
+        ilev           = ds.variables["ilev"]
+        ilev[:]        = dev.to_host(self.vert.half_lev)
         ilev.long_name = "Half vertical level"
-        ilev.units = "Pa"
-        ilev.positive = "down"
+        ilev.units     = "Pa"
+        ilev.positive  = "down"
         ds.close()
         self._built = True        
 
@@ -96,16 +99,17 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
         ds.createVariable("lev", "f8", ("lev",))
         ds.createVariable("ilev", "f8", ("ilev",))
         # Assign data
-        lev = ds.variables["lev"]
-        lev[:] = self.vert.full_lev
-        lev.long_name = "Full vertical level"
-        lev.units = "Pa"
-        lev.positive = "down"
-        ilev = ds.variables["ilev"]
-        ilev[:] = self.vert.half_lev
+        dev = self.vert.dev
+        lev            = ds.variables["lev"]
+        lev[:]         = dev.to_host(self.vert.full_lev)
+        lev.long_name  = "Full vertical level"
+        lev.units      = "Pa"
+        lev.positive   = "down"
+        ilev           = ds.variables["ilev"]
+        ilev[:]        = dev.to_host(self.vert.half_lev)
         ilev.long_name = "Half vertical level"
-        ilev.units = "Pa"
-        ilev.positive = "down"
+        ilev.units     = "Pa"
+        ilev.positive  = "down"
         ds.close()
         self._built = True
 
@@ -122,10 +126,10 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
             positive = "down"
         ds = nc4.Dataset(self.file_path, "a", format="NETCDF4")
         ds.createDimension("lev", len(lev))
-        plev = ds.createVariable("lev", "f8", ("lev",))
-        plev[:] = lev
+        plev           = ds.createVariable("lev", "f8", ("lev",))
+        plev[:]        = lev
         plev.long_name = "Pressure level"
-        plev.units = "Pa"
-        plev.positive = positive
+        plev.units     = "Pa"
+        plev.positive  = positive
         ds.close()
         self._built = True

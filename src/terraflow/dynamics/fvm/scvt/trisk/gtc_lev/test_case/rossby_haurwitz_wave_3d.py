@@ -1,8 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
 
-from terraflow.util.pytree import tree_at
+
 from terraflow.util import formula
 from terraflow.util.sphere_geometry import vector_convert_lonlat2xyz
 from terraflow.mesh.scvt.parallel import (
@@ -31,6 +30,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
     def init_un(self, block: Block) -> Block:
         radius = block.para.radius.unwrap()
         mesh   = block.mesh
+        bkd    = block.backend
         un     = block.state.un.unwrap()[0, :, :]
         n      = self.n
         M      = self.M
@@ -43,18 +43,19 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         lon     = mesh.dual_edge_lon[ids:ide+1]
         u = (
             a * M * cos_lat
-            + a * M * cos_lat**(n - 1) * jnp.cos(n * lon) *
+            + a * M * cos_lat**(n - 1) * bkd.cos(n * lon) *
             (n * sin_lat**2 - cos_lat**2)
         )
-        v= - a * M * n * cos_lat**(n - 1) * sin_lat * jnp.sin(n * lon)
+        v= - a * M * n * cos_lat**(n - 1) * sin_lat * bkd.sin(n * lon)
         vec = vector_convert_lonlat2xyz(
+            bkd=bkd,
             R=radius,
             u=u,
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        tmp = jnp.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
+        tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+        tmp = bkd.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
         un = un.at[kds:kde+1, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -62,7 +63,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             meta=block.state.un.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
             replace=un,
@@ -71,15 +72,17 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         )
 
     def init_gzs(self, block: Block) -> Block:
+        bkd = block.backend
         gzs = block.static.gzs.unwrap()
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.static.gzs.d,
             pytree=block,
-            replace=jnp.zeros_like(gzs)
+            replace=bkd.zeros_like(gzs)
         )
 
     def init_mgs(self, block: Block) -> Block:
+        bkd   = block.backend
         g     = block.para .gravity.unwrap()
         omega = block.para .omega  .unwrap()
         a     = block.para .radius .unwrap()
@@ -108,8 +111,8 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         )
         c_lat = M**2 / 4 * cos_lat**(2 * n) * ((n + 1) * cos_lat**2 - (n + 2))
         phi_p = a**2 * (
-            a_lat + b_lat * jnp.cos(n * lon)
-            + c_lat * jnp.cos(2 * n * lon)
+            a_lat + b_lat * bkd.cos(n * lon)
+            + c_lat * bkd.cos(2 * n * lon)
         )
         tmp = pref * (1 + gamma / g / t0 * phi_p)**(g / gamma / rd)
         mgs = mgs.at[ids:ide+1].set(tmp)
@@ -119,7 +122,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             meta=block.state.mgs.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.mgs.d,
             pytree=block,
             replace=mgs,
@@ -128,6 +131,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         )
 
     def init_pt(self, block: Block) -> Block:
+        bkd   = block.backend
         mesh  = block.mesh
         g     = block.para .gravity.unwrap()
         rd    = block.para .rd     .unwrap()
@@ -153,7 +157,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             meta=block.state.pt.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.pt.d,
             pytree=block,
             replace=pt,
@@ -162,6 +166,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         )
 
     def init_gz(self, block: Block) -> Block:
+        bkd    = block.backend
         g      = block.para .gravity.unwrap()
         rd     = block.para .rd     .unwrap()
         mesh   = block.mesh
@@ -195,7 +200,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             meta=block.state.gz_lev.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.gz.d, b.state.gz_lev.d),
             pytree=block,
             replace=(gz, gz_lev),

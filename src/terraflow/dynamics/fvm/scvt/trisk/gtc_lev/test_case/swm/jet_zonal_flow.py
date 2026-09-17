@@ -1,17 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax
-from jax import numpy as jnp
-import quadax
+
 
 from terraflow.util import typing
-from terraflow.util.pytree import tree_at
 from terraflow.util.sphere_geometry import vector_convert_lonlat2xyz
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.test_case.swm import jet_zonal_flow as swm_jz
 
 
 if TYPE_CHECKING:
+    from terraflow.util.backend import AbstractBackend
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 
 
@@ -29,19 +27,24 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
 
     def init_un(self, block: Block) -> Block:
         mesh = block.mesh
+        bkd  = block.backend
         un   = block.state.un.unwrap()[0, :, :]
-        # ==============================================        
+        # ==============================================
+        def u_function(lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
+            return self.u_function(bkd, lat)
+        
         ids, ide = mesh.edge_ids, mesh.edge_ide
-        u = self.u_function(mesh.dual_edge_lat[ids:ide+1])
-        v = jnp.zeros_like(u)
+        u = u_function(mesh.dual_edge_lat[ids:ide+1])
+        v = bkd.zeros_like(u)
         vec = vector_convert_lonlat2xyz(
+            bkd=bkd,
             R=block.para.radius.unwrap(),
             u=u,
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         un = un.at[0, ids:ide+1].set(
-            jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+            bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         )
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -49,7 +52,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
             meta=block.state.un.meta
         )
         # ==============================================   
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
             replace=un,
@@ -58,6 +61,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
         )
 
     def init_gz(self, block: Block) -> Block:
+        bkd   = block.backend
         mesh  = block.mesh
         gz    = block.state.gz.unwrap()[0, :, :]
         lat2  = self.lat2 
@@ -68,30 +72,33 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
         # ==============================================
         ids, ide = mesh.cell_ids, mesh.cell_ide
         
+        def gh_integrand(lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
+            return self.gh_integrand(bkd, lat)
+        
         def gh_integral(lat: Float[Array, ""]) -> Float[Array, ""]:
-            val, _ = quadax.quadgk(
-                self.gh_integrand,
-                jnp.array([-jnp.pi / 2, lat]),
+            val, _ = bkd.quadgk(
+                gh_integrand,
+                bkd.stack([bkd.zeros_like(lat) - bkd.pi / 2, lat]),
                 epsabs=1.0e-12, 
                 epsrel=1.0e-3
             )
-            return jnp.where(jnp.isclose(lat, -jnp.pi / 2), 0.0, val)
+            return bkd.where(bkd.isclose(lat, -bkd.pi / 2), 0.0, val)
 
-        gz_ = jax.vmap(gh_integral)(mesh.cell_lat[ids:ide+1])
+        gz_ = bkd.vmap(gh_integral)(mesh.cell_lat[ids:ide+1])
         gz = gz.at[0, ids:ide+1].set(gh0 - gz_)
         gz = gz.at[0, ids:ide+1].set(
             gz[0, ids:ide+1] + ghd * 
-            jnp.cos(mesh.cell_lat[ids:ide+1]) * 
-            jnp.exp(
+            bkd.cos(mesh.cell_lat[ids:ide+1]) * 
+            bkd.exp(
                 -(
-                    jnp.where(
-                        mesh.cell_lon[ids:ide+1] > jnp.pi,
-                        mesh.cell_lon[ids:ide+1] - 2 * jnp.pi,
+                    bkd.where(
+                        mesh.cell_lon[ids:ide+1] > bkd.pi,
+                        mesh.cell_lon[ids:ide+1] - 2 * bkd.pi,
                         mesh.cell_lon[ids:ide+1]
                     ) / alpha
                 )**2
             ) * 
-            jnp.exp(
+            bkd.exp(
                 -((lat2 - mesh.cell_lat[ids:ide+1]) / beta)**2
             )
         )
@@ -101,7 +108,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
             meta=block.state.gz.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.gz.d,
             pytree=block,
             replace=gz,
@@ -110,30 +117,30 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
         )
         
     def init_gzs(self, block: Block) -> Block:
-        gzs   = block.static.gzs.unwrap()
-        gzs  = jnp.zeros_like(gzs)
+        bkd = block.backend
+        gzs = block.static.gzs.unwrap()
+        gzs = bkd.zeros_like(gzs)
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.static.gzs.d,
             pytree=block,
             replace=gzs,
         )
 
-    def u_function(self, lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
+    def u_function(self, bkd: AbstractBackend, lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
         u_max = self.u_max
         lat0  = self.lat0
         lat1  = self.lat1
         en    = self.en
-        return jnp.where(
-            jnp.logical_or(lat <= lat0, lat >= lat1),
+        return bkd.where(
+            bkd.logical_or(lat <= lat0, lat >= lat1),
             0.0,
-            u_max / en * jnp.exp(1 / (lat - lat0) / (lat - lat1))
+            u_max / en * bkd.exp(1 / (lat - lat0) / (lat - lat1))
         )
 
-
-    def gh_integrand(self, lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
+    def gh_integrand(self, bkd: AbstractBackend, lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
         omega  = self.para.omega.unwrap()
         radius = self.para.radius.unwrap()
-        u = self.u_function(lat)
-        f = 2 * omega * jnp.sin(lat)
-        return radius * u * (f + jnp.tan(lat) / radius * u)
+        u = self.u_function(bkd, lat)
+        f = 2 * omega * bkd.sin(lat)
+        return radius * u * (f + bkd.tan(lat) / radius * u)

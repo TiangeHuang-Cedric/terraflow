@@ -1,7 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax
-import jax.numpy as jnp
 import numpy as np
 from numba import njit, prange
 
@@ -24,6 +22,7 @@ def scvt_interp_2d(
     lagrange: bool = False,
     lagrange_order: int = 1
 ) -> FLT[Array, "nlev npoint2"]: 
+    bkd = mesh.dev.backend
     loc_flag = x_loc + ">" + y_loc
     if loc_flag == "cell>edge":
         kds, kde = mesh.full_kds, mesh.full_kde
@@ -81,11 +80,11 @@ def scvt_interp_2d(
         area_vtx      = mesh.area_vtx     [ids:ide+1   ] 
         
         def cell2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = jnp.where(v1 < 0, 0.0, x[v1])
-            local_sum = jnp.sum(x_tile * kite_area_vtx, axis=-1)
+            x_tile = bkd.where(v1 < 0, 0.0, x[v1])
+            local_sum = bkd.sum(x_tile * kite_area_vtx, axis=-1)
             return local_sum / area_vtx
         
-        y_tmp = jax.vmap(cell2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
+        y_tmp = bkd.vmap(cell2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
         
         y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
     elif loc_flag == "vtx>edge":
@@ -104,11 +103,11 @@ def scvt_interp_2d(
         area_cell      = mesh.area_cell     [ids:ide+1   ]
         
         def vtx2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = jnp.where(v1 < 0, 0.0, x[v1])
-            local_sum = jnp.sum(x_tile * kite_area_cell, axis=-1)
+            x_tile = bkd.where(v1 < 0, 0.0, x[v1])
+            local_sum = bkd.sum(x_tile * kite_area_cell, axis=-1)
             return local_sum / area_cell
         
-        y_tmp = jax.vmap(vtx2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
+        y_tmp = bkd.vmap(vtx2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
         
         y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
     elif loc_flag == "edge>cell": 
@@ -120,11 +119,11 @@ def scvt_interp_2d(
         de        = mesh.de       [e_idx]
         
         def edge2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = jnp.where(e_idx < 0, 0.0, x[e_idx])
-            local_sum = jnp.sum(x_tile * le * de / 4.0, axis=-1)
+            x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
+            local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_cell
         
-        y_tmp = jax.vmap(edge2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
+        y_tmp = bkd.vmap(edge2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
         
         y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
     elif loc_flag == "edge>vtx":
@@ -136,11 +135,11 @@ def scvt_interp_2d(
         de       = mesh.de       [e_idx]
         
         def edge2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = jnp.where(e_idx < 0, 0.0, x[e_idx])
-            local_sum = jnp.sum(x_tile * le * de / 4.0, axis=-1)
+            x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
+            local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_vtx
         
-        y_tmp = jax.vmap(edge2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
+        y_tmp = bkd.vmap(edge2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
         
         y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
     elif loc_flag == "lev>cell":
@@ -245,6 +244,7 @@ def scvt_average_2d(
     x_loc: str,
     y_loc: str
 ) -> FLT[Array, "nlev npoint2"]:
+    bkd = mesh.dev.backend
     loc_flag = x_loc + ">" + y_loc
     if loc_flag == "cell>edge":
        kds, kde = mesh.full_kds, mesh.full_kde
@@ -272,23 +272,31 @@ def _interp_plev_columns(
     po: np.ndarray,
     logp: bool,
 ) -> np.ndarray:
-    """Column interpolation for monotonically increasing pressure."""
+    """Column interpolation for monotonic pressure columns."""
     nlev = pi_cols.shape[0]
     ncol = pi_cols.shape[1]
     npo = po.shape[0]
     xo_cols = np.empty((npo, ncol), dtype=xi_cols.dtype)
 
     for col in prange(ncol):
-        k = 1
-        p_min = pi_cols[0, col]
-        p_max = pi_cols[nlev - 1, col]
+        p_beg = pi_cols[0, col]
+        p_end = pi_cols[nlev - 1, col]
+        increasing = p_end >= p_beg
         for ko in range(npo):
             p_out = po[ko]
-            if p_out < p_min or p_out > p_max:
-                xo_cols[ko, col] = np.nan
-                continue
-            while k < nlev - 1 and pi_cols[k, col] < p_out:
-                k += 1
+            k = 1
+            if increasing:
+                if p_out < p_beg or p_out > p_end:
+                    xo_cols[ko, col] = np.nan
+                    continue
+                while k < nlev - 1 and pi_cols[k, col] < p_out:
+                    k += 1
+            else:
+                if p_out > p_beg or p_out < p_end:
+                    xo_cols[ko, col] = np.nan
+                    continue
+                while k < nlev - 1 and pi_cols[k, col] > p_out:
+                    k += 1
 
             p_lo = pi_cols[k - 1, col]
             p_hi = pi_cols[k, col]
@@ -300,7 +308,11 @@ def _interp_plev_columns(
             else:
                 dp1 = p_out - p_lo
                 dp2 = p_hi - p_out
-            xo_cols[ko, col] = (dp2 * x_lo + dp1 * x_hi) / (dp1 + dp2)
+            denom = dp1 + dp2
+            if denom == 0.0:
+                xo_cols[ko, col] = 0.5 * (x_lo + x_hi)
+            else:
+                xo_cols[ko, col] = (dp2 * x_lo + dp1 * x_hi) / denom
 
     return xo_cols
 
@@ -324,8 +336,13 @@ def interp_plev(
     nlev_src = pi_src.shape[0]
     if nlev_src < 2:
         raise ValueError("interp_plev requires at least two source levels in the active vertical domain.")
+    if xi_src.shape != pi_src.shape:
+        raise ValueError(
+            f"interp_plev: pi and xi must have the same active-domain shape, "
+            f"got {pi_src.shape} and {xi_src.shape}."
+        )
 
-    hori_shape = pi.shape[1:]
+    hori_shape = pi_src.shape[1:]
     ncol = 1
     for dim in hori_shape:
         ncol *= dim
@@ -333,21 +350,26 @@ def interp_plev(
     pi_cols = pi_src.reshape(nlev_src, ncol)
     xi_cols = xi_src.reshape(nlev_src, ncol)
     po_array = np.asarray(po)
-    if po_array.size > 1 and not np.all(po_array[1:] >= po_array[:-1]):
-        po_order = np.argsort(po_array)
-        po_inverse = np.empty_like(po_order)
-        po_inverse[po_order] = np.arange(po_order.size)
-        po_for_interp = po_array[po_order]
-    else:
-        po_inverse = None
-        po_for_interp = po_array
+    pi_diff = np.diff(pi_cols, axis=0)
+    if pi_diff.size > 0:
+        scale = max(float(np.nanmax(np.abs(pi_cols))), 1.0)
+        if np.issubdtype(pi_cols.dtype, np.floating):
+            tol = np.finfo(pi_cols.dtype).eps * scale * 64
+        else:
+            tol = 0.0
+        monotonic = (
+            np.all(pi_diff >= -tol, axis=0)
+            | np.all(pi_diff <= tol, axis=0)
+        )
+        if not np.all(monotonic):
+            raise ValueError(
+                "interp_plev: source pressure must be monotonic in every column."
+            )
 
     xo_cols = _interp_plev_columns(
         pi_cols=pi_cols,
         xi_cols=xi_cols,
-        po=po_for_interp,
+        po=po_array,
         logp=logp,
     )
-    if po_inverse is not None:
-        xo_cols = xo_cols[po_inverse, :]
     return xo_cols.reshape((po_array.shape[0],) + hori_shape)

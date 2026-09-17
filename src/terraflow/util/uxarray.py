@@ -8,7 +8,7 @@ import datetime
 import uxarray as ux
 import xarray as xr
 import numpy as np
-import unxt
+
 
 from terraflow.util.typing import Array
 from terraflow.util.sphere_geometry import convert_longitude_range_in_degrees
@@ -287,7 +287,8 @@ class NodeConvention(AbstractElementConvention):
             node_lon = mesh.cell_lon_deg
             node_lat = mesh.cell_lat_deg
             node_lon = convert_longitude_range_in_degrees(
-                node_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=node_lon, from_range=[0, 360], to_range=[-180, 180]
             )
         else:
             node_x = mesh.vtx_xyz[:,0]
@@ -296,7 +297,8 @@ class NodeConvention(AbstractElementConvention):
             node_lon = mesh.vtx_lon_deg
             node_lat = mesh.vtx_lat_deg
             node_lon = convert_longitude_range_in_degrees(
-                node_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=node_lon, from_range=[0, 360], to_range=[-180, 180]
             )
         return NodeConvention(
             header=header,
@@ -417,7 +419,8 @@ class EdgeConvention(AbstractElementConvention):
             edge_lon = mesh.dual_edge_lon_deg
             edge_lat = mesh.dual_edge_lat_deg
             edge_lon = convert_longitude_range_in_degrees(
-                edge_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=edge_lon, from_range=[0, 360], to_range=[-180, 180]
             )
             edge_node_connectivity = mesh.cell_of_edge
             edge_face_connectivity = mesh.vtx_of_edge
@@ -428,7 +431,8 @@ class EdgeConvention(AbstractElementConvention):
             edge_lon = mesh.edge_lon_deg
             edge_lat = mesh.edge_lat_deg
             edge_lon = convert_longitude_range_in_degrees(
-                edge_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=edge_lon, from_range=[0, 360], to_range=[-180, 180]
             )
             edge_node_connectivity = mesh.vtx_of_edge
             edge_face_connectivity = mesh.cell_of_edge
@@ -584,7 +588,8 @@ class FaceConvention(AbstractElementConvention):
             face_lon = mesh.vtx_lon_deg
             face_lat = mesh.vtx_lat_deg
             face_lon = convert_longitude_range_in_degrees(
-                face_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=face_lon, from_range=[0, 360], to_range=[-180, 180]
             )
             face_x = mesh.vtx_xyz[:,0]
             face_y = mesh.vtx_xyz[:,1]
@@ -597,7 +602,8 @@ class FaceConvention(AbstractElementConvention):
             face_lon = mesh.cell_lon_deg
             face_lat = mesh.cell_lat_deg
             face_lon = convert_longitude_range_in_degrees(
-                face_lon, from_range=[0, 360], to_range=[-180, 180]
+                bkd=mesh.dev.backend,
+                lon=face_lon, from_range=[0, 360], to_range=[-180, 180]
             )
             face_x = mesh.cell_xyz[:,0]
             face_y = mesh.cell_xyz[:,1]

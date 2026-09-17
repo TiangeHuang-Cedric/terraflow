@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
+import math
+
 
 from terraflow.test_case.abstract import AbstractShallowWaterModelTestCase
+
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
@@ -39,8 +41,8 @@ class MountainZonalFlowTestCase(AbstractShallowWaterModelTestCase):
         self.gz0   = 5960.0 * para.gravity.unwrap()
         self.gzs0  = 2000.0 * para.gravity.unwrap()
         self.u0    = 20.0
-        self.lon0  = jnp.pi * 1.5
-        self.lat0  = jnp.pi / 6.0
-        self.R     = jnp.pi / 9.0
+        self.lon0  = math.pi * 1.5
+        self.lat0  = math.pi / 6.0
+        self.R     = math.pi / 9.0
         super().__init__(para)
     

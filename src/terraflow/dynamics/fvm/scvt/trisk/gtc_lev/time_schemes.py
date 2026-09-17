@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Callable, TYPE_CHECKING
 
-from terraflow.util.pytree import tree_at
+
 from terraflow.mesh.scvt.parallel import fill_field1d_array_halo, fill_field2d_array_halo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     calc_mg,
@@ -247,6 +247,7 @@ def update_mgs(
 ) -> Block:
     mode = block.mode
     mesh = block.mesh
+    bkd = block.backend
     # =================================================
     if pass_tag == all_pass or pass_tag == forward_pass:
         if mode.is_baroclinic():
@@ -256,7 +257,7 @@ def update_mgs(
             dmgsdt  = block.tend .dmgsdt.unwrap()
             
             ids, ide = mesh.cell_ids, mesh.cell_ide
-            new_mgs  = new_mgs.at[ids:ide+1].set(
+            new_mgs = new_mgs.at[ids:ide+1].set(
                 old_mgs[ids:ide+1] + dt * dmgsdt[ids:ide+1]
             )
             new_mgs = fill_field1d_array_halo(
@@ -264,7 +265,7 @@ def update_mgs(
                 f=new_mgs,
                 meta=block.state.mgs.meta
             )
-            block = tree_at(
+            block = bkd.tree_at(
                 where=lambda b: b.state.mgs.d,
                 pytree=block,
                 replace=new_mgs,
@@ -288,6 +289,7 @@ def update_pt(
 ) -> Block:
     mode = block.mode
     mesh = block.mesh
+    bkd = block.backend
     # =================================================
     if mode.is_baroclinic():
         if pass_tag == all_pass or pass_tag == forward_pass:
@@ -318,7 +320,7 @@ def update_pt(
                 f=new_pt,
                 meta=block.state.pt.meta
             )
-            block = tree_at(
+            block = bkd.tree_at(
                 where=lambda b: b.state.pt.d,
                 pytree=block,
                 replace=new_pt,
@@ -340,6 +342,7 @@ def update_gz(
 ) -> Block:
     mode = block.mode
     mesh = block.mesh
+    bkd = block.backend
     # =================================================
     if not mode.is_baroclinic():
         if pass_tag == all_pass or pass_tag == forward_pass:
@@ -357,7 +360,7 @@ def update_gz(
                 f=new_gz,
                 meta=block.state.gz.meta
             )
-            block = tree_at(
+            block = bkd.tree_at(
                 where=lambda b: b.state.gz.d,
                 pytree=block,
                 replace=new_gz,
@@ -378,6 +381,7 @@ def update_un(
     substep: int
 ) -> Block:
     mesh = block.mesh
+    bkd = block.backend
     # =================================================
     if pass_tag == all_pass or pass_tag == backward_pass:
         old_un     = block.state.un       .unwrap()[old_idx, :, :]
@@ -400,7 +404,7 @@ def update_un(
             meta=block.state.un.meta
         )
         # ================================================= 
-        block = tree_at(
+        block = bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
             replace=new_un,

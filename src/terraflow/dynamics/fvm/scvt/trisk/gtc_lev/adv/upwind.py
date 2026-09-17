@@ -6,19 +6,19 @@ from typing import (
     Tuple
 )
 from abc import ABC, abstractmethod
-from functools import partial
-import jax
-import jax.numpy as jnp
-import equinox as eqx
+import numpy as np
+from numba import njit
 
-from terraflow.util import typing, math, jax_tools, device
-from terraflow.util.sphere_geometry import _project_sphere2plane, project_sphere2plane
+
+from terraflow.util import typing, device
+from terraflow.util.profile import profile_scope
+from terraflow.util import equinox as eqx
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo, fill_raw_array_halo
 from terraflow.dynamics.abstract import (
     AbstractEquationAuxiliaryData, 
     AbstractEquationAuxiliaryDataset
 )
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import batch
+
 
 INT       = typing.Int
 FLT       = typing.Float
@@ -29,12 +29,14 @@ Array     = typing.Array
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
+    from terraflow.util.backend import AbstractBackend
     from terraflow.model.config import UserConfig
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
+    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import batch
 
 
-@jax.named_scope("upwind_calc_mass_hflx")
+@profile_scope("upwind_calc_mass_hflx")
 def upwind_calc_mass_hflx(
     batch: batch.AdvBatchType, 
     block: Block,
@@ -42,6 +44,7 @@ def upwind_calc_mass_hflx(
     mfn: FLT[Array, "nlev nedge"], 
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
+    bkd = block.backend
     if batch.loc == "cell":
         stencil_2nd = block.equaux.adv.upwind.stencil_cell_2nd
         stencil_4th = block.equaux.adv.upwind.stencil_cell_4th
@@ -64,6 +67,7 @@ def upwind_calc_mass_hflx(
         elif upwind_order == 1:
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             tmp  = upwind1_hori(
+                bkd,
                 q=m, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
@@ -74,12 +78,13 @@ def upwind_calc_mass_hflx(
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind3_hori(
+                bkd,
                 q=m, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :], 
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
-                stencil_2nd_wgt=stencil_2nd.wgt,
+                stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
                 upwind_optimized=upwind_optimized
             ) * un[kds:kde+1, ids:ide+1]
@@ -88,14 +93,15 @@ def upwind_calc_mass_hflx(
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind5_hori(
+                bkd,
                 q=m, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :], 
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
-                stencil_2nd_wgt=stencil_2nd.wgt,
+                stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 stencil_4th_idx=stencil_4th.idxes,
-                stencil_4th_wgt=stencil_4th.wgt,
+                stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
             ) * un[kds:kde+1, ids:ide+1]
             mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
@@ -110,7 +116,7 @@ def upwind_calc_mass_hflx(
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
 
-@jax.named_scope("upwind_calc_tracer_hflx")
+@profile_scope("upwind_calc_tracer_hflx")
 def upwind_calc_tracer_hflx(
     batch: batch.AdvBatchType, 
     block: Block,
@@ -118,6 +124,7 @@ def upwind_calc_tracer_hflx(
     qmfn: FLT[Array, "nlev nedge"], 
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
+    bkd = block.backend
     if batch.loc == "cell" or batch.loc == "lev":
         stencil_2nd = block.equaux.adv.upwind.stencil_cell_2nd
         stencil_4th = block.equaux.adv.upwind.stencil_cell_4th
@@ -140,6 +147,7 @@ def upwind_calc_tracer_hflx(
         elif upwind_order == 1:
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             tmp  = upwind1_hori(
+                bkd,
                 q=q, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
@@ -150,12 +158,13 @@ def upwind_calc_tracer_hflx(
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind3_hori(
+                bkd,
                 q=q, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :], 
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
-                stencil_2nd_wgt=stencil_2nd.wgt,
+                stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
                 upwind_optimized=upwind_optimized
             ) * mfn[kds:kde+1, ids:ide+1]
@@ -164,14 +173,15 @@ def upwind_calc_tracer_hflx(
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind5_hori(
+                bkd,
                 q=q, 
                 wind=wind, 
                 edd_v=mesh.cell_of_edge[ids:ide+1, :], 
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
-                stencil_2nd_wgt=stencil_2nd.wgt,
+                stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 stencil_4th_idx=stencil_4th.idxes,
-                stencil_4th_wgt=stencil_4th.wgt,
+                stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
             ) * mfn[kds:kde+1, ids:ide+1]
             qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
@@ -186,7 +196,7 @@ def upwind_calc_tracer_hflx(
         raise ValueError(f"upwind_calc_tracer_hflx: unsupported batch location {batch.loc}!")
 
 
-@jax.named_scope("upwind_calc_tracer_vflx")
+@profile_scope("upwind_calc_tracer_vflx")
 def upwind_calc_tracer_vflx(
     batch: batch.AdvBatchType,
     block: Block, 
@@ -194,6 +204,7 @@ def upwind_calc_tracer_vflx(
     qmfz: FLT[Array, "nlev nedge"], 
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
+    bkd = block.backend
     if batch.loc == "cell":
         upwind_order = block.cfg.upwind_order
         upwind_wgt   = block.cfg.upwind_wgt        
@@ -211,7 +222,7 @@ def upwind_calc_tracer_vflx(
         elif upwind_order == 1:
             # half_kds + 1 <= k <= half_kde - 1
             mid_mfz = mfz[kds+1:kde, ids:ide+1]
-            direction = jnp.sign(mid_mfz)
+            direction = bkd.sign(mid_mfz)
             q_0 = q[kds:kde-1, ids:ide+1]
             q_plus_1 = q[kds+1:kde, ids:ide+1]
             res = upwind1_vert(
@@ -220,11 +231,11 @@ def upwind_calc_tracer_vflx(
                 q_0=q_0,
                 q_plus_1=q_plus_1
             ) * mid_mfz
-            qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(res)
+            qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(res) 
         elif upwind_order == 3:
             # =================================================
             # k = half_kds
-            top0 = jnp.zeros_like(q[kds, ids:ide+1])
+            top0 = bkd.zeros_like(q[kds, ids:ide+1])
             # =================================================
             # k = half_kds + 1
             top1 = 0.5 * (
@@ -237,7 +248,7 @@ def upwind_calc_tracer_vflx(
             q_plus_1 = q[kds+2:kde-1, ids:ide+1]
             q_plus_2 = q[kds+3:kde, ids:ide+1]
             mid_mfz   = mfz[kds+2:kde-1, ids:ide+1]
-            direction = jnp.sign(mid_mfz)
+            direction = bkd.sign(mid_mfz)
             res = upwind3_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -253,7 +264,7 @@ def upwind_calc_tracer_vflx(
             ) * mfz[kde-1, ids:ide+1]
             # =================================================
             # k = half_kde
-            bottom0 = jnp.zeros_like(q[kde-1, ids:ide+1])
+            bottom0 = bkd.zeros_like(q[kde-1, ids:ide+1])
             # =================================================
             qmfz = qmfz.at[kds        , ids:ide+1].set(top0   )
             qmfz = qmfz.at[kds+1      , ids:ide+1].set(top1   )
@@ -263,7 +274,7 @@ def upwind_calc_tracer_vflx(
         elif upwind_order == 5:
             # =================================================
             # k = half_kds
-            top0 = jnp.zeros_like(q[kds, ids:ide+1])
+            top0 = bkd.zeros_like(q[kds, ids:ide+1])
             # =================================================
             # half_kds + 1 <= k <= half_kds + 2
             top1 = 0.5 * (
@@ -278,7 +289,7 @@ def upwind_calc_tracer_vflx(
             q_plus_2 = q[kds+4:kde-1, ids:ide+1]
             q_plus_3 = q[kds+5:kde, ids:ide+1]
             mid_mfz = mfz[kds+3:kde-2, ids:ide+1]
-            direction = jnp.sign(mid_mfz)
+            direction = bkd.sign(mid_mfz)
             res = upwind5_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -296,7 +307,7 @@ def upwind_calc_tracer_vflx(
             ) * mfz[kde-2:kde, ids:ide+1]
             # =================================================
             # k = half_kde
-            bottom0 = jnp.zeros_like(q[kde-1, ids:ide+1])
+            bottom0 = bkd.zeros_like(q[kde-1, ids:ide+1])
             # =================================================
             qmfz = qmfz.at[kds        , ids:ide+1].set(top0   )
             qmfz = qmfz.at[kds+1:kds+3, ids:ide+1].set(top1   )
@@ -328,7 +339,7 @@ def upwind_calc_tracer_vflx(
             q_0 = q[kds:kde+1, ids:ide+1]
             q_plus_1 = q[kds+1:kde+2, ids:ide+1]
             mfz_tmp = mfz[kds:kde+1, ids:ide+1]
-            direction = jnp.sign(mfz_tmp)
+            direction = bkd.sign(mfz_tmp)
             res = upwind1_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -349,7 +360,7 @@ def upwind_calc_tracer_vflx(
             q_plus_1 = q[kds+2:kde+1, ids:ide+1]
             q_plus_2 = q[kds+3:kde+2, ids:ide+1]
             mid_mfz = mfz[kds+1:kde, ids:ide+1]
-            direction = jnp.sign(mid_mfz)
+            direction = bkd.sign(mid_mfz)
             mid = upwind3_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -382,7 +393,7 @@ def upwind_calc_tracer_vflx(
             q_plus_2 = q[kds+4:kde+1, ids:ide+1]
             q_plus_3 = q[kds+5:kde+2, ids:ide+1]
             mid_mfz = mfz[kds+2:kde-1, ids:ide+1]
-            direction = jnp.sign(mid_mfz)
+            direction = bkd.sign(mid_mfz)
             mid = upwind5_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -414,6 +425,7 @@ def upwind_calc_tracer_vflx(
 
    
 def upwind1_hori(
+    bkd: AbstractBackend,
     q: FLT[Array, "nlev nCell"],
     wind: FLT[Array, "nEdge"],
     edd_v: INT[Array, "nEdge 2"],
@@ -425,10 +437,10 @@ def upwind1_hori(
     def _wrap(q: FLT[Array, "nCell"], wind: FLT[Array, "nEdge"]) -> FLT[Array, "nEdge"]:
         return (
             0.5 * (q[v1] + q[v2])
-            - 0.5 * jnp.sign(wind) * wgt * (q[v2] - q[v1])
+            - 0.5 * bkd.sign(wind) * wgt * (q[v2] - q[v1])
         )
         
-    return jax.vmap(
+    return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
         out_axes=0
@@ -436,6 +448,7 @@ def upwind1_hori(
 
 
 def upwind3_hori(
+    bkd: AbstractBackend,
     q: FLT[Array, "nlev nCell"],
     wind: FLT[Array, "nEdge"],
     edd_v: INT[Array, "nEdge 2"],
@@ -451,10 +464,10 @@ def upwind3_hori(
             nedge = edd_v.shape[0]
             v1 = edd_v[:, 0]
             v2 = edd_v[:, 1]
-            local_iv = (-0.5 * jnp.sign(wind) + 0.5).astype(jnp.int32)
-            vtx_upwind = edd_v[jnp.arange(nedge), local_iv]  # (nEdge, )
+            local_iv = bkd.astype(-0.5 * bkd.sign(wind) + 0.5, bkd.int32)
+            vtx_upwind = edd_v[bkd.arange(nedge), local_iv]  # (nEdge, )
             dx_2nd = calc_2nd_derivative_upwind(
-                vtx_upwind, local_iv, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
+                bkd, vtx_upwind, local_iv, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
             )
             return operator_pure_3rd_order_formula(
                 q[v1], q[v2], dx_2nd
@@ -465,16 +478,16 @@ def upwind3_hori(
             x1 = q[v1_idx]  # (nEdge, )
             x2 = q[v2_idx]  # (nEdge, )
             dx1_2nd = calc_2nd_derivative(
-                v1_idx, 0, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
+                bkd, v1_idx, 0, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
             )
             dx2_2nd = calc_2nd_derivative(
-                v2_idx, 1, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
+                bkd, v2_idx, 1, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
             )
             return operator_3rd4th_order_formula(
-                x1, x2, dx1_2nd, dx2_2nd, wind, wgt
+                bkd, x1, x2, dx1_2nd, dx2_2nd, wind, wgt
             )
     
-    return jax.vmap(
+    return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
         out_axes=0
@@ -482,6 +495,7 @@ def upwind3_hori(
 
 
 def upwind5_hori(
+    bkd: AbstractBackend,
     q: FLT[Array, "nlev nCell"],
     wind: FLT[Array, "nEdge"],
     edd_v: INT[Array, "nEdge 2"],
@@ -499,22 +513,22 @@ def upwind5_hori(
         x1 = q[v1_idx]  # (nEdge, )
         x2 = q[v2_idx]  # (nEdge, )
         dx1_2nd = calc_2nd_derivative(
-            v1_idx, 0, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
+            bkd, v1_idx, 0, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
         )
         dx2_2nd = calc_2nd_derivative(
-            v2_idx, 1, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
+            bkd, v2_idx, 1, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
         )
         dx1_4th = calc_4th_derivative(
-            v1_idx, 0, q, edd_leng, stencil_4th_idx, stencil_4th_wgt
+            bkd, v1_idx, 0, q, edd_leng, stencil_4th_idx, stencil_4th_wgt
         )
         dx2_4th = calc_4th_derivative(
-            v2_idx, 1, q, edd_leng, stencil_4th_idx, stencil_4th_wgt
+            bkd, v2_idx, 1, q, edd_leng, stencil_4th_idx, stencil_4th_wgt
         )
         return operator_5th6th_order_formula(
-            x1, x2, dx1_2nd, dx2_2nd, dx1_4th, dx2_4th, wind, wgt
+            bkd, x1, x2, dx1_2nd, dx2_2nd, dx1_4th, dx2_4th, wind, wgt
         )
         
-    return jax.vmap(
+    return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
         out_axes=0
@@ -687,8 +701,8 @@ class UpwindStencilData(AbstractEquationAuxiliaryData):
 
     @classmethod
     def empty(cls) -> "UpwindStencilData":
-        stencil_idxes = jnp.empty(0)
-        wgt = jnp.empty(0)
+        stencil_idxes = np.empty(0)
+        wgt = np.empty(0)
         return cls(
             initialized=False,
             idxes=stencil_idxes,
@@ -714,8 +728,8 @@ class UpwindStencilData(AbstractEquationAuxiliaryData):
                 f"Unsupported mesh type {loc} for flux reconstruction auxiliary data."
             )
         stencil_idxes, wgt = fn(cfg, mesh, para, polynomial_order)
-        stencil_idxes = jax.device_put(stencil_idxes, device=dev())
-        wgt = jax.device_put(wgt, device=dev())
+        stencil_idxes = dev.backend.asarray(stencil_idxes, device=dev())
+        wgt = dev.backend.asarray(wgt, device=dev())
         return cls(
             initialized=True,
             idxes=stencil_idxes,
@@ -757,15 +771,14 @@ class AbstractUpwindStencilInfo(eqx.Module, ABC):
 
     def recon(
         self,
+        bkd,
         local_x: INT[Array, "max_m"],
         local_y: INT[Array, "max_m"],
     ) -> FLT[Array, "n_coeff max_m"]:
         b_matrix = self.recon_polynomial_fn(
-            local_x, local_y
+            bkd, local_x, local_y
         )  # (max_m, n_coeff)
-        recon_b_matrix = b_matrix.T @ b_matrix  # (n_coeff, n_coeff)
-        recon_b_matrix = math.pinv_svd(recon_b_matrix)  # (n_coeff, n_coeff)
-        return recon_b_matrix @ b_matrix.T  # (n_coeff, max_m)
+        return bkd.pinv(b_matrix)  # (..., n_coeff, max_m)
     
     
 class UpwindStencilInfoAtCell(AbstractUpwindStencilInfo):
@@ -798,7 +811,7 @@ class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
             if tri_stencil_type == 1:
                 self.max_member = 9
                 self.stencil_fn = calc_tri_2nd_stencil_1
-            if tri_stencil_type == 2:
+            elif tri_stencil_type == 2:
                 self.max_member = 12
                 self.stencil_fn = calc_tri_2nd_stencil_2
             else:
@@ -807,7 +820,7 @@ class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
             if tri_stencil_type == 1:
                 self.max_member = 18
                 self.stencil_fn = calc_tri_4th_stencil_1
-            if tri_stencil_type == 2:
+            elif tri_stencil_type == 2:
                 self.max_member = 21
                 self.stencil_fn = calc_tri_4th_stencil_2
             else:
@@ -821,6 +834,7 @@ class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
 
     
 def calc_2nd_derivative_upwind(
+    bkd: AbstractBackend,
     global_iv: INT[Array, "nEdge"],
     local_iv: INT[Array, "nEdge"],
     x_at_cell: FLT[Array, "nCell"],
@@ -830,16 +844,17 @@ def calc_2nd_derivative_upwind(
 ) -> FLT[Array, "nEdge"]:
     nedge = wgt.shape[0]
     q0 = x_at_cell[global_iv]  # (nEdge)
-    fcoe = wgt[jnp.arange(nedge), local_iv, :]  # (nEdge, max_m)
+    fcoe = wgt[bkd.arange(nedge), local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_2nd = 2 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_2nd = 2 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
 
 
 def calc_2nd_derivative(
+    bkd: AbstractBackend,
     global_iv: INT[Array, "nEdge"],
     local_iv: IntType,
     x_at_cell: FLT[Array, "nCell"],
@@ -852,7 +867,7 @@ def calc_2nd_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_2nd = 2 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_2nd = 2 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
 
@@ -868,6 +883,7 @@ def operator_pure_3rd_order_formula(
 
 
 def operator_3rd4th_order_formula(
+    bkd: AbstractBackend,
     q1: FLT[Array, "nEdge"],
     q2: FLT[Array, "nEdge"],
     dq1_2nd: FLT[Array, "nEdge 2"],
@@ -877,11 +893,12 @@ def operator_3rd4th_order_formula(
 ) -> FLT[Array, "nEdge"]:
     qe = 0.5 * (q1 + q2)
     qe = qe - (dq1_2nd + dq2_2nd) / 12.0
-    qe = qe + jnp.sign(normal_u) * wgt * (dq2_2nd - dq1_2nd) / 12.0
+    qe = qe + bkd.sign(normal_u) * wgt * (dq2_2nd - dq1_2nd) / 12.0
     return qe
 
 
 def operator_5th6th_order_formula(
+    bkd: AbstractBackend,
     q1: FLT[Array, "nEdge"],
     q2: FLT[Array, "nEdge"],
     dq1_2nd: FLT[Array, "nEdge 2"],
@@ -893,11 +910,12 @@ def operator_5th6th_order_formula(
 ) -> FLT[Array, "nEdge"]:
     qe = 0.5 * (q1 + q2)
     qe = qe - (dq1_2nd + dq2_2nd) / 12.0 + (dq1_4th + dq2_4th) / 60.0
-    qe = qe - jnp.sign(normal_u) * wgt * (dq2_4th - dq1_4th) / 60.0
+    qe = qe - bkd.sign(normal_u) * wgt * (dq2_4th - dq1_4th) / 60.0
     return qe
 
 
 def calc_4th_derivative_upwind(
+    bkd: AbstractBackend,
     global_iv: INT[Array, "nEdge"],
     local_iv: INT[Array, "nEdge"],
     x_at_cell: FLT[Array, "nCell"],
@@ -907,16 +925,17 @@ def calc_4th_derivative_upwind(
 ) -> FLT[Array, "nEdge"]:
     nedge = wgt.shape[0]
     q0 = x_at_cell[global_iv]  # (nEdge)
-    fcoe = wgt[jnp.arange(nedge), local_iv, :]  # (nEdge, max_m)
+    fcoe = wgt[bkd.arange(nedge), local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_4th = 24 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_4th = 24 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th
 
 
 def calc_4th_derivative(
+    bkd: AbstractBackend,
     global_iv: INT[Array, "nEdge"],
     local_iv: IntType,
     x_at_cell: FLT[Array, "nCell"],
@@ -929,262 +948,389 @@ def calc_4th_derivative(
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
     q = x_at_cell[idx]  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
-    dqdx_4th = 24 * jnp.sum(fcoe * s, axis=-1)  # (nEdge)
+    dqdx_4th = 24 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
+@njit(cache=True)
+def _filter_ordered_unique_1d(values: np.ndarray, size: int, fill_value: int) -> np.ndarray:
+    out = np.empty((size,), dtype=values.dtype)
+    seen = np.empty((size,), dtype=values.dtype)
+    for i in range(size):
+        out[i] = fill_value
+        seen[i] = fill_value
+
+    count = 0
+    for i in range(values.shape[0]):
+        val = values[i]
+        if val == fill_value:
+            continue
+
+        exists = False
+        for j in range(count):
+            if seen[j] == val:
+                exists = True
+                break
+        if not exists and count < size:
+            out[count] = val
+            seen[count] = val
+            count += 1
+    return out
+
+
+@njit(cache=True)
+def _calc_hx_2nd_stencil_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    cell_nnb: np.ndarray,
+    cell_nb: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb.dtype)
+    for ic in range(ids, ihe + 1):
+        stencil_num[ic] = cell_nnb[ic]
+        for im in range(min(max_m, cell_nb.shape[1])):
+            stencil_idx[ic, im] = cell_nb[ic, im]
+    return stencil_num, stencil_idx
+
+
 def calc_hx_2nd_stencil(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "ncell"], INT[Array, "ncell max_m"]]:
     """5/6 point stencil for 2nd order reconstruction on hexagonal mesh."""
-    ims, ime = mesh.cell_ims, mesh.cell_ime
-    ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype)
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(mesh.cell_nnb[ids:ihe+1   ])
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(mesh.cell_nb [ids:ihe+1, :])
-    # ==========================================================================
+    dev = mesh.dev
+    stencil_num, stencil_idx = _calc_hx_2nd_stencil_numba(
+        int(mesh.cell_ims),
+        int(mesh.cell_ime),
+        int(mesh.cell_ids),
+        int(mesh.cell_ihe[0]),
+        max_m,
+        dev.to_host(mesh.cell_nnb),
+        dev.to_host(mesh.cell_nb),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
+
+
+@njit(cache=True)
+def _calc_hx_4th_stencil_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    maxnnb: int,
+    cell_nnb: np.ndarray,
+    cell_nb: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb.dtype)
+    scratch = np.empty((maxnnb * maxnnb,), dtype=cell_nb.dtype)
+
+    for ic in range(ids, ihe + 1):
+        n = 0
+        for iee in range(maxnnb):
+            valid_iee = cell_nb[ic, iee] >= 0
+            nb = cell_nb[ic, iee] if valid_iee else -1
+            for iep in range(maxnnb):
+                valid_iep = cell_nb[ic, iep] >= 0
+                value = -1
+                if valid_iee and valid_iep:
+                    value = cell_nb[nb, iep]
+                    if value == ic:
+                        value = -1
+                    if value < 0:
+                        value = -1
+                scratch[n] = value
+                n += 1
+
+        row = _filter_ordered_unique_1d(scratch, max_m, -1)
+        count = 0
+        for im in range(max_m):
+            stencil_idx[ic, im] = row[im]
+            if row[im] >= 0:
+                count += 1
+        stencil_num[ic] = count
+
     return stencil_num, stencil_idx
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
 def calc_hx_4th_stencil(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "ncell"], INT[Array, "ncell max_m"]]:
     """15/17/18 point stencil for 4th order reconstruction on hexagonal mesh."""
-    ims, ime = mesh.cell_ims, mesh.cell_ime
-    ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype)
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    cell_nb = mesh.cell_nb  # (ncell, maxnnb)
-    maxnnb = mesh.maxnnb_cell
+    dev = mesh.dev
+    stencil_num, stencil_idx = _calc_hx_4th_stencil_numba(
+        int(mesh.cell_ims),
+        int(mesh.cell_ime),
+        int(mesh.cell_ids),
+        int(mesh.cell_ihe[0]),
+        max_m,
+        int(mesh.maxnnb_cell),
+        dev.to_host(mesh.cell_nnb),
+        dev.to_host(mesh.cell_nb),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
 
-    def cell_body(_, cell_idx):
-        nb = cell_nb[cell_idx, :]  # (maxnnb,)
-        valid_nb = nb >= 0  # (maxnnb,)
-        # padding invalid index value using -1
-        nb_safe = jnp.where(valid_nb, nb, -1)  # (maxnnb,)
-        nb_of_nb = cell_nb[nb_safe]  # (maxnnb, maxnnb)
-        # Mask out the home cell contributions
-        nb_of_nb = jnp.where(
-            nb_of_nb == cell_idx, -1, nb_of_nb
-        )  # (maxnnb, maxnnb)
-        # Mask out contributions from invalid neighbors
-        # filter out horizontal invalid neighbors
-        nb_of_nb = jnp.where(
-            valid_nb[:, None], nb_of_nb, -1
-        )  # (maxnnb, maxnnb)
-        # filter out vertical invalid neighbors
-        nb_of_nb = jnp.where(
-            valid_nb[None, :], nb_of_nb, -1
-        )  # (maxnnb, maxnnb)
-        stencil_idx = nb_of_nb.reshape((maxnnb * maxnnb,))  # (maxnnb*maxnnb)
-        stencil_idx = jax_tools.filter_ordered_unique(
-            stencil_idx, size=max_m, fill_value=-1
-        )  # (max_m,)
-        return None, stencil_idx
 
-    _, stencil_idx_tmp = jax.lax.scan(cell_body, init=None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
+@njit(cache=True)
+def _calc_tri_2nd_stencil_1_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    maxnnb: int,
+    cell_nb_dtype_ref: np.ndarray,
+    vtx_nb: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb_dtype_ref.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb_dtype_ref.dtype)
+    scratch = np.empty((vtx_nb.shape[1] + vtx_nb.shape[1] * maxnnb,), dtype=cell_nb_dtype_ref.dtype)
+
+    for ivtx in range(ids, ihe + 1):
+        n = 0
+        for inb in range(vtx_nb.shape[1]):
+            scratch[n] = vtx_nb[ivtx, inb]
+            n += 1
+        for inb in range(vtx_nb.shape[1]):
+            nb = vtx_nb[ivtx, inb]
+            for jnb in range(maxnnb):
+                value = vtx_nb[nb, jnb]
+                if value < 0 or value == ivtx:
+                    value = -1
+                scratch[n] = value
+                n += 1
+
+        row = _filter_ordered_unique_1d(scratch, max_m, -1)
+        count = 0
+        for im in range(max_m):
+            stencil_idx[ivtx, im] = row[im]
+            if row[im] >= 0:
+                count += 1
+        stencil_num[ivtx] = count
+
     return stencil_num, stencil_idx
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
 def calc_tri_2nd_stencil_1(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx"], INT[Array, "nvtx max_m"]]:
     """9/10 point stencil for 2nd order reconstruction on triangular mesh."""
-    ims, ime = mesh.vtx_ims, mesh.vtx_ime
-    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype)
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    vtx_nb = mesh.vtx_nb  # (nDual_cell, 3)
-    maxnnb = mesh.maxnnb_vtx
+    dev = mesh.dev
+    cell_nb = dev.to_host(mesh.cell_nb)
+    stencil_num, stencil_idx = _calc_tri_2nd_stencil_1_numba(
+        int(mesh.vtx_ims),
+        int(mesh.vtx_ime),
+        int(mesh.vtx_ids),
+        int(mesh.vtx_ihe[0]),
+        max_m,
+        int(mesh.maxnnb_vtx),
+        np.empty(0, dtype=cell_nb.dtype),
+        dev.to_host(mesh.vtx_nb),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
 
-    def vtx_body(_, vtx_idx):
-        nb = vtx_nb[vtx_idx, :]  # (3,)
-        nb_of_nb = vtx_nb[nb, :]  # (3, 3)
-        # padding invalid index value using -1
-        nb_of_nb = jnp.where(
-            nb_of_nb >= 0, nb_of_nb, -1
-        )  # (3, maxnnb)
-        # Mask out the home cell contributions
-        nb_of_nb = jnp.where(
-            nb_of_nb == vtx_idx, -1, nb_of_nb
-        )  # (3, maxnnb)
-        # Gather all neighboring cells
-        nb_of_nb = nb_of_nb.reshape((3 * maxnnb, ))  # (3, maxnnb)
-        stencil_idx = jnp.concatenate(
-            [nb, nb_of_nb],
-            axis=0
-        )  # (3 + 3*maxnnb,)
-        stencil_idx = jax_tools.filter_ordered_unique(
-            stencil_idx, size=9, fill_value=-1
-        )  # (9,)
-        return None, stencil_idx
 
-    _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)   
+@njit(cache=True)
+def _calc_tri_2nd_stencil_2_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    maxnnb_cell: int,
+    cell_nb_dtype_ref: np.ndarray,
+    vtx_of_cell: np.ndarray,
+    cell_of_vtx: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb_dtype_ref.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb_dtype_ref.dtype)
+    scratch = np.empty((cell_of_vtx.shape[1] * maxnnb_cell,), dtype=cell_nb_dtype_ref.dtype)
+
+    for ivtx in range(ids, ihe + 1):
+        n = 0
+        for icell_idx in range(cell_of_vtx.shape[1]):
+            icell = cell_of_vtx[ivtx, icell_idx]
+            for j in range(maxnnb_cell):
+                value = vtx_of_cell[icell, j]
+                if value < 0 or value == ivtx:
+                    value = -1
+                scratch[n] = value
+                n += 1
+
+        row = _filter_ordered_unique_1d(scratch, max_m, -1)
+        count = 0
+        for im in range(max_m):
+            stencil_idx[ivtx, im] = row[im]
+            if row[im] >= 0:
+                count += 1
+        stencil_num[ivtx] = count
+
     return stencil_num, stencil_idx
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
 def calc_tri_2nd_stencil_2(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx"], INT[Array, "nvtx max_m"]]:
     """11/12 point stencil for 2nd order reconstruction on triangular mesh."""
-    ims, ime = mesh.vtx_ims, mesh.vtx_ime
-    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype)
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    vtx_of_cell = mesh.vtx_of_cell  # (ncell, maxnnb_cell)
-    cell_of_vtx = mesh.cell_of_vtx  # (nvtx , maxnnb_vtx )
-    maxnnb_cell = mesh.maxnnb_cell
+    dev = mesh.dev
+    cell_nb = dev.to_host(mesh.cell_nb)
+    stencil_num, stencil_idx = _calc_tri_2nd_stencil_2_numba(
+        int(mesh.vtx_ims),
+        int(mesh.vtx_ime),
+        int(mesh.vtx_ids),
+        int(mesh.vtx_ihe[0]),
+        max_m,
+        int(mesh.maxnnb_cell),
+        np.empty(0, dtype=cell_nb.dtype),
+        dev.to_host(mesh.vtx_of_cell),
+        dev.to_host(mesh.cell_of_vtx),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
 
-    def vtx_body(_, vtx_idx):
-        icell = cell_of_vtx[vtx_idx, :]  # (3,)
-        ivtx = vtx_of_cell[icell, :]     # (3, maxnnb)
-        # padding invalid index value using -1
-        ivtx = jnp.where(ivtx >= 0, ivtx, -1)  # (3, maxnnb)
-        # Mask out the home cell contributions
-        ivtx = jnp.where(ivtx == vtx_idx, -1, ivtx)     # (3, maxnnb)
-        stencil_idx = ivtx.reshape((3 * maxnnb_cell,))  # (3*maxnnb)
-        stencil_idx = jax_tools.filter_ordered_unique(
-            stencil_idx, size=12, fill_value=-1
-        )  # (12,)
-        return None, stencil_idx
 
-    _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
+@njit(cache=True)
+def _calc_tri_4th_stencil_1_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    maxnnb_cell: int,
+    cell_nb_dtype_ref: np.ndarray,
+    vtx_nb: np.ndarray,
+    cell_of_vtx: np.ndarray,
+    vtx_of_cell: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb_dtype_ref.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb_dtype_ref.dtype)
+    base_point = np.empty((cell_of_vtx.shape[1],), dtype=cell_nb_dtype_ref.dtype)
+
+    for ivtx in range(ids, ihe + 1):
+        for i in range(base_point.shape[0]):
+            base_point[i] = 0
+        num_bp = 0
+
+        for inb in range(vtx_nb.shape[1]):
+            nb_vtx = vtx_nb[ivtx, inb]
+            for iv in range(cell_of_vtx.shape[1]):
+                icell = cell_of_vtx[nb_vtx, iv]
+                exists = False
+                for k in range(cell_of_vtx.shape[1]):
+                    if icell == cell_of_vtx[ivtx, k]:
+                        exists = True
+                        break
+                if not exists and num_bp < base_point.shape[0]:
+                    base_point[num_bp] = icell
+                    num_bp += 1
+
+        n = 0
+        for ibp in range(base_point.shape[0]):
+            for j in range(maxnnb_cell):
+                if n < max_m:
+                    stencil_idx[ivtx, n] = vtx_of_cell[base_point[ibp], j]
+                n += 1
+
+        count = 0
+        for im in range(max_m):
+            if stencil_idx[ivtx, im] >= 0:
+                count += 1
+        stencil_num[ivtx] = count
+
     return stencil_num, stencil_idx
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
 def calc_tri_4th_stencil_1(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx"], INT[Array, "nvtx max_m"]]:
     """17/18 point stencil for 4th order reconstruction on triangular mesh."""
-    ims, ime = mesh.vtx_ims, mesh.vtx_ime
-    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype  )
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    vtx_nb      = mesh.vtx_nb # (nvtx, 3)
-    cell_of_vtx = mesh.cell_of_vtx  # (nvtx, 3)
-    vtx_of_cell = mesh.vtx_of_cell  # (ncell, maxnnb)
-    maxnnb      = mesh.maxnnb_cell
+    dev = mesh.dev
+    cell_nb = dev.to_host(mesh.cell_nb)
+    stencil_num, stencil_idx = _calc_tri_4th_stencil_1_numba(
+        int(mesh.vtx_ims),
+        int(mesh.vtx_ime),
+        int(mesh.vtx_ids),
+        int(mesh.vtx_ihe[0]),
+        max_m,
+        int(mesh.maxnnb_cell),
+        np.empty(0, dtype=cell_nb.dtype),
+        dev.to_host(mesh.vtx_nb),
+        dev.to_host(mesh.cell_of_vtx),
+        dev.to_host(mesh.vtx_of_cell),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
 
-    def vtx_body(_, vtx_idx):
-        icells = cell_of_vtx[vtx_idx, :]  # (3,)
-        num_bp = 0
-        base_point = jnp.zeros((3,), dtype=icells.dtype)
 
-        def tri_nb_body(carry, inb):
-            base_point, num_bp = carry
-            ivtx = vtx_nb[vtx_idx, inb]
+@njit(cache=True)
+def _calc_tri_4th_stencil_2_numba(
+    ims: int,
+    ime: int,
+    ids: int,
+    ihe: int,
+    max_m: int,
+    maxnnb_cell: int,
+    cell_nb_dtype_ref: np.ndarray,
+    vtx_nb: np.ndarray,
+    cell_of_vtx: np.ndarray,
+    vtx_of_cell: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    stencil_num = np.zeros((ime - ims + 1,), dtype=cell_nb_dtype_ref.dtype)
+    stencil_idx = np.zeros((ime - ims + 1, max_m), dtype=cell_nb_dtype_ref.dtype)
+    scratch = np.empty((vtx_nb.shape[1] * cell_of_vtx.shape[1] * maxnnb_cell,), dtype=cell_nb_dtype_ref.dtype)
 
-            def vtx_body(carry, iv):
-                base_point, num_bp = carry
-                icell = cell_of_vtx[ivtx, iv]
-                mask = icell == icells  # (3,)
+    for ivtx in range(ids, ihe + 1):
+        n = 0
+        for inb in range(vtx_nb.shape[1]):
+            nb_vtx = vtx_nb[ivtx, inb]
+            for icell_idx in range(cell_of_vtx.shape[1]):
+                icell = cell_of_vtx[nb_vtx, icell_idx]
+                for j in range(maxnnb_cell):
+                    value = vtx_of_cell[icell, j]
+                    if value < 0 or value == ivtx:
+                        value = -1
+                    scratch[n] = value
+                    n += 1
 
-                def false_fn(carry):
-                    return carry
+        row = _filter_ordered_unique_1d(scratch, max_m, -1)
+        count = 0
+        for im in range(max_m):
+            stencil_idx[ivtx, im] = row[im]
+            if row[im] >= 0:
+                count += 1
+        stencil_num[ivtx] = count
 
-                def true_fn(carry):
-                    base_point, num_bp = carry
-                    base_point = base_point.at[num_bp].set(icell)
-                    return base_point, num_bp + 1
-
-                base_point, num_bp = jax.lax.cond(
-                    jnp.sum(mask) >= 1,
-                    false_fn,
-                    true_fn,
-                    operand=(base_point, num_bp)
-                )
-                return (base_point, num_bp), None
-
-            return jax.lax.scan(
-                vtx_body,
-                (base_point, num_bp),
-                xs=jnp.arange(3)
-            )
-
-        base_point, num_bp = jax.lax.scan(
-            tri_nb_body,
-            (base_point, num_bp),
-            xs=jnp.arange(3)
-        )[0]
-
-        # Now get neighboring triangles of these vertexes
-        stencil_idx = vtx_of_cell[base_point, :]  # (3, maxnnb)
-        stencil_idx = stencil_idx.reshape((3 * maxnnb,))  # (3*maxnnb)
-        return None, stencil_idx
-
-    _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
     return stencil_num, stencil_idx
 
 
-@partial(jax.jit, static_argnames=("max_m"), backend="cpu")
 def calc_tri_4th_stencil_2(mesh: SCVTMesh, max_m: int) -> Tuple[INT[Array, "nvtx"], INT[Array, "nvtx max_m"]]:
     """20/21 point stencil for 4th order reconstruction on triangular mesh."""
-    ims, ime = mesh.vtx_ims, mesh.vtx_ime
-    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
-    stencil_num = jnp.zeros(ime-ims+1         , dtype=mesh.cell_nb.dtype  )
-    stencil_idx = jnp.zeros((ime-ims+1, max_m), dtype=mesh.cell_nb.dtype)
-    # ==========================================================================
-    vtx_nb      = mesh.vtx_nb      # (nvtx, 3)
-    cell_of_vtx = mesh.cell_of_vtx # (nvtx, 3)
-    vtx_of_cell = mesh.vtx_of_cell # (ncell, maxnnb)
-    maxnnb_cell = mesh.maxnnb_cell
-
-    def vtx_body(_, vtx_idx):
-        ivtx  = vtx_nb[vtx_idx, :]  # (3,)
-        icell = cell_of_vtx[ivtx , :]  # (3, 3)
-        ivtx  = vtx_of_cell[icell, :]  # (3, 3, maxnnb)
-        # padding invalid index value using -1
-        ivtx = jnp.where(ivtx >= 0, ivtx, -1)  # (3, 3, maxnnb)
-        # Mask out the home cell contributions
-        ivtx = jnp.where(
-            ivtx == vtx_idx, -1, ivtx
-        )  # (3, 3, maxnnb)
-        stencil_idx = ivtx.reshape((3 * 3 * maxnnb_cell,))  # (3*3*maxnnb)
-        stencil_idx = jax_tools.filter_ordered_unique(
-            stencil_idx, size=max_m, fill_value=-1
-        )
-        return None, stencil_idx
-
-    _, stencil_idx_tmp = jax.lax.scan(vtx_body, None, xs=jnp.arange(ids, ihe+1, 1))
-    stencil_num_tmp = jnp.sum(stencil_idx_tmp >= 0, axis=-1, dtype=stencil_num.dtype)
-    # ==========================================================================
-    stencil_num = stencil_num.at[ids:ihe+1   ].set(stencil_num_tmp)
-    stencil_idx = stencil_idx.at[ids:ihe+1, :].set(stencil_idx_tmp)
-    return stencil_num, stencil_idx
+    dev = mesh.dev
+    cell_nb = dev.to_host(mesh.cell_nb)
+    stencil_num, stencil_idx = _calc_tri_4th_stencil_2_numba(
+        int(mesh.vtx_ims),
+        int(mesh.vtx_ime),
+        int(mesh.vtx_ids),
+        int(mesh.vtx_ihe[0]),
+        max_m,
+        int(mesh.maxnnb_cell),
+        np.empty(0, dtype=cell_nb.dtype),
+        dev.to_host(mesh.vtx_nb),
+        dev.to_host(mesh.cell_of_vtx),
+        dev.to_host(mesh.vtx_of_cell),
+    )
+    return dev.to_backend(stencil_num), dev.to_backend(stencil_idx)
 
 
 def recon_2nd_polynomial(
+    bkd,
     x: INT[Array, "max_m"],
     y: INT[Array, "max_m"]
 ) -> FLT[Array, "max_m n_coeff"]:
-    return jnp.stack(
+    return bkd.stack(
         [x, y, x ** 2, x * y, y ** 2], axis=-1
     )  # (max_m, 5)
 
 
 def recon_4th_polynomial(
+    bkd,
     x: INT[Array, "max_m"],
     y: INT[Array, "max_m"]
 ) -> FLT[Array, "max_m n_coeff"]:
-    return jnp.stack(
+    return bkd.stack(
         [
             x, y,
             x ** 2, x * y, y ** 2,
@@ -1195,27 +1341,66 @@ def recon_4th_polynomial(
     )  # (max_m, 14)
 
 
+def _cross_last_dim(bkd, a: Array, b: Array) -> Array:
+    return bkd.stack(
+        [
+            a[..., 1] * b[..., 2] - a[..., 2] * b[..., 1],
+            a[..., 2] * b[..., 0] - a[..., 0] * b[..., 2],
+            a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0],
+        ],
+        axis=-1,
+    )
+
+
+def _project_sphere2plane_batched(
+    bkd,
+    R: FloatType,
+    op0: Array,
+    op1: Array,
+) -> Array:
+    n0 = bkd.norm(op0, axis=-1, keepdims=False)
+    n1 = bkd.norm(op1, axis=-1, keepdims=False)
+    eps = bkd.eps(op0.dtype)
+    margin = max(float(eps) * 100, 1e-15)
+    n0 = bkd.maximum(n0, eps * 100)
+    n1 = bkd.maximum(n1, eps * 100)
+    cos_lambda = bkd.sum(op0 * op1, axis=-1) / (n0 * n1)
+    cos_lambda = bkd.clip(cos_lambda, -1.0 + margin, 1.0 - margin)
+    lam = bkd.arccos(cos_lambda)
+    op2 = op1 / cos_lambda[..., None]
+    p0p2 = op2 - op0
+    tan_lam = bkd.tan(lam)
+    tan_lam = bkd.where(
+        bkd.abs(tan_lam) < eps,
+        bkd.where(tan_lam < 0, -eps, eps),
+        tan_lam,
+    )
+    return p0p2 * (lam / tan_lam)[..., None]
+
+
 def set_lob_xy(
+    bkd: AbstractBackend,
     R: FloatType,
     op0: FLT[Array, "3"],
     op1: FLT[Array, "3"],
 ) -> Tuple[FLT[Array, "3"], FLT[Array, "3"]]:
-    eps = jnp.finfo(op0.dtype).eps
-    p0p1 = _project_sphere2plane(R, op0, op1)  # (3, )
+    eps = bkd.eps(op0.dtype)
+    p0p1 = _project_sphere2plane_batched(bkd, R, op0, op1)  # (3, )
     # Avoid division by zero
-    norm1 = jnp.linalg.norm(p0p1, axis=-1, keepdims=True)
-    norm1 = jnp.maximum(norm1, eps*100)
+    norm1 = bkd.norm(p0p1, axis=-1, keepdims=True)
+    norm1 = bkd.maximum(norm1, eps*100)
     tx = p0p1 / norm1  # (3,)
 
-    tmp = jnp.cross(-tx, op0)  # (3,)
+    tmp = _cross_last_dim(bkd, -tx, op0)  # (3,)
     # Avoid division by zero
-    norm2 = jnp.linalg.norm(tmp, axis=-1, keepdims=True)
-    norm2 = jnp.maximum(norm2, eps*100)
+    norm2 = bkd.norm(tmp, axis=-1, keepdims=True)
+    norm2 = bkd.maximum(norm2, eps*100)
     ty = tmp / norm2  # (3,)
     return tx, ty
 
 
 def get_lob_xy(
+    bkd: AbstractBackend,
     R: FloatType,
     op0: FLT[Array, "3"],
     opi: FLT[Array, "max_m 3"],
@@ -1223,64 +1408,17 @@ def get_lob_xy(
     ty: FLT[Array, "3"],
     is_valid_stencil: FLT[Array, "max_m"]
 ) -> Tuple[FLT[Array, "max_m"], FLT[Array, "max_m"]]:
-    p0pi = project_sphere2plane(R, op0, opi)  # (max_m, 3)
-    local_x = jnp.sum(p0pi * tx[None, :], axis=-1)  # (max_m,)
-    local_y = jnp.sum(p0pi * ty[None, :], axis=-1)  # (max_m,)
+    p0pi = _project_sphere2plane_batched(bkd, R, op0, opi)  # (max_m, 3)
+    local_x = bkd.sum(p0pi * tx[None, :], axis=-1)  # (max_m,)
+    local_y = bkd.sum(p0pi * ty[None, :], axis=-1)  # (max_m,)
     # Mask out invalid stencil members
-    local_x = jnp.where(is_valid_stencil, local_x, 0.0)  # (max_m,)
-    local_y = jnp.where(is_valid_stencil, local_y, 0.0)  # (max_m,)
+    local_x = bkd.where(is_valid_stencil, local_x, 0.0)  # (max_m,)
+    local_y = bkd.where(is_valid_stencil, local_y, 0.0)  # (max_m,)
     return local_x, local_y
 
 
-def _calc_b_matrix_in_a_direction_of_cell(
-    R: FloatType,
-    op0: FLT[Array, "3"],
-    op1: FLT[Array, "3"],
-    opi: FLT[Array, "max_m 3"],
-    is_valid_stencil: INT[Array, "max_m"],
-    recon_builder: AbstractUpwindStencilInfo
-) -> FLT[Array, "n_coeff max_m"]:
-    tx, ty = set_lob_xy(R, op0, op1)  # (3,), (3,)
-    local_x, local_y = get_lob_xy(
-        R, op0, opi, tx, ty, is_valid_stencil
-    )  # (max_m,), (max_m,)
-    return recon_builder.recon(
-        local_x, local_y
-    )  # (n_coeff, max_m)
-
-
-def _calc_b_matrix_at_single_cell(
-    R: FloatType,
-    op0: FLT[Array, "3"],
-    op1: INT[Array, "maxnnb 3"],
-    opi: INT[Array, "max_m 3"],
-    is_valid_stencil: INT[Array, "max_m"],
-    is_valid_nb: INT[Array, "maxnnb"],
-    recon_builder: AbstractUpwindStencilInfo
-) -> FLT[Array, "maxnnb n_coeff max_m"]:
-    b_matrix = jax.vmap(
-        _calc_b_matrix_in_a_direction_of_cell,
-        in_axes=(None, None, 0, None, None, None),
-        out_axes=0
-    )(
-        R,
-        op0,
-        op1,
-        opi,
-        is_valid_stencil,
-        recon_builder
-    )  # (maxnnb, n_coeff, max_m,)
-
-    # Mask out invalid neighbors
-    return jnp.where(
-        is_valid_nb[:, None, None],
-        b_matrix,
-        0.0
-    )
-
-
-@jax.jit
 def _calc_b_matrix_at_points(
+    bkd: AbstractBackend,
     R: FloatType,
     op0: FLT[Array, "npoint 3"],
     op1: INT[Array, "npoint maxnnb 3"],
@@ -1289,223 +1427,137 @@ def _calc_b_matrix_at_points(
     is_valid_nb: INT[Array, "npoint maxnnb"],
     recon_builder: AbstractUpwindStencilInfo
 ) -> FLT[Array, "npoint maxnnb n_coeff max_M"]:
-    npoint = op0.shape[0]
+    op0_for_dir = op0[:, None, :]
+    p0p1 = _project_sphere2plane_batched(bkd, R, op0_for_dir, op1)
+    eps   = bkd.eps(op0.dtype)
+    norm1 = bkd.norm(p0p1, axis=-1, keepdims=True)
+    norm1 = bkd.maximum(norm1, eps * 100)
+    tx = p0p1 / norm1
 
-    def point_body(_, cell_idx):
+    tmp = _cross_last_dim(bkd, -tx, op0_for_dir)
+    norm2 = bkd.norm(tmp, axis=-1, keepdims=True)
+    norm2 = bkd.maximum(norm2, eps * 100)
+    ty = tmp / norm2
 
-        b_matrix = _calc_b_matrix_at_single_cell(
-            R,
-            op0[cell_idx, :],
-            op1[cell_idx, :, :],
-            opi[cell_idx, :, :],
-            is_valid_stencil[cell_idx, :],
-            is_valid_nb[cell_idx, :],
-            recon_builder
-        )
-
-        return None, b_matrix
-
-    _, b_matrix = jax.lax.scan(
-        point_body, init=None, xs=jnp.arange(npoint)
+    p0pi = _project_sphere2plane_batched(
+        bkd,
+        R,
+        op0[:, None, None, :],
+        opi[:, None, :, :],
     )
+    local_x = bkd.sum(p0pi * tx[:, :, None, :], axis=-1)
+    local_y = bkd.sum(p0pi * ty[:, :, None, :], axis=-1)
+    local_x = bkd.where(is_valid_stencil[:, None, :], local_x, 0.0)
+    local_y = bkd.where(is_valid_stencil[:, None, :], local_y, 0.0)
+    b_matrix = recon_builder.recon(bkd, local_x, local_y)
+    return bkd.where(is_valid_nb[:, :, None, None], b_matrix, 0.0)
 
-    return b_matrix
 
-
-def _calc_b_matrix_at_vtx(
-    cfg: UserConfig,
-    mesh: SCVTMesh,
-    polynomial_order: int
-) -> FLT[Array, "nvtx maxnnb n_coeff max_m"]:
-    op0 = mesh.vtx_xyz  # (nvtx, 3)
-    vtx_nb = mesh.vtx_nb # (nvtx, maxnnb)
-    vtx_xyz = mesh.vtx_xyz # (nvtx, 3)
-    recon_builder = UpwindStencilInfoAtVtx(
-        polynomial_order=polynomial_order,
-        tri_stencil_type=cfg.tri_stencil_type
+def _calc_recon_weights_for_points(
+    bkd: AbstractBackend,
+    point_xyz: Array,
+    point_nb: Array,
+    stencil_idxes: Array,
+    recon_builder: AbstractUpwindStencilInfo,
+) -> Array:
+    safe_point_nb = bkd.where(point_nb >= 0, point_nb, 0)
+    safe_stencil_idxes = bkd.where(stencil_idxes >= 0, stencil_idxes, 0)
+    fallback_point = point_xyz[:, None, :]
+    op1 = bkd.where(
+        point_nb[..., None] >= 0,
+        point_xyz[safe_point_nb],
+        fallback_point,
     )
-    stencil_idxes = recon_builder.calc_stencil(mesh)[1]  # (nvtx, max_m)
-
-    op1 = jnp.where(
-        vtx_nb[..., None] >= 0,
-        vtx_xyz[vtx_nb],
-        0.0
-    )  # (nvtx, maxnnb, 3)
-    opi = jnp.where(
+    opi = bkd.where(
         stencil_idxes[..., None] >= 0,
-        vtx_xyz[stencil_idxes],
-        0.0
-    )  # (nvtx, max_m, 3)
+        point_xyz[safe_stencil_idxes],
+        fallback_point,
+    )
     return _calc_b_matrix_at_points(
-        op0,
+        bkd,
+        1.0,
+        point_xyz,
         op1,
         opi,
         stencil_idxes >= 0,
-        vtx_nb >= 0,
-        recon_builder
+        point_nb >= 0,
+        recon_builder,
     )
 
 
-def _calc_b_matrix_at_cell(
-    cfg: UserConfig,
-    mesh: SCVTMesh,
-    polynomial_order: int,
-) -> FLT[Array, "ncell maxnnb n_coeff max_m"]:
-    op0 = mesh.cell_xyz # (ncell, 3)
-    cell_nb = mesh.cell_nb # (ncell, maxnnb)
-    cell_xyz = mesh.cell_xyz # (ncell, 3)
-    recon_builder = UpwindStencilInfoAtCell(polynomial_order)
-    stencil_idxes = recon_builder.calc_stencil(mesh)[1]
-
-    op1 = jnp.where(
-        cell_nb[..., None] >= 0,
-        cell_xyz[cell_nb],
-        0.0
-    )  # (ncell, maxnnb, 3)
-    opi = jnp.where(
-        stencil_idxes[..., None] >= 0,
-        cell_xyz[stencil_idxes],
-        0.0
-    )  # (ncell, max_m, 3)
-    return _calc_b_matrix_at_points(
-        op0,
-        op1,
-        opi,
-        stencil_idxes >= 0,
-        cell_nb >= 0,
-        recon_builder
-    )
+def _build_b_wgt_at_edges(
+    bkd: AbstractBackend,
+    b_wgt_at_point: Array,
+    point_of_edge: Array,
+    edge_of_point: Array,
+    spec_loc: int,
+    nedge: int,
+) -> Array:
+    edge_idx = bkd.arange(nedge, dtype=point_of_edge.dtype)
+    point_idx = point_of_edge[:nedge, :]
+    edge_idx_of_point = edge_of_point[point_idx]
+    matches = edge_idx_of_point == edge_idx[:, None, None]
+    valid = bkd.any(matches, axis=-1)
+    local_idx = bkd.argmax(bkd.astype(matches, point_of_edge.dtype), axis=-1)
+    b_wgt = b_wgt_at_point[point_idx, local_idx, spec_loc, :]
+    return bkd.where(valid[..., None], b_wgt, 0.0)
 
 
-@partial(jax.jit, static_argnames=("para"), backend="cpu")
 def _calc_wgt_at_cell(
     mesh: SCVTMesh,
     para: PlanetParameterSet,
     recon_builder: UpwindStencilInfoAtCell
 ) -> Tuple[INT[Array, "ncell max_m"], FLT[Array, "nedge 2 max_m"]]:
+    bkd           = mesh.dev.backend
     radius        = para.radius.unwrap()
-    cell_xyz      = mesh.cell_xyz # (ncell, 3)
-    cell_nb       = mesh.cell_nb  # (ncell, maxnnb)
-    maxnnb        = mesh.maxnnb_cell
-    nedge         = mesh.edge_ide - mesh.edge_ids + 1
-    max_m         = recon_builder.max_member
+    nedge         = mesh.edge_ime - mesh.edge_ims + 1
     spec_loc      = recon_builder.spec_loc
     stencil_idxes = recon_builder.calc_stencil(mesh)[1]
-
-    def edge_body(_, ie):
-
-        def vtx_body(_, iv):
-            v_idx = mesh.cell_of_edge[ie, iv]
-
-            def nb_body(_, inb):
-                globel_idx_ed = mesh.cell_ed[v_idx, inb]
-
-                def do_nothing():
-                    return jnp.zeros((max_m,), dtype=cell_xyz.dtype)
-
-                def get_value():
-                    op0 = cell_xyz[v_idx, :] / radius
-                    op1 = cell_xyz[cell_nb[v_idx, inb], :] / radius
-                    opi = cell_xyz[stencil_idxes[v_idx, :], :] / radius
-                    is_valid_stencil = stencil_idxes[v_idx, :] >= 0
-                    return _calc_b_matrix_in_a_direction_of_cell(
-                        R=1.0,
-                        op0=op0,
-                        op1=op1,
-                        opi=opi,
-                        is_valid_stencil=is_valid_stencil,
-                        recon_builder=recon_builder
-                    )[spec_loc, :]
-
-                return None, jax.lax.cond(
-                    globel_idx_ed == ie,
-                    get_value,
-                    do_nothing,
-                )
-
-            _, b_wgt = jax.lax.scan(
-                nb_body, init=None, xs=jnp.arange(maxnnb)
-            )
-            b_wgt = jnp.sum(b_wgt, axis=0)  # (max_m,)
-            return None, b_wgt
-
-        _, b_wgt = jax.lax.scan(
-            vtx_body, init=None, xs=jnp.arange(2)
-        )  # (2, max_m,)
-        return None, b_wgt
-
-    _, b_wgt = jax.lax.scan(
-        edge_body, init=None, xs=jnp.arange(nedge)
-    )  # (nedge, 2, max_m)
-
+    b_wgt_ = _calc_recon_weights_for_points(
+        bkd,
+        mesh.cell_xyz / radius,
+        mesh.cell_nb,
+        stencil_idxes,
+        recon_builder,
+    )
+    b_wgt = _build_b_wgt_at_edges(
+        bkd,
+        b_wgt_,
+        mesh.cell_of_edge,
+        mesh.cell_ed,
+        spec_loc,
+        nedge,
+    )
     b_wgt = fill_raw_array_halo(mesh.halo, b_wgt, "edge")
-
     return stencil_idxes, b_wgt
 
 
-@partial(jax.jit, static_argnames=("para"), backend="cpu")
 def _calc_wgt_at_vtx(
     mesh: SCVTMesh,
     para: PlanetParameterSet,
     recon_builder: UpwindStencilInfoAtVtx    
 ) -> Tuple[INT[Array, "nvtx max_m"], FLT[Array, "nedge 2 max_m"]]:
+    bkd           = mesh.dev.backend
     radius        = para.radius.unwrap()
-    vtx_xyz       = mesh.vtx_xyz  # (nvtx, 3)
-    vtx_nb        = mesh.vtx_nb  # (nvtx, maxnnb)
-    maxnnb        = mesh.maxnnb_vtx
-    nedge         = mesh.edge_ide - mesh.edge_ids + 1
-    max_m         = recon_builder.max_member
+    nedge         = mesh.edge_ime - mesh.edge_ims + 1
     spec_loc      = recon_builder.spec_loc
     stencil_idxes = recon_builder.calc_stencil(mesh)[1]
-
-    def edge_body(_, ie):
-
-        def vtx_body(_, iv):
-            v_idx = mesh.vtx_of_edge[ie, iv]
-
-            def nb_body(_, inb):
-                globel_idx_ed = mesh.vtx_ed[v_idx, inb]
-
-                def do_nothing():
-                    return jnp.zeros((max_m,), dtype=vtx_xyz.dtype)
-
-                def get_value():
-                    op0 = vtx_xyz[v_idx, :] / radius
-                    op1 = vtx_xyz[vtx_nb[v_idx, inb], :] / radius
-                    opi = vtx_xyz[stencil_idxes[v_idx, :], :] / radius
-                    is_valid_stencil = stencil_idxes[v_idx, :] >= 0
-                    return _calc_b_matrix_in_a_direction_of_cell(
-                        R=1.0,
-                        op0=op0,
-                        op1=op1,
-                        opi=opi,
-                        is_valid_stencil=is_valid_stencil,
-                        recon_builder=recon_builder
-                    )[spec_loc, :]
-
-                return None, jax.lax.cond(
-                    globel_idx_ed == ie,
-                    get_value,
-                    do_nothing,
-                )
-
-            _, b_wgt = jax.lax.scan(
-                nb_body, init=None, xs=jnp.arange(maxnnb)
-            )
-            b_wgt = jnp.sum(b_wgt, axis=0)  # (max_m,)
-            return None, b_wgt
-
-        _, b_wgt = jax.lax.scan(
-            vtx_body, init=None, xs=jnp.arange(2)
-        )  # (2, max_m,)
-        return None, b_wgt
-
-    _, b_wgt = jax.lax.scan(
-        edge_body, init=None, xs=jnp.arange(nedge)
-    )  # (nedge, 2, max_m)
-
+    b_wgt_ = _calc_recon_weights_for_points(
+        bkd,
+        mesh.vtx_xyz / radius,
+        mesh.vtx_nb,
+        stencil_idxes,
+        recon_builder,
+    )
+    b_wgt = _build_b_wgt_at_edges(
+        bkd,
+        b_wgt_,
+        mesh.vtx_of_edge,
+        mesh.vtx_ed,
+        spec_loc,
+        nedge,
+    )
     b_wgt = fill_raw_array_halo(mesh.halo, b_wgt, "edge")
-
     return stencil_idxes, b_wgt
 
 

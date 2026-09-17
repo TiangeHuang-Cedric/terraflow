@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import jax.numpy as jnp
 import terraflow.core as tf
 
 tf.util.datetime.perf_start("program")
@@ -10,9 +9,10 @@ grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
-    use_async_io=False, 
+    use_async_io=False,
     proc_io_stride=0
 )
 
@@ -50,7 +50,6 @@ topo_reader = tf.readers.topo.ETOPO1Reader(
     para=para,
     cfg=tf.readers.TopographyReaderConfig(
         regrid_type="fill",
-        fill_backend="scipy",
         fill_split_with_chunks=True,
         fill_lon_chunk_size=360,
         fill_lat_chunk_size=180,
@@ -66,8 +65,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
     cfg=tf.readers.BackgroundReaderConfig(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
-        interp_at_midpoint=False,
-        vert_interp_backend="jax"
+        interp_at_midpoint=False
     ),
     dev=dev
 )
@@ -87,9 +85,9 @@ model = tf.model.build_hydrostatic_model(
     restart=False
 )
 
-era5_1deg_lon = jnp.arange(0, 359 + 1.0 ,  1.0, dtype=dev.float_type)
-era5_1deg_lat = jnp.arange(90, -90 - 1.0, -1.0, dtype=dev.float_type)
-era5_lev = jnp.array(
+era5_1deg_lon = dev.backend.arange(0, 359 + 1.0 ,  1.0, dtype=dev.float_type)
+era5_1deg_lat = dev.backend.arange(90, -90 - 1.0, -1.0, dtype=dev.float_type)
+era5_lev = dev.backend.array(
     [1, 2, 3, 5, 7, 10, 20, 30, 50, 70, 100, 125, 150, 175, 200, 225, 
     250, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 775, 800, 825, 
     850, 875, 900, 925, 950, 975, 1000] * 100, 
@@ -100,7 +98,7 @@ history = model.build_history(
     mode="scvt",
     case_name="terraflow.hdc" + ".g" + str(mesh.glevel),
     output_h1=False,
-    output_h2=False,
+    output_h2=True,
     h2_opt={
         "hori_regrid_method": "conserve_1st",
         "hori_regrid_backend": "esmf",
@@ -112,15 +110,12 @@ history = model.build_history(
     }
 )
 
-integrate_fn = tf.model.compiled_with_model(
-    model=model,
-    fun=model.io_callback(history=history),
-)
+integrate_fn = model.io_callback(history=history, with_jit=True)
 
 tf.util.datetime.perf_start("integration")
 
 final = integrate_fn(model)
-tf.model.block_until_ready(final)
+dev.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 

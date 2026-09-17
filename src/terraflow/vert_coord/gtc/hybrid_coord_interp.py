@@ -1,6 +1,5 @@
 from terraflow.util import typing
-from terraflow.prepare.vert_interp import VerticalLinearInterpolator
-
+from terraflow.util.device import AbstractDevice
 
 Float = typing.Float
 Array = typing.Array
@@ -10,7 +9,7 @@ def interp2plev(
     x: Float[Array, "nlev_m ..."],
     mlev: Float[Array, "nlev_m ..."],
     plev: Float[Array, "nlev_p"],
-    backend: str = "jax",
+    dev: AbstractDevice,
     allow_extrap: bool = False
 ) -> Float[Array, "nlev_p ..."]:
     """
@@ -27,12 +26,9 @@ def interp2plev(
     Returns:
         Array: Variable interpolated to pressure levels (shape: nlev_p, ...).
     """
-    interpolator = VerticalLinearInterpolator(
-        backend=backend,
-        allow_extrap=allow_extrap
-    )
-    return interpolator(
+    return dev.backend.vert_linear_interp(
         x1=mlev,
         data1=x,
-        x2=plev
+        x2=plev,
+        allow_extrap=allow_extrap
     )

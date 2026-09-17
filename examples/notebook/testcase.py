@@ -9,9 +9,9 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: Python (terraflow-dev)
+#     display_name: Python 3
 #     language: python
-#     name: terraflow-dev
+#     name: python3
 # ---
 
 # %%
@@ -30,7 +30,7 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 # %%
-dev = tf.util.device.CPU(float_type="r8", int_type="i4")
+dev = tf.util.device.CPU(backend="jax", float_type="r8", int_type="i4")
 
 # %%
 para = tf.planet.PlanetParameterSet.from_si(
@@ -72,13 +72,13 @@ model = tf.model.build_shallow_water_model(
 )
 
 # %%
-integrate_fn = model.trajectory(start_with_input=True)
+integrate_fn = model.trajectory(start_with_input=True, with_jit=True)
 
 # %%
 final, trajectory = integrate_fn(model)
 
-final      = tf.model.block_until_ready(final)
-trajectory = tf.model.block_until_ready(trajectory)
+final      = dev.block_until_ready(final)
+trajectory = dev.block_until_ready(trajectory)
 
 # %%
 _, ds = final.to_ugrid(use_dual=False).to_structured_grid(

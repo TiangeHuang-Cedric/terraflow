@@ -7,11 +7,10 @@ from typing import (
     Optional, 
     Callable
 )
-import equinox as eqx
-import numpy as np
 
 
 from terraflow.util.datetime import DateTimeManager
+from terraflow.util import equinox as eqx
 from terraflow.model.abstract import AbstractModel
 from terraflow.model.config import Const
 from terraflow.mesh.scvt.field import SCVTFields
@@ -153,8 +152,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> UGRIDHistoryset:
         ...
 
@@ -171,8 +170,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> SCVTHistoryset:
         ...
         
@@ -188,8 +187,8 @@ class Adv2DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> Union[UGRIDHistoryset, SCVTHistoryset]:
         return build_history(
             model=self,
@@ -327,8 +326,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> UGRIDHistoryset:
         ...
 
@@ -345,8 +344,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> SCVTHistoryset:
         ...
         
@@ -362,8 +361,8 @@ class Adv3DModel(AbstractModel[Block, SCVTFields]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
     ) -> Union[UGRIDHistoryset, SCVTHistoryset]:
         return build_history(
             model=self,

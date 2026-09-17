@@ -6,9 +6,9 @@ from typing import (
     Self,
     TYPE_CHECKING
 )
-import equinox as eqx
 
 
+from terraflow.util import equinox as eqx
 from terraflow.util.field import AbstractFields
 from terraflow.util.planet import PlanetParameterSet
 from terraflow.mesh.abstract import AbstractMesh
@@ -17,6 +17,7 @@ from terraflow.vert_coord.abstract import AbstractVertCoordinate
 
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.backend import AbstractBackend
     from terraflow.util.device import AbstractDevice
     from terraflow.model.abstract import ModelMode
     from terraflow.model.config import UserConfig, Const
@@ -70,7 +71,7 @@ class AbstractBlock(
         STATE, TEND, STATIC, AUX, ADVBATCH, TRACERS, AUXDS
     ]
 ):
-    elapsed_seconds: float
+    elapsed_seconds: float | FLT[Array, ""]
     mode           : ModelMode  = eqx.field(static=True)
     const          : Const      = eqx.field(static=True)
     cfg            : UserConfig = eqx.field(static=True) 
@@ -99,10 +100,14 @@ class AbstractBlock(
     @abstractmethod
     def trajectory_post_process(self) -> dict[str, Array]:
         raise NotImplementedError
+    
+    @property
+    def backend(self) -> AbstractBackend:
+        return self.dev.backend
 
     def time_advance(self) -> Self:
         elapsed_seconds = self.elapsed_seconds + self.dt_dyn
-        return eqx.tree_at(
+        return self.dev.backend.tree_at(
             lambda b: (b.old, b.new, b.elapsed_seconds),
             self,
             (self.new, self.old, elapsed_seconds)

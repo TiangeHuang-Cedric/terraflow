@@ -5,13 +5,11 @@ from typing import (
     Optional,
     TYPE_CHECKING
 )
-import jax.numpy as jnp
 import numpy as np
 import xarray as xr
 
 
 from terraflow.util.device import AbstractDevice
-from terraflow.util.pytree import tree_at
 from terraflow.util.uxarray import UGRIDDataset
 from terraflow.model.config import Const
 from terraflow.mesh.scvt.mesh_type import SCVTMesh
@@ -141,7 +139,11 @@ class Block(
             tracers = Tracer()
         # ================================================
         return cls(
-            elapsed_seconds=0.0,
+            elapsed_seconds=dev.backend.asarray(
+                0.0,
+                dtype=dev.float_type,
+                device=dev(),
+            ),
             mode=mode,
             const=const,
             cfg=cfg,
@@ -166,10 +168,10 @@ class Block(
 
     def reset(self, pass_tag: str) -> Self:
         if pass_tag == "forward_pass":
-            return tree_at(
+            return self.backend.tree_at(
                 lambda b: b.tend.dundt.d,
                 self,
-                jnp.zeros_like(self.tend.dundt.d)
+                self.dev.backend.zeros_like(self.tend.dundt.d)
             )
         else:
            return self
@@ -177,7 +179,7 @@ class Block(
     def update_batches_istep(self) -> Self:
         for batch_name, batch in self.adv_batches.items():
             batch = batch.update_istep()
-            self = tree_at(
+            self = self.backend.tree_at(
                 lambda b: b.adv_batches[batch_name],
                 self,
                 batch
@@ -204,7 +206,7 @@ class Block(
                 f=gz_lev,
                 meta=self.state.gz_lev.meta
             )
-            self = tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.state.gz_lev.d,
                 pytree=self,
                 replace=gz_lev,
@@ -224,7 +226,7 @@ class Block(
                 u=u,
                 v=v
             )
-            self = tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: (b.aux.u.d, b.aux.v.d),
                 pytree=self,
                 replace=(u, v)
@@ -237,7 +239,7 @@ class Block(
             mgs      = self.state .mgs   .unwrap()[0]
             ims, ime = self.mesh.cell_ims, self.mesh.cell_ime
             ref_ps   = ref_ps.at[ims:ime+1].set(mgs[ims:ime+1])
-            self = tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.static.ref_ps.d,
                 pytree=self,
                 replace=ref_ps,
@@ -252,7 +254,7 @@ class Block(
             ref_ps=self.static.ref_ps.unwrap(),
             dev=self.dev
         )
-        self = tree_at(
+        self = self.backend.tree_at(
             where=lambda b: b.equaux,
             pytree=self,
             replace=equaux

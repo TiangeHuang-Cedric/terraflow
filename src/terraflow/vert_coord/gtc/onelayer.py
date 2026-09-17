@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax.numpy as jnp
 
 
 from terraflow.util.device import AbstractDevice
@@ -18,32 +17,28 @@ if TYPE_CHECKING:
 
 
 class OneLayerVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
-    full_nlev: int
-    half_nlev: int
-    full_lev: Float[Array, "nlev"]
-    half_lev: Float[Array, "nlev+1"]
-    full_dlev: Float[Array, "nlev"]
-    half_dlev: Float[Array, "nlev+1"]
     
     def __init__(self, dev: AbstractDevice):
+        bkd = dev.backend
+        self.dev       = dev
         self.full_nlev = 1
         self.half_nlev = 2
-        self.full_lev  = jnp.zeros(
+        self.full_lev  = bkd.zeros(
             self.full_nlev, 
             device=dev(), 
             dtype=dev.float_type
         )
-        self.half_lev  = jnp.zeros(
+        self.half_lev  = bkd.zeros(
             self.half_nlev, 
             device=dev(), 
             dtype=dev.float_type
         )
-        self.full_dlev = jnp.zeros(
+        self.full_dlev = bkd.zeros(
             self.full_nlev,
             device=dev(), 
             dtype=dev.float_type           
         )
-        self.half_dlev = jnp.zeros(
+        self.half_dlev = bkd.zeros(
             self.half_nlev,
             device=dev(), 
             dtype=dev.float_type

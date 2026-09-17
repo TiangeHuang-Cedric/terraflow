@@ -1,8 +1,10 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
+import math
+
 
 from terraflow.test_case.abstract import AbstractAdvectionModel2DTestCase
+
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
@@ -30,19 +32,19 @@ class DeformationalFlowTestCase(AbstractAdvectionModel2DTestCase):
         self.keywords = ("advection", "deformational flow", "atmosphere")
         self.period = 12 * 86400.0
         if case_n == 1:
-            self.lon1 = jnp.pi
-            self.lat1 = jnp.pi / 3.0
-            self.lon2 = jnp.pi
-            self.lat2 = -jnp.pi / 3.0
+            self.lon1 = math.pi
+            self.lat1 = math.pi / 3.0
+            self.lon2 = math.pi
+            self.lat2 = -math.pi / 3.0
         elif case_n == 3:
-            self.lon1 = jnp.pi * 3.0 / 4.0
+            self.lon1 = math.pi * 3.0 / 4.0
             self.lat1 = 0.0
-            self.lon2 = jnp.pi * 5.0 / 4.0
+            self.lon2 = math.pi * 5.0 / 4.0
             self.lat2 = 0.0
         elif case_n == 2 or case_n == 4:
-            self.lon1 = jnp.pi * 5.0 / 6.0
+            self.lon1 = math.pi * 5.0 / 6.0
             self.lat1 = 0.0
-            self.lon2 = jnp.pi * 7.0 / 6.0
+            self.lon2 = math.pi * 7.0 / 6.0
             self.lat2 = 0.0
         else:
             raise ValueError(

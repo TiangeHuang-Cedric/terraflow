@@ -8,6 +8,7 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
     use_async_io=False,
@@ -57,17 +58,14 @@ model = tf.model.build_hydrostatic_model(
     restart=False
 )
 
-integrate_fn = tf.model.compiled_with_model(
-    model=model,
-    fun=model.integrate(),
-)
+integrate_fn = model.integrate(with_jit=True)
 
 if dev.is_root():
     tf.util.log.logger.info("Start integrate.")
 for _ in range(20):
     t0 = time.perf_counter()
     model = integrate_fn(model)
-    model = tf.model.block_until_ready(model)
+    model = dev.block_until_ready(model)
     t1 = time.perf_counter()
     tf.util.log.logger.info(f"Time cost: {(t1 - t0):.6f} s")
 if dev.is_root():

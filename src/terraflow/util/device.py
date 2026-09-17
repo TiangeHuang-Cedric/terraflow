@@ -1,90 +1,18 @@
-import jax
-import jax.numpy as jnp
 import os
 import sys
 import platform
-from mpi4py import MPI
+import numpy as np
+from typing import Any
 
 
-from terraflow.util.parallel_types import Proc
-
-
-TYPE_REMAPPING = {
-    "r4": jnp.float32,
-    "r8": jnp.float64,
-    "i4": jnp.int32,
-    "i8": jnp.int64,
-}
-
-
-class Backend:
-    """Base class for computational backends."""
-    device_string: str
-
-    def __init__(self):
-        raise NotImplementedError("Children class must implement __init__")
-
-    def __call__(self):
-        raise NotImplementedError("Children class must implement __call__")
-
-
-class JaxBackend(Backend):
-    """JAX backend for computations."""
-
-    def __init__(self, device_string: str, ref):
-        self.device_string = device_string
-        self.ref = ref
-
-    def __call__(self):
-        return self.ref
-
-
-def has_slurm() -> bool:
-    return all(
-        var in os.environ
-        for var in (
-            "SLURM_JOB_ID",
-            "SLURM_STEP_NODELIST",
-            "SLURM_NTASKS",
-            "SLURM_PROCID",
-            "SLURM_LOCALID",
-        )
-    )
-
-
-def has_openmpi() -> bool:
-    return "OMPI_MCA_orte_hnp_uri" in os.environ
-
-
-def cluster_detection_method() -> str | None:
-    method = os.environ.get("TERRAFLOW_CLUSTER_DETECTION_METHOD")
-    if method:
-        return method
-    if MPI.COMM_WORLD.Get_size() > 1:
-        return "mpi4py"
-    if has_slurm() or has_openmpi():
-        return None
-    return None
-
-
-def distributed_initialize(
-    proc: Proc,
-    use_jax_distributed: bool
-) -> None:
-    if not use_jax_distributed:
-        return
-    if proc.np_model <= 1 or jax.distributed.is_initialized():
-        return
-    if not proc.is_model():
-        return
-
-    jax.distributed.initialize(
-        cluster_detection_method=cluster_detection_method(),
-    )
+from terraflow.util.typing import FloatType, IntType, Array
+from terraflow.util.parallel_types import MPI, Proc
+from terraflow.util.backend import AbstractBackend
 
 
 def local_process_id(proc: Proc) -> int | None:
     for name in (
+        "LOCAL_RANK",
         "OMPI_COMM_WORLD_LOCAL_RANK",
         "SLURM_LOCALID",
         "MPI_LOCALRANKID",
@@ -110,37 +38,46 @@ def local_process_id(proc: Proc) -> int | None:
 
 class AbstractDevice:
     """Base class for computational devices."""
-    float_type: type
-    int_type: type
     proc: Proc
-    backend: Backend
+    backend: AbstractBackend
 
-    def __init__(self, float_type: type, int_type: type, proc: Proc, backend: Backend):
-        if float_type is jnp.float64:
-            jax.config.update("jax_enable_x64", True)
-        self.float_type = float_type
-        self.int_type = int_type
+    def __init__(self, proc: Proc, backend: AbstractBackend):
         self.proc = proc
         self.backend = backend
 
     def __call__(self):
-        """Return the JAX device architecture."""
+        """Return the backend device architecture."""
         return self.backend()
+    
+    @property
+    def int_type(self) -> IntType:
+        return self.backend.int_type
+    
+    @property
+    def float_type(self) -> FloatType:
+        return self.backend.float_type
+    
+    def block_until_ready(self, value: Any) -> Any:
+        return self.backend.block_until_ready(value)
+    
+    def to_numpy(self, value: Array) -> np.ndarray:
+        return self.backend.to_numpy(value)
+    
+    def to_host(self, value: Array) -> np.ndarray:
+        return self.to_numpy(value)
+    
+    def to_backend(self, value: np.ndarray | Array) -> Array:
+        return self.backend.asarray(value, device=self())
     
     def is_root(self) -> bool:
         return self.proc.is_root()
     
     def is_distributed(self) -> bool:
-        return jax.distributed.is_initialized()
+        return self.backend.is_distributed()
     
     def barrier(self) -> None:
         if self.proc.comm_model is not None and self.proc.comm_model != MPI.COMM_NULL:
             self.proc.comm_model.Barrier()        
-    
-    def shutdown(self) -> None:
-        self.barrier()
-        if self.is_distributed():
-            return jax.distributed.shutdown()
         
     def is_apple_sys(self) -> bool:
         if sys.platform == "darwin":
@@ -153,48 +90,59 @@ class AbstractDevice:
             return False
         
     def is_cpu(self) -> bool:
-        return self.backend.device_string == "cpu"
+        return self.backend.is_cpu()
 
     def is_metal(self) -> bool:
-        return self.backend.device_string == "mps"
+        return self.backend.is_metal()
     
     def is_gpu(self) -> bool:
-        return self.backend.device_string == "gpu"
+        return self.backend.is_gpu()
     
     def is_tpu(self) -> bool:
-        return self.backend.device_string == "tpu"
+        return self.backend.is_tpu()
 
 class CPU(AbstractDevice):
     """CPU device for computations."""
 
     def __init__(
-        self, 
-        float_type: type | str = jnp.float64, 
-        int_type: type | str = jnp.int32,
+        self,
+        backend: str, 
+        float_type: str = "r8", 
+        int_type: str = "i4",
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
-        use_jax_distributed: bool = False
-    ):
-        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
-        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
+        use_backend_distributed: bool = False,
+    ):  
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(
-            proc=proc, 
-            use_jax_distributed=use_jax_distributed
-        )
-        if self.is_apple_sys():
-            jax.config.update("jax_platforms", "cpu")
-        ref = jax.local_devices(backend="cpu")[0]
+        if backend == "jax":
+            import jax
+            from terraflow.util.backend.jax_backend import JaxBackend
+            JaxBackend.distributed_initialize(
+                proc=proc,
+                use_backend_distributed=use_backend_distributed
+            )
+            if self.is_apple_sys():
+                jax.config.update("jax_platforms", "cpu")
+            ref = jax.local_devices(backend="cpu")[0]
+            backend_impl = JaxBackend("cpu", ref, float_type=float_type, int_type=int_type)
+        elif backend == "torch":
+            from terraflow.util.backend.torch_backend import TorchBackend
+            TorchBackend.distributed_initialize(
+                proc=proc,
+                use_backend_distributed=use_backend_distributed,
+                backend="gloo",
+            )
+            backend_impl = TorchBackend("cpu", float_type=float_type, int_type=int_type)
+        else:
+            raise ValueError(f"Unsupported backend {backend}!") 
         super().__init__(
-            float_type_opt, 
-            int_type_opt, 
             proc,
-            JaxBackend("cpu", ref)
+            backend_impl
         )
 
 
@@ -203,45 +151,72 @@ class GPU(AbstractDevice):
 
     def __init__(
         self, 
-        float_type: type | str = jnp.float32, 
-        int_type: type | str = jnp.int32,
+        backend: str,
+        float_type: str = "r8", 
+        int_type: str = "i4",
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
-        use_jax_distributed: bool = False
+        use_backend_distributed: bool = False,
     ):
-        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
-        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(
-            proc=proc, 
-            use_jax_distributed=use_jax_distributed
-        )
-        if (
-            os.environ.get("CUDA_VISIBLE_DEVICES")
-            or os.environ.get("JAX_CUDA_VISIBLE_DEVICES")
-            or use_jax_distributed
-        ):
-            pass
+        if backend == "jax":
+            import jax
+            from terraflow.util.backend.jax_backend import JaxBackend
+            JaxBackend.distributed_initialize(
+                proc=proc,
+                use_backend_distributed=use_backend_distributed
+            )
+            if (
+                os.environ.get("CUDA_VISIBLE_DEVICES")
+                or os.environ.get("JAX_CUDA_VISIBLE_DEVICES")
+                or use_backend_distributed
+            ):
+                pass
+            else:
+                local_proc_id = local_process_id(proc)
+                if local_proc_id is not None:
+                    jax.config.update("jax_cuda_visible_devices", str(local_proc_id))
+            if self.is_apple_sys():
+                jax.config.update("jax_platforms", "mps,cpu")
+                device_string = "mps"
+            else:
+                device_string = "gpu"
+            ref = jax.local_devices(backend=device_string)[0]
+            backend_impl = JaxBackend(device_string, ref, float_type=float_type, int_type=int_type)
+        elif backend == "torch":
+            import torch
+            from terraflow.util.backend.torch_backend import TorchBackend
+            from terraflow.util.backend.torch_backend import local_cuda_device_id
+            TorchBackend.distributed_initialize(
+                proc=proc,
+                use_backend_distributed=use_backend_distributed,
+                backend="nccl",
+            )
+            if (
+                self.is_apple_sys()
+                and hasattr(torch.backends, "mps")
+                and torch.backends.mps.is_available()
+            ):
+                ref = torch.device("mps")
+                device_string = "mps"
+            elif torch.cuda.is_available():
+                local_device_id = local_cuda_device_id(proc)
+                ref = torch.device(f"cuda:{local_device_id}" if local_device_id is not None else "cuda")
+                torch.cuda.set_device(ref)
+                device_string = "cuda"
+            else:
+                raise RuntimeError("No PyTorch GPU backend is available.")
+            backend_impl = TorchBackend(device_string, ref, float_type=float_type, int_type=int_type)
         else:
-            local_proc_id = local_process_id(proc)
-            if local_proc_id is not None:
-                jax.config.update("jax_cuda_visible_devices", str(local_proc_id))
-        if self.is_apple_sys():
-            jax.config.update("jax_platforms", "mps,cpu")
-            backend = "mps"
-        else:
-            backend = "gpu"
-        ref = jax.local_devices(backend=backend)[0]
+            raise ValueError(f"Unsupported backend {backend}!")
         super().__init__(
-            float_type_opt, 
-            int_type_opt, 
             proc,
-            JaxBackend(backend, ref)
+            backend_impl
         )
 
 
@@ -250,27 +225,26 @@ class TPU(AbstractDevice):
 
     def __init__(
         self, 
-        float_type: type | str = jnp.float32, 
-        int_type: type | str = jnp.int32,
+        float_type: str = "r8", 
+        int_type: str = "i4",
         comm: MPI.Comm | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
-        float_type_opt = TYPE_REMAPPING[float_type] if isinstance(float_type, str) else float_type
-        int_type_opt   = TYPE_REMAPPING[int_type  ] if isinstance(int_type  , str) else int_type
+        import jax
+        from terraflow.util.backend.jax_backend import JaxBackend
         proc = Proc(
             comm=comm,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
-        distributed_initialize(
+        JaxBackend.distributed_initialize(
             proc=proc, 
-            use_jax_distributed=True
+            use_backend_distributed=True
         )
         ref = jax.local_devices(backend="tpu")[0]
+        backend_impl = JaxBackend("tpu", ref, float_type=float_type, int_type=int_type)     
         super().__init__(
-            float_type_opt, 
-            int_type_opt, 
             proc,
-            JaxBackend("tpu", ref),
+            backend_impl
         )

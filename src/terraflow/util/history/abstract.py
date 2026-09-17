@@ -9,12 +9,9 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 import netCDF4 as nc4
 import numpy as np
-import jax.numpy as jnp
-import jax.experimental
 
 
 from terraflow.util import log, datetime as tfdatetime
-from terraflow.util.device import AbstractDevice
 from terraflow.util.datetime import (
     DateTimeManager,
     perf_runtime,
@@ -25,17 +22,19 @@ from terraflow.util.datetime import (
 
 if TYPE_CHECKING:
     from terraflow.model.abstract import AbstractModel
+    from terraflow.util.backend import AbstractBackend
+    from terraflow.util.device import AbstractDevice
     from terraflow.util.field import AbstractFields
 
 
-FLOAT_JNP2NP = {
-    jnp.float32: np.float32,
-    jnp.float64: np.float64,
+FLOAT_STR2NP = {
+    "r4": np.float32,
+    "r8": np.float64,
 }
 
-INT_JNP2NP = {
-    jnp.int32: np.int32,
-    jnp.int64: np.int64,
+INT_STR2NP = {
+    "i4": np.int32,
+    "i8": np.int64,
 }
 
 FLOAT_NP2NC = {
@@ -50,6 +49,8 @@ INT_NP2NC = {
 
 
 class AbstractHistoryset(ABC):
+    backend: AbstractBackend
+    dev: AbstractDevice
     time_manager: DateTimeManager
     case_name: str
     float_type: type[np.float32] | type[np.float64]
@@ -62,32 +63,25 @@ class AbstractHistoryset(ABC):
         model: AbstractModel,
         case_name: str = "terraflow",
         file_path: str = "",
-        dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
         **kwargs
     ) -> None:
         self.built = False
+        self.backend = model.backend
+        self.dev = model.device
         self.time_manager = model.time_manager
         self.case_name = case_name
-        if dev is not None:
-            if float_type is None and int_type is None:
-                self.float_type = FLOAT_JNP2NP[dev.float_type]
-                self.int_type = INT_JNP2NP[dev.int_type]
-            else:
-                raise ValueError(
-                    "Specifying both dev and type parameters caused confusion errors"
-                )
         if float_type is None:
             self.float_type = np.float32
-        elif float_type in FLOAT_JNP2NP.values():
-            self.float_type = float_type
+        elif float_type in FLOAT_STR2NP:
+            self.float_type = FLOAT_STR2NP[float_type]
         else:
             raise ValueError(f"Unsupported float type: {float_type}")
         if int_type is None:
             self.int_type = np.int32
-        elif int_type in INT_JNP2NP.values():
-            self.int_type = int_type
+        elif int_type in INT_STR2NP:
+            self.int_type = INT_STR2NP[int_type]
         else:
             raise ValueError(f"Unsupported int type: {int_type}")
 
@@ -99,11 +93,17 @@ class AbstractHistoryset(ABC):
     def get_all_histories(self, with_h2: bool = False) -> list[str]:
         raise NotImplementedError
     
+    def is_root(self) -> bool:
+        return self.dev.is_root()
+    
+    def sync(self) -> None:
+        self.dev.proc.comm_model.Barrier()
+    
     def has_built(self) -> bool:
         return self.built
 
     def output_diag(self, itimestep: int) -> None:
-        jax.experimental.io_callback(
+        self.backend.io_callback(
             self.log_diag,
             None,
             itimestep,
@@ -112,7 +112,9 @@ class AbstractHistoryset(ABC):
 
     def output_prepare(self, save_interval_idx: int) -> None:
         
-        def _prepare_for_output(self, save_interval_idx: int) -> None:
+        def _prepare_for_output(save_interval_idx: int) -> None:
+            if not self.is_root():
+                return None
             perf_runtime()
 
             log.logger.log(
@@ -123,7 +125,7 @@ class AbstractHistoryset(ABC):
             )
             return None
 
-        jax.experimental.io_callback(
+        self.backend.io_callback(
             _prepare_for_output,
             None,
             save_interval_idx,
@@ -141,6 +143,8 @@ class AbstractHistoryset(ABC):
         raise NotImplementedError
 
     def log_diag(self, itimestep: int) -> None:
+        if not self.is_root():
+            return None
         perf_runtime()
 
         log.logger.log(
@@ -152,17 +156,23 @@ class AbstractHistoryset(ABC):
         return None
 
     def log_write_elapsed_seconds(self) -> None:
+        if not self.is_root():
+            return None
         log.logger.success(
             f"Time cost {format(perf_write_history(), '.16f')} seconds."
         )
         return None
 
     def log_start_write(self, history: str) -> None:
+        if not self.is_root():
+            return None
         log.logger.info(
             f"Write {history} file."
         )
 
     def log_done_write(self, history: str, cost_time: float) -> None:
+        if not self.is_root():
+            return None
         log.logger.success(
             f"Done write {history} file cost {format(cost_time, '.16f')} seconds."
         )
@@ -170,6 +180,7 @@ class AbstractHistoryset(ABC):
 
 
 class AbstractHistory(ABC):
+    backend: AbstractBackend
     file_path: str
     time_manager: DateTimeManager
     float_type: type[np.float32] | type[np.float64]
@@ -188,6 +199,7 @@ class AbstractHistory(ABC):
         float_type: type[np.float32] | type[np.float64],
         int_type: type[np.int32] | type[np.int64]
     ) -> None:
+        self.backend = model.backend
         self.history_name = history_name
         self.case_name = case_name
         self.file_path = str(

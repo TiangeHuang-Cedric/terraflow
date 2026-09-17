@@ -1,16 +1,17 @@
 from __future__ import annotations
 from typing import Self, TYPE_CHECKING
-import jax
-import jax.numpy as jnp
+import numpy as np
+
 
 from terraflow.util.device import AbstractDevice
 from terraflow.util.sphere_geometry import _project_sphere2plane
-from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt import operators as mesh_ops
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryData
 
+
 if TYPE_CHECKING:
     from terraflow.util import typing
+    from terraflow.util.backend import AbstractBackend
     from terraflow.util.planet import PlanetParameterSet
     from terraflow.model.config import UserConfig
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
@@ -32,10 +33,10 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
     def empty(cls) -> Self:
         return cls(
             initialized=False,
-            perot_wgt_at_cell=jnp.array([]),
-            perot_wgt_at_vtx=jnp.array([]),
-            vec_at_cell=jnp.array([]),
-            vec_at_vtx=jnp.array([])
+            perot_wgt_at_cell=np.array([]),
+            perot_wgt_at_vtx=np.array([]),
+            vec_at_cell=np.array([]),
+            vec_at_vtx=np.array([])
         )
     
     @classmethod
@@ -64,23 +65,24 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         dual_edge_xyz = mesh.dual_edge_xyz
         edpe_nr       = mesh.edge_nr
         float_type    = dev.float_type
+        bkd           = dev.backend
         # =====================================================
-        perot_wgt_at_cell = jnp.zeros(
+        perot_wgt_at_cell = bkd.zeros(
             (mesh.cell_ime-mesh.cell_ims+1, mesh.maxnnb_cell, 3), 
             device=dev(), 
             dtype=float_type
         )
-        perot_wgt_at_vtx  = jnp.zeros(
+        perot_wgt_at_vtx  = bkd.zeros(
             (mesh.vtx_ime -mesh.vtx_ims +1, mesh.maxnnb_vtx , 3), 
             device=dev(), 
             dtype=float_type            
         )
-        vec_at_cell = jnp.zeros(
+        vec_at_cell = bkd.zeros(
             (mesh.full_nlev, mesh.cell_ime-mesh.cell_ims+1, 3),
             device=dev(),
             dtype=float_type
         )
-        vec_at_vtx  = jnp.zeros(
+        vec_at_vtx  = bkd.zeros(
             (mesh.full_nlev, mesh.vtx_ime -mesh.vtx_ims +1, 3),
             device=dev(),
             dtype=float_type
@@ -95,20 +97,21 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         
         # (ncell, maxnnb, 3)
         local_basis = project_sphere2plane(
+            bkd=bkd,
             R=para.radius.unwrap(),
             op0=cell_xyz,
             op1=dual_edge_xyz[cell_ed, :] / radius,
         )
         # (ncell, maxnnb, 3)
-        tmp = le[cell_ed, None] * jnp.sum(
-            local_basis / jnp.linalg.norm(
+        tmp = le[cell_ed, None] * bkd.sum(
+            local_basis / bkd.norm(
                 local_basis,
                 axis=-1,
                 keepdims=True
             ) * edpe_nr[cell_ed, :],
             axis=-1
         )[:, :, None] * local_basis / area_cell[:, None, None]
-        tmp = jnp.where(
+        tmp = bkd.where(
             is_valid_cell_nnb[:, :, None],
             tmp,
             0.0
@@ -124,16 +127,17 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         
         # (nvtx, maxnnb_dual, 3)
         local_basis = project_sphere2plane(
+            bkd=bkd,
             R=para.radius.unwrap(),
             op0=vtx_xyz,
             op1=dual_edge_xyz[vtx_ed, :] / radius,
         )
         
         # (nvtx, maxnnb_dual, 3)
-        cross_product = jnp.cross(dual_edge_xyz[vtx_ed, :], local_basis, axis=-1)
+        cross_product = bkd.cross(dual_edge_xyz[vtx_ed, :], local_basis, axis=-1)
         # (nvtx, maxnnb_dual)
-        tmp = jnp.sum(
-            edpe_nr[vtx_ed, :] * cross_product / jnp.linalg.norm(
+        tmp = bkd.sum(
+            edpe_nr[vtx_ed, :] * cross_product / bkd.norm(
                 cross_product,
                 axis=-1,
                 keepdims=True
@@ -143,7 +147,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         # (nvtx, maxnnb_dual, 3)
         tmp = cross_product * tmp[:, :, None] * de[vtx_ed, None]
         tmp = tmp / area_vtx[:, None, None]
-        tmp = jnp.where(
+        tmp = bkd.where(
             is_valid_vtx_nnb[:, :, None],
             tmp,
             0.0
@@ -159,6 +163,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         )
         
 def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> Block:
+    bkd               = block.backend
     mesh              = block.mesh
     kds               = mesh.full_kds
     cell_ed           = mesh.cell_ed
@@ -190,7 +195,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[1]
     vec_at_cell = vec_at_cell.at[kds:kde+1, ids:ihe+1, :].set(
-        jnp.sum(
+        bkd.sum(
             un[kds:kde+1, cell_ed[ids:ihe+1, :], None] * perot_wgt_at_cell[None, ids:ihe+1, :, :], 
             axis=-2
         )
@@ -199,7 +204,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     kds, kde = mesh.full_kds, mesh.full_kde 
     ids, ihe = mesh.vtx_ids , mesh.vtx_ihe[0]
     vec_at_vtx = vec_at_vtx.at[kds:kde+1, ids:ihe+1, :].set(
-        jnp.sum(
+        bkd.sum(
             un[kds:kde+1, vtx_ed [ids:ihe+1, :], None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :], 
             axis=-2
         )
@@ -221,20 +226,20 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     pc1pc2 = cell_xyz[pc2, :] - cell_xyz[pc1, :]
     dc1dc2 = vtx_xyz [dc2, :] - vtx_xyz [dc1, :]
     # (nedge,)
-    flag1 = jnp.sign(jnp.sum(pc1pc2 * edge_nr[ids:ihe+1, :], axis=-1))
-    flag2 = jnp.sign(jnp.sum(dc1dc2 * edge_tg[ids:ihe+1, :], axis=-1))
+    flag1 = bkd.sign(bkd.sum(pc1pc2 * edge_nr[ids:ihe+1, :], axis=-1))
+    flag2 = bkd.sign(bkd.sum(dc1dc2 * edge_tg[ids:ihe+1, :], axis=-1))
     # =====================================================
     # (nlev, nedge)
-    un_pc1 = jnp.sum(vec_at_cell[kds:kde+1, pc1, :] * edge_nr[ids:ihe+1, :], axis=-1)
-    un_pc2 = jnp.sum(vec_at_cell[kds:kde+1, pc2, :] * edge_nr[ids:ihe+1, :], axis=-1)
-    un_dc1 = jnp.sum(vec_at_vtx [kds:kde+1, dc1, :] * edge_nr[ids:ihe+1, :], axis=-1)
-    un_dc2 = jnp.sum(vec_at_vtx [kds:kde+1, dc2, :] * edge_nr[ids:ihe+1, :], axis=-1)
+    un_pc1 = bkd.sum(vec_at_cell[kds:kde+1, pc1, :] * edge_nr[ids:ihe+1, :], axis=-1)
+    un_pc2 = bkd.sum(vec_at_cell[kds:kde+1, pc2, :] * edge_nr[ids:ihe+1, :], axis=-1)
+    un_dc1 = bkd.sum(vec_at_vtx [kds:kde+1, dc1, :] * edge_nr[ids:ihe+1, :], axis=-1)
+    un_dc2 = bkd.sum(vec_at_vtx [kds:kde+1, dc2, :] * edge_nr[ids:ihe+1, :], axis=-1)
 
     # (nlev, nedge)
-    ut_pc1 = jnp.sum(vec_at_cell[kds:kde+1, pc1, :] * edge_tg[ids:ihe+1, :], axis=-1)
-    ut_pc2 = jnp.sum(vec_at_cell[kds:kde+1, pc2, :] * edge_tg[ids:ihe+1, :], axis=-1)
-    ut_dc1 = jnp.sum(vec_at_vtx [kds:kde+1, dc1, :] * edge_tg[ids:ihe+1, :], axis=-1)
-    ut_dc2 = jnp.sum(vec_at_vtx [kds:kde+1, dc2, :] * edge_tg[ids:ihe+1, :], axis=-1)
+    ut_pc1 = bkd.sum(vec_at_cell[kds:kde+1, pc1, :] * edge_tg[ids:ihe+1, :], axis=-1)
+    ut_pc2 = bkd.sum(vec_at_cell[kds:kde+1, pc2, :] * edge_tg[ids:ihe+1, :], axis=-1)
+    ut_dc1 = bkd.sum(vec_at_vtx [kds:kde+1, dc1, :] * edge_tg[ids:ihe+1, :], axis=-1)
+    ut_dc2 = bkd.sum(vec_at_vtx [kds:kde+1, dc2, :] * edge_tg[ids:ihe+1, :], axis=-1)
 
     # (nlev, nedge)
     un_pc1pc2 = flag1 * (un_pc2 - un_pc1) / de_
@@ -260,7 +265,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
 
     ls2 = de_ * le_
     smag_coef = smag_coef.at[kds:kde+1, ids:ihe+1].set(
-        block.cfg.smag_damp_coef * ls2 * jnp.sqrt(smag_t**2 + smag_s**2)
+        block.cfg.smag_damp_coef * ls2 * bkd.sqrt(smag_t**2 + smag_s**2)
     )
     tmp = (un_pc1 + un_pc2 - 2 * un[kds:kde+1, ids:ihe+1]) / de_**2
     lap_un = lap_un.at[kds:kde+1, ids:ihe+1].set(
@@ -305,7 +310,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
         dptdt_damp[kds:kde+1, ids:ide+1] * dmg[kds:kde+1, ids:ide+1]
     )
     # =====================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (
             b.aux.smag_coef.d,
             b.aux.smag_coef_lev.d,
@@ -318,13 +323,14 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
 
 
 def project_sphere2plane(
+    bkd: AbstractBackend,
     R: FloatType,
     op0: FLT[Array, "npoint 3"],
     op1: FLT[Array, "npoint nnb 3"],
 ) -> FLT[Array, "npoint nnb 3"]:
-    return jax.vmap(
-        jax.vmap(
-            _project_sphere2plane,
+    return bkd.vmap(
+        bkd.vmap(
+            lambda R, op0_i, op1_i: _project_sphere2plane(bkd, R, op0_i, op1_i),
             in_axes=(None, 0, 0),
             out_axes=0
         ),

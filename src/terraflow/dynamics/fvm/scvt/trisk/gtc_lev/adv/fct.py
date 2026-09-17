@@ -1,10 +1,11 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax.numpy as jnp
-import jax
 
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.upwind import upwind1_hori, upwind1_vert
+
+from terraflow.util.profile import profile_scope
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.upwind import upwind1_hori, upwind1_vert
+
 
 if TYPE_CHECKING:
     from terraflow.util import typing
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     Array = typing.Array
 
 
-@jax.named_scope("fct_calc_hflx")
+@profile_scope("fct_calc_hflx")
 def fct_calc_hflx(
     batch: batch.AdvBatchType,
     block: Block,
@@ -25,6 +26,7 @@ def fct_calc_hflx(
     qmfn: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
+    bkd          = block.backend
     mesh         = block.mesh
     kds  , kde   = mesh.full_kds, mesh.full_kde
     dmg_old      = batch.m      .unwrap()
@@ -42,6 +44,7 @@ def fct_calc_hflx(
     wind = mfn[kds:kde+1, ids:ihe+1] * mesh.edpnr_eddtg[ids:ihe+1]
     qmfn_lo = qmfn_lo.at[kds:kde+1, ids:ihe+1].set(
         upwind1_hori(
+            bkd,
             q=q_old,
             wind=wind,
             edd_v=mesh.cell_of_edge[ids:ihe+1, :],
@@ -72,13 +75,13 @@ def fct_calc_hflx(
         ed_idx = cell_ed  # (ncell, maxnnb)
         leng_tile = mesh.le[ed_idx]  # (ncell, maxnnb)
         x_tile = f_1d[ed_idx]  # (ncell, maxnnb)
-        x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-        return jnp.sum(
+        x_tile = bkd.where(ed_idx < 0, 0.0, x_tile)
+        return bkd.sum(
             cell_nr * leng_tile * x_tile,
             axis=-1
         ) / area_cell
 
-    div = jax.vmap(
+    div = bkd.vmap(
         _wrap,
         in_axes=0,
         out_axes=0
@@ -95,68 +98,68 @@ def fct_calc_hflx(
     cell_nr   = mesh.cell_nr  [ids:ihe+1, :]
     area_cell = mesh.area_cell[ids:ihe+1   ]
     # ------ Calculate qmax ------
-    qmax = - jnp.array(1.e16, dtype=q.dtype)
-    qmax = jnp.maximum(qmax, jnp.maximum(q_, q_td_))
+    qmax = - bkd.array(1.e16, dtype=q.dtype)
+    qmax = bkd.maximum(qmax, bkd.maximum(q_, q_td_))
 
     # Filter out the invalid neighbors (with negative index) by setting their q values to very large numbers
     # to ensure they do not affect the calculation of qmax.
-    q_nnb = q_[:, cell_nb]  # (nlev, ncell, nnb)
-    q_td_nnb = q_td_[:, cell_nb]  # (nlev, ncell, nnb)
-    q_nnb = jnp.where(
+    q_nnb = q[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_td_nnb = q_td[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_nnb = bkd.where(
         cell_nb[None, :, :] < 0,
-        - jnp.array(1.e16, dtype=q.dtype),
+        - bkd.array(1.e16, dtype=q.dtype),
         q_nnb
     )
-    q_td_nnb = jnp.where(
+    q_td_nnb = bkd.where(
         cell_nb[None, :, :] < 0,
-        - jnp.array(1.e16, dtype=q.dtype),
+        - bkd.array(1.e16, dtype=q.dtype),
         q_td_nnb
     )
-    qmax = jnp.maximum(
+    qmax = bkd.maximum(
         qmax,
-        jnp.maximum(
-            jnp.max(q_nnb, axis=-1),
-            jnp.max(q_td_nnb, axis=-1)
+        bkd.maximum(
+            bkd.max(q_nnb, axis=-1),
+            bkd.max(q_td_nnb, axis=-1)
         )
     )
     # ------ Calculate qmin ------
-    qmin = jnp.array(1.e16, dtype=q.dtype)
-    qmin = jnp.minimum(qmin, jnp.minimum(q_, q_td_))
+    qmin = bkd.array(1.e16, dtype=q.dtype)
+    qmin = bkd.minimum(qmin, bkd.minimum(q_, q_td_))
     # Filter out the invalid neighbors (with negative index) by setting their q values to very small numbers
     # to ensure they do not affect the calculation of qmin.
-    q_nnb = q_[:, cell_nb]  # (nlev, ncell, nnb)
-    q_td_nnb = q_td_[:, cell_nb]  # (nlev, ncell, nnb)
-    q_nnb = jnp.where(
+    q_nnb = q[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_td_nnb = q_td[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_nnb = bkd.where(
         cell_nb[None, :, :] < 0,
-        jnp.array(1.e16, dtype=q.dtype),
+        bkd.array(1.e16, dtype=q.dtype),
         q_nnb
     )
-    q_td_nnb = jnp.where(
+    q_td_nnb = bkd.where(
         cell_nb[None, :, :] < 0,
-        jnp.array(1.e16, dtype=q.dtype),
+        bkd.array(1.e16, dtype=q.dtype),
         q_td_nnb
     )
 
-    qmin = jnp.minimum(
+    qmin = bkd.minimum(
         qmin,
-        jnp.minimum(
-            jnp.min(q_nnb, axis=-1),
-            jnp.min(q_td_nnb, axis=-1)
+        bkd.minimum(
+            bkd.min(q_nnb, axis=-1),
+            bkd.min(q_td_nnb, axis=-1)
         )
     )
     # ------ Calculate p_in and p_out ------
     tmp = cell_nr[None, :, :] * afn[kds:kde+1, cell_ed]  # (nlev, ncell, nnb)
-    tmp = jnp.where(
+    tmp = bkd.where(
         cell_ed[None, :, :] < 0,
         0.0,
         tmp
     )
-    p_in = jnp.minimum(
-        jnp.array(0.0, dtype=q.dtype),
+    p_in = bkd.minimum(
+        bkd.array(0.0, dtype=q.dtype),
         tmp  # (nlev, ncell, nnb)
     ).sum(axis=-1)  # (nlev, ncell)
-    p_out = jnp.maximum(
-        jnp.array(0.0, dtype=q.dtype),
+    p_out = bkd.maximum(
+        bkd.array(0.0, dtype=q.dtype),
         tmp  # (nlev, ncell, nnb)
     ).sum(axis=-1)  # (nlev, ncell)
     # ------ Calculate m_in and m_out (nlev, ncell) ------
@@ -165,42 +168,42 @@ def fct_calc_hflx(
     # Calculate limiter R values (nlev, ncell)
     if block.cfg.fct_regression_h:
         r_in = r_in.at[kds:kde+1, ids:ihe+1].set(
-            jnp.where(
+            bkd.where(
                 p_in < 0,
-                jnp.minimum(
-                    jnp.array(1.0, dtype=q.dtype),
-                    maf_in / jnp.abs(p_in)
+                bkd.minimum(
+                    bkd.array(1.0, dtype=q.dtype),
+                    maf_in / bkd.abs(p_in)
                 ),
                 0.0
             )
         )
         r_out = r_out.at[kds:kde+1, ids:ihe+1].set(
-            jnp.where(
+            bkd.where(
                 p_out > 0,
-                jnp.minimum(
-                    jnp.array(1.0, dtype=q.dtype),
-                    maf_out / jnp.abs(p_out)
+                bkd.minimum(
+                    bkd.array(1.0, dtype=q.dtype),
+                    maf_out / bkd.abs(p_out)
                 ),
                 0.0
             )
         )
     else:
-        if q.dtype == jnp.float32:
+        if q.dtype == bkd.float32:
             kesi = 1.e-40
-        elif q.dtype == jnp.float64:
+        elif q.dtype == bkd.float64:
             kesi = 1.e-80
         else:
             raise ValueError("Unsupported data type for q.")
         r_in = r_in.at[kds:kde+1, ids:ihe+1].set(
-            jnp.minimum(
-                jnp.array(1.0, dtype=q.dtype),
-                maf_in / (jnp.abs(p_in) + kesi)
+            bkd.minimum(
+                bkd.array(1.0, dtype=q.dtype),
+                maf_in / (bkd.abs(p_in) + kesi)
             )
         )
         r_out = r_out.at[kds:kde+1, ids:ihe+1].set(
-            jnp.minimum(
-                jnp.array(1.0, dtype=q.dtype),
-                maf_out / (jnp.abs(p_out) + kesi)
+            bkd.minimum(
+                bkd.array(1.0, dtype=q.dtype),
+                maf_out / (bkd.abs(p_out) + kesi)
             )
         )
     # ========================================================
@@ -209,21 +212,22 @@ def fct_calc_hflx(
     v0   = mesh.cell_of_edge[ids:ide+1, 0]
     v1   = mesh.cell_of_edge[ids:ide+1, 1]
     v0v1 = mesh.cell_xyz[v1, :] - mesh.cell_xyz[v0, :]
-    flag = jnp.sign(
-        jnp.sum(
+    flag = bkd.sign(
+        bkd.sum(
             v0v1 * mesh.edge_nr[ids:ide+1, :], 
             axis=-1
         )
     )  # 0 or 1
-    mark = jnp.rint(
-        -0.5 * jnp.sign(flag * afn[kds:kde+1, ids:ide+1]) + 0.5
-    ).astype(jnp.int32)  # (nlev, nedge)
-    v_upwind = mesh.cell_of_edge[jnp.arange(ids, ide+1, 1),   mark]  # (nlev, nedge,)
-    v_dowind = mesh.cell_of_edge[jnp.arange(ids, ide+1, 1), 1-mark]  # (nlev, nedge,)
+    mark = bkd.astype(
+        bkd.rint(-0.5 * bkd.sign(flag * afn[kds:kde+1, ids:ide+1]) + 0.5), 
+        bkd.int32
+    )  # (nlev, nedge)
+    v_upwind = mesh.cell_of_edge[bkd.arange(ids, ide+1, 1),   mark]  # (nlev, nedge,)
+    v_dowind = mesh.cell_of_edge[bkd.arange(ids, ide+1, 1), 1-mark]  # (nlev, nedge,)
     # Calculate coef: (nlev, ncell) -> (nlev, nedge)
-    coef = jnp.minimum(
-        r_in [jnp.arange(kds, kde+1, 1)[:, None], v_dowind],
-        r_out[jnp.arange(kds, kde+1, 1)[:, None], v_upwind]
+    coef = bkd.minimum(
+        r_in [bkd.arange(kds, kde+1, 1)[:, None], v_dowind],
+        r_out[bkd.arange(kds, kde+1, 1)[:, None], v_upwind]
     )
     tmp = (
         qmfn_lo[kds:kde+1, ids:ide+1] + 
@@ -240,7 +244,7 @@ def fct_calc_hflx(
     )
 
 
-@jax.named_scope("fct_calc_vflx")
+@profile_scope("fct_calc_vflx")
 def fct_calc_vflx(
     batch: batch.AdvBatchType,
     block: Block,
@@ -249,6 +253,7 @@ def fct_calc_vflx(
     qmfz: FLT[Array, "nlev npoint"],
     dt: float  
 ) -> FLT[Array, "nlev+1 npoint"]:
+    bkd          = block.backend
     mesh         = block.mesh
     ids, ide     = mesh.cell_ids, mesh.cell_ide
     dmg_old      = batch.m      .unwrap()
@@ -265,7 +270,7 @@ def fct_calc_vflx(
     # ------ Calculate low-order fluxes ------ 
     # from half_kds + 1 to half_kde -1
     mid_mfz   = mfz[kds+1:kde, ids:ide+1]
-    direction = jnp.sign(mid_mfz)
+    direction = bkd.sign(mid_mfz)
     q_0       = q[kds:kde-1, ids:ide+1]
     q_plus_1  = q[kds+1:kde, ids:ide+1]
     qmfz_lo = qmfz_lo.at[kds+1:kde, ids:ide+1].set(
@@ -297,111 +302,112 @@ def fct_calc_vflx(
     q_td_ = q_td[kds:kde+1, ids:ide+1]
     # ------ Calculate qmax and qmin at half levels ------
     # At top (full_kds)
-    qmax_top = jnp.maximum(
-        jnp.maximum(q_[0, :], q_[1, :]),
-        jnp.maximum(q_td_[0, :], q_td_[1, :])
+    qmax_top = bkd.maximum(
+        bkd.maximum(q_[0, :], q_[1, :]),
+        bkd.maximum(q_td_[0, :], q_td_[1, :])
     )
-    qmin_top = jnp.minimum(
-        jnp.minimum(q_[0, :], q_[1, :]),
-        jnp.minimum(q_td_[0, :], q_td_[1, :])
+    qmin_top = bkd.minimum(
+        bkd.minimum(q_[0, :], q_[1, :]),
+        bkd.minimum(q_td_[0, :], q_td_[1, :])
     )
     # From full_kds + 1 to full_kde - 1
-    qmax_mid = jnp.maximum(
-        jnp.maximum(
+    qmax_mid = bkd.maximum(
+        bkd.maximum(
             q_[1:-1, :],
-            jnp.maximum(q_[:-2, :], q_[2:, :]),
+            bkd.maximum(q_[:-2, :], q_[2:, :]),
         ),
-        jnp.maximum(
+        bkd.maximum(
             q_td_[1:-1, :],
-            jnp.maximum(q_td_[:-2, :], q_td_[2:, :]),
+            bkd.maximum(q_td_[:-2, :], q_td_[2:, :]),
         )
     )
-    qmin_mid = jnp.minimum(
-        jnp.minimum(
+    qmin_mid = bkd.minimum(
+        bkd.minimum(
             q_[1:-1, :],
-            jnp.minimum(q_[:-2, :], q_[2:, :]),
+            bkd.minimum(q_[:-2, :], q_[2:, :]),
         ),
-        jnp.minimum(
+        bkd.minimum(
             q_td_[1:-1, :],
-            jnp.minimum(q_td_[:-2, :], q_td_[2:, :]),
+            bkd.minimum(q_td_[:-2, :], q_td_[2:, :]),
         )
     )
     # At bottom (full_kde)
-    qmax_bot = jnp.maximum(
-        jnp.maximum(q_[-1, :], q_[-2, :]),
-        jnp.maximum(q_td_[-1, :], q_td_[-2, :])
+    qmax_bot = bkd.maximum(
+        bkd.maximum(q_[-1, :], q_[-2, :]),
+        bkd.maximum(q_td_[-1, :], q_td_[-2, :])
     )
-    qmin_bot = jnp.minimum(
-        jnp.minimum(q_[-1, :], q_[-2, :]),
-        jnp.minimum(q_td_[-1, :], q_td_[-2, :])
+    qmin_bot = bkd.minimum(
+        bkd.minimum(q_[-1, :], q_[-2, :]),
+        bkd.minimum(q_td_[-1, :], q_td_[-2, :])
     )
     # Combine them together
-    qmax = jnp.concatenate(
+    qmax = bkd.concatenate(
         [qmax_top[None, :],
          qmax_mid,
          qmax_bot[None, :]],
         axis=0
     )  # (nlev, ncell)
-    qmin = jnp.concatenate(
+    qmin = bkd.concatenate(
         [qmin_top[None, :],
          qmin_mid,
          qmin_bot[None, :]],
         axis=0
     )  # (nlev, ncell)
     # ------ Calculate p_in and p_out ------
-    zeros = jnp.array(0.0, dtype=q.dtype)
+    zeros = bkd.array(0.0, dtype=q.dtype)
     p_in = (
-        jnp.maximum(zeros, afz[kds:kde+1, ids:ide+1])
-        - jnp.minimum(zeros, afz[kds+1:kde+2, ids:ide+1])
+        bkd.maximum(zeros, afz[kds:kde+1, ids:ide+1])
+        - bkd.minimum(zeros, afz[kds+1:kde+2, ids:ide+1])
     )  # (nlev, ncell)
     p_out = (
-        jnp.maximum(zeros, afz[kds+1:kde+2, ids:ide+1])
-        - jnp.minimum(zeros, afz[kds:kde+1, ids:ide+1])
+        bkd.maximum(zeros, afz[kds+1:kde+2, ids:ide+1])
+        - bkd.minimum(zeros, afz[kds:kde+1, ids:ide+1])
     )  # (nlev, ncell)
     # ------ Calculate m_in and m_out ------
     m_in = (qmax - q_td_) * dmg_new_ / dt   # (nlev, ncell)
     m_out = (q_td_ - qmin) * dmg_new_ / dt  # (nlev, ncell)
     # =============================================
-    ones = jnp.array(1.0, dtype=q.dtype)
+    ones = bkd.array(1.0, dtype=q.dtype)
     if block.cfg.fct_regression_v:
         r_in = r_in.at[kds:kde+1, ids:ide+1].set(
-            jnp.where(
+            bkd.where(
                 p_in > 0,
-                jnp.minimum(ones, m_in / p_in),
+                bkd.minimum(ones, m_in / p_in),
                 zeros
             )  # (nlev, ncell)
         )
         r_out = r_out.at[kds:kde+1, ids:ide+1].set(
-            jnp.where(
+            bkd.where(
                 p_out > 0,
-                jnp.minimum(ones, m_out / p_out),
+                bkd.minimum(ones, m_out / p_out),
                 zeros
             )  # (nlev, ncell)
         )
     else:
-        if q.dtype == jnp.float32:
+        if q.dtype == bkd.float32:
             kesi = 1.e-40
-        elif q.dtype == jnp.float64:
+        elif q.dtype == bkd.float64:
             kesi = 1.e-80
         else:
             raise ValueError("Unsupported data type for q.")
         r_in = r_in.at[kds:kde+1, ids:ide+1].set(
-            jnp.minimum(ones, m_in / (p_in + kesi))
+            bkd.minimum(ones, m_in / (p_in + kesi))
         ) # (nlev, ncell)
         r_out = r_out.at[kds:kde+1, ids:ide+1].set(
-            jnp.minimum(ones, m_out / (p_out + kesi))
+            bkd.minimum(ones, m_out / (p_out + kesi))
         ) # (nlev, ncell)
     # ========================================================
     # Calculate limited mass flux at half level
     kds, kde = mesh.half_kds, mesh.half_kde
-    cell_range = jnp.arange(ids, ide+1)
-    mark = jnp.rint(
-        -0.5 * jnp.sign(afz[kds+1:kde, ids:ide+1]) + 0.5
-    ).astype(jnp.int32).squeeze()  # 0 or 1 (nlev, ncell)
-    ilev = jnp.arange(kds+1, kde)[:, None]
+    cell_range = bkd.arange(ids, ide+1)
+    mark = bkd.astype(
+        bkd.rint(-0.5 * bkd.sign(afz[kds+1:kde, ids:ide+1]) + 0.5), 
+        bkd.int32
+    ).squeeze()  # 0 or 1 (nlev, ncell)
+    ilev = bkd.arange(kds+1, kde)[:, None]
     v_upwind = ilev - (1 - mark)  # (nlev, ncell)
     v_dowind = ilev - mark        # (nlev, ncell)
-    coef = jnp.minimum(
+    coef = bkd.minimum(
         r_in [v_dowind, cell_range],
         r_out[v_upwind, cell_range]
     )  # (nlev, ncell)

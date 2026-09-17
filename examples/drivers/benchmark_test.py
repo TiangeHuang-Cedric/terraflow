@@ -9,6 +9,7 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
     use_async_io=False,
@@ -58,10 +59,7 @@ model = tf.model.build_hydrostatic_model(
     restart=False
 )
 
-integrate_fn = tf.model.compiled_with_model(
-    model=model,
-    fun=model.integrate(),
-)
+integrate_fn = model.integrate(with_jit=True)
 
 jax.profiler.start_trace("../../.profile_data", create_perfetto_trace=True)
 
@@ -71,7 +69,7 @@ if dev.is_root():
 t0 = time.perf_counter()
 with jax.profiler.StepTraceAnnotation("integrate", step_num=0):
     final = integrate_fn(model)
-    final = tf.model.block_until_ready(final)
+    final = dev.block_until_ready(final)
 t1 = time.perf_counter()
 tf.util.log.logger.info(f"Time cost: {(t1 - t0):.6f} s")
 

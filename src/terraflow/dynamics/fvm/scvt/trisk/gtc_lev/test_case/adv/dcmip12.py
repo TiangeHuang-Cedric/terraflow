@@ -1,9 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
-import jax
 
-from terraflow.util.pytree import tree_at
+
 from terraflow.util.sphere_geometry import vector_convert_lonlat2xyz
 from terraflow.mesh.scvt.parallel import (
     fill_field2d_array_halo,
@@ -16,6 +14,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     calc_gz,
 )
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import TracerMeta
+
 
 if TYPE_CHECKING:
     from terraflow.util import typing
@@ -30,7 +29,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
     def init_tracers_meta(self, dt_adv: float) -> dict[str, TracerMeta]:
         """Initialize tracer metadata.
 
-        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        Note: When calling this method, use backend compilation.
         """
         return {
             "q1": TracerMeta(
@@ -42,12 +41,13 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         }
         
     def update_pressure_levels(self, block: Block, itime: int) -> Block:
+        bkd = block.backend
         mgs = block.state.mgs.unwrap()[itime, :]
         p0  = self.p0
         T0  = self.T0
         # ==============================================
-        mgs = jnp.full_like(mgs, p0)
-        block = tree_at(
+        mgs = bkd.full_like(mgs, p0)
+        block = bkd.tree_at(
             where=lambda b: b.state.mgs.d,
             pytree=block,
             replace=mgs,
@@ -59,8 +59,8 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         mg_lev = block.state.mg_lev.unwrap()[itime, :, :]
         mg     = block.state.mg    .unwrap()[itime, :, :]
         tv     = block.aux  .tv    .unwrap()
-        tv     = jnp.full_like(tv, T0)
-        block = tree_at(
+        tv     = bkd.full_like(tv, T0)
+        block = bkd.tree_at(
             where=lambda b: (b.state.ph_lev.d, b.state.ph.d, b.aux.tv.d),
             pytree=block,
             replace=(mg_lev, mg, tv),
@@ -72,6 +72,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         return block
     
     def set_ic(self, block: Block) -> Block:
+        bkd = block.backend
         block = self.update_pressure_levels(block, 0)
         # ==============================================
         g    = self.para.gravity.unwrap()
@@ -85,9 +86,9 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.cell_ids, mesh.cell_ide
         z = gz[kds:kde+1, ids:ide+1] / g
-        tmp = jnp.where(
-            jnp.logical_and(z1 < z, z < z2),
-            0.5 * (1 + jnp.cos(2 * jnp.pi * (z - z0) / (z2 - z1))),
+        tmp = bkd.where(
+            bkd.logical_and(z1 < z, z < z2),
+            0.5 * (1 + bkd.cos(2 * bkd.pi * (z - z0) / (z2 - z1))),
             0.0
         )
         q = q.at[0, kds:kde+1, ids:ide+1].set(tmp)
@@ -98,7 +99,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
             meta=block.tracers.q.meta
         )
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.tracers.q.d,
             pytree=block,
             replace=q,
@@ -107,7 +108,8 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         )
         
     def set_uv(self, time_in_seconds: float, block: Block, itime: int) -> Block:
-        cos_t = jnp.cos(jnp.pi * time_in_seconds / self.tau)
+        bkd   = block.backend
+        cos_t = bkd.cos(bkd.pi * time_in_seconds / self.tau)
         
         block = self.update_pressure_levels(block, itime)
         # ==============================================
@@ -115,6 +117,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         radius = block.para .radius .unwrap()
         rd     = block.para .rd     .unwrap()
         mesh   = block.mesh
+        bkd    = block.backend
         dmg    = block.state.dmg    .unwrap()[itime, :, :]
         mg     = block.state.mg     .unwrap()[itime, :, :]
         gz_lev = block.state.gz_lev .unwrap()[itime, :, :]
@@ -141,20 +144,20 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
             v2 = mesh.cell_of_edge[ids:ide+1, 1]
             lat = mesh.dual_edge_lat[ids:ide+1]
             rho = 0.5 * (mg[v1] + mg[v2]) / (rd * T0)
-            u   = u0 * jnp.cos(lat)
+            u   = u0 * bkd.cos(lat)
             v   = (
-                -radius * w0 * jnp.pi * rho0 / (K0 * ztop * rho) * 
-                jnp.cos(lat) * jnp.sin(K0 * lat) * 
-                jnp.cos(
-                    jnp.pi * 0.5 * (
+                -radius * w0 * bkd.pi * rho0 / (K0 * ztop * rho) * 
+                bkd.cos(lat) * bkd.sin(K0 * lat) * 
+                bkd.cos(
+                    bkd.pi * 0.5 * (
                         gz[v1] + gz[v2]
                     ) / (g * ztop)
                 ) * cos_t
             )
-            vec = vector_convert_lonlat2xyz(radius, u, v, mesh.dual_edge_xyz[ids:ide+1, :])
-            return jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+            vec = vector_convert_lonlat2xyz(bkd, radius, u, v, mesh.dual_edge_xyz[ids:ide+1, :])
+            return bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         
-        un_tmp = jax.vmap(
+        un_tmp = bkd.vmap(
             _calc_un,
             in_axes=(0, 0),
             out_axes=0
@@ -177,12 +180,12 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         ) -> tuple[FLT[Array, "ncell"], FLT[Array, "ncell"]]: 
             lat = mesh.cell_lat[ids:ide+1]
             we = -g * w0 * rho0 / K0 * (
-                -2 * jnp.sin(K0 * lat) * jnp.sin(lat) + K0 * jnp.cos(lat) * jnp.cos(K0 * lat)
-            ) * jnp.sin(jnp.pi * gz_lev / (g * ztop)) * cos_t / p0
+                -2 * bkd.sin(K0 * lat) * bkd.sin(lat) + K0 * bkd.cos(lat) * bkd.cos(K0 * lat)
+            ) * bkd.sin(bkd.pi * gz_lev / (g * ztop)) * cos_t / p0
             mfz = we * dmg / half_dlev
             return we, mfz
         
-        we_tmp, mfz_tmp = jax.vmap(
+        we_tmp, mfz_tmp = bkd.vmap(
             _calc_dmg,
             in_axes=(0, 0, 0),
             out_axes=(0, 0)
@@ -191,7 +194,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
         we  = we .at[kds+1:kde, ids:ide+1].set(we_tmp )
         mfz = mfz.at[kds+1:kde, ids:ide+1].set(mfz_tmp)
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.un.d, b.aux.we_lev.d, b.aux.mfz_lev.d),
             pytree=block,
             replace=(un, we, mfz),

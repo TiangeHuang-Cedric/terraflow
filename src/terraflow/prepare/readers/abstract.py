@@ -38,9 +38,6 @@ class TopographyReaderConfig(AbstractReaderConfig):
     # norm_opt: "destarea" or "fracarea"
     interp_conserve_opt   : dict[str, Any] = field(default_factory=lambda: {"norm_opt": "destarea"})
 
-    # "scipy" or "jaxkd"
-    fill_backend          : str   = "scipy"
-
     # True or False
     fill_split_with_chunks: bool  = True
 
@@ -65,7 +62,6 @@ class TopographyReaderConfig(AbstractReaderConfig):
             print(f"  interp_conserve_opt        = {self.interp_conserve_opt   }")
         elif self.regrid_type == "fill":
             print(f"  regrid_type                = {self.regrid_type           }")
-            print(f"  fill_backend               = {self.fill_backend          }")
             print(f"  fill_split_with_chunks     = {self.fill_split_with_chunks}")
             print(f"  fill_lon_chunk_size        = {self.fill_lon_chunk_size   }")
             print(f"  fill_lat_chunk_size        = {self.fill_lat_chunk_size   }")
@@ -106,9 +102,6 @@ class BackgroundReaderConfig(AbstractReaderConfig):
     # True or False
     prepare_regrid_gz  : bool  = True
 
-    # "jax" or "native"
-    vert_interp_backend: str   = "jax"
-
     def __print__(self):
         print("================ Background Reader Config ==================")
         print(f"  hori_interp_backend        = {self.hori_interp_backend  }")
@@ -117,7 +110,6 @@ class BackgroundReaderConfig(AbstractReaderConfig):
         print(f"  esmf_extrap_method         = {self.esmf_extrap_method   }")
         print(f"  esmf_conserve_opt          = {self.esmf_conserve_opt    }")
         print(f"  prepare_regrid_gz          = {self.prepare_regrid_gz    }")
-        print(f"  vert_interp_backend        = {self.vert_interp_backend  }")
         print("============================================================")
 
 

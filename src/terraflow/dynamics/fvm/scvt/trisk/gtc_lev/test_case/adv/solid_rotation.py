@@ -1,8 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
 
-from terraflow.util.pytree import tree_at
+
 from terraflow.util.sphere_geometry import (
     great_circle,
     vector_convert_lonlat2xyz
@@ -14,6 +13,7 @@ from terraflow.mesh.scvt.parallel import (
 from terraflow.test_case.adv import solid_rotation as adv_sr
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import TracerMeta
 
+
 if TYPE_CHECKING:
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 
@@ -23,7 +23,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
     def init_tracers_meta(self, dt_adv: float) -> dict[str, TracerMeta]:
         """Initialize tracer metadata.
 
-        Note: When calling this method, use jax.jit or equinox.filter_jit for JIT compilation.
+        Note: When calling this method, use backend compilation.
         """
         return {
             "q1": TracerMeta(
@@ -54,6 +54,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         
     def set_ic(self, block: Block) -> Block:
         mesh   = block.mesh
+        bkd    = block.backend
         radius = block.para   .radius.unwrap()
         m      = block.state  .dmg   .unwrap()[0, :, :   ]
         q      = block.tracers.q     .unwrap()[0, :, :, :]
@@ -64,16 +65,16 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         r0 = radius / 3.0
         
         # Background
-        m = jnp.ones_like(m)
+        m = bkd.ones_like(m)
         
         ids, ide = mesh.cell_ids, mesh.cell_ide
         # Cosine bell
         lat = mesh.cell_lat[ids:ide+1]
         lon = mesh.cell_lon[ids:ide+1]
-        r   = great_circle(radius, lon0, lat0, lon, lat)
-        tmp = jnp.where(
+        r   = great_circle(bkd, radius, lon0, lat0, lon, lat)
+        tmp = bkd.where(
             r < r0,
-            h0 / 2.0 * (1 + jnp.cos(jnp.pi * r / r0)),
+            h0 / 2.0 * (1 + bkd.cos(bkd.pi * r / r0)),
             0.0
         )
         q = q.at[0,0,ids:ide+1].set(tmp)
@@ -88,16 +89,16 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         qmax = 1.0; qmin = 0.1; r = radius * 0.5
         lat = mesh.cell_lat[ids:ide+1]
         lon = mesh.cell_lon[ids:ide+1]
-        r0  = great_circle(radius, lon0, lat0, lon, lat)
-        cond1 = jnp.logical_and(r0 <= r, jnp.abs(lon - lon0) >= r / radius / 6)
-        cond2 = jnp.logical_and(
-            jnp.logical_and(r0 <= r, jnp.abs(lon - lon0) < r / radius / 6),
+        r0  = great_circle(bkd, radius, lon0, lat0, lon, lat)
+        cond1 = bkd.logical_and(r0 <= r, bkd.abs(lon - lon0) >= r / radius / 6)
+        cond2 = bkd.logical_and(
+            bkd.logical_and(r0 <= r, bkd.abs(lon - lon0) < r / radius / 6),
             (lat - lat0) < -5/12 * r / radius
         )
-        tmp = jnp.where(
+        tmp = bkd.where(
             cond1,
             qmax,
-            jnp.where(
+            bkd.where(
                 cond2,
                 qmax,
                 qmin
@@ -114,8 +115,8 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         # Gaussian hill
         lat = mesh.cell_lat[ids:ide+1]
         lon = mesh.cell_lon[ids:ide+1]
-        r = great_circle(radius, lon0, lat0, lon, lat)
-        tmp = jnp.exp(-5 * r**2 / radius**2)
+        r = great_circle(bkd, radius, lon0, lat0, lon, lat)
+        tmp = bkd.exp(-5 * r**2 / radius**2)
         q = q.at[2,0,ids:ide+1].set(tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
@@ -127,7 +128,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         # Constant one
         q = q.at[3,0,:].set(1)
         # ==============================================
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.dmg.d, b.tracers.q.d),
             pytree=block,
             replace=(m, q),
@@ -138,6 +139,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
     def set_uv(self, time_in_seconds: float, block: Block, itime: int) -> Block:
         radius = block.para.radius.unwrap()
         mesh   = block.mesh
+        bkd    = block.backend
         un     = block.state.un.unwrap()[itime, :, :]
         alpha  = self.alpha
         u0     = self.u0
@@ -145,15 +147,16 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         ids, ide = mesh.edge_ids, mesh.edge_ide
         lat = mesh.dual_edge_lat[ids:ide+1]
         lon = mesh.dual_edge_lon[ids:ide+1]
-        u =  u0 * (jnp.cos(lat) * jnp.cos(alpha) + jnp.sin(lat) * jnp.cos(lon) * jnp.sin(alpha))
-        v = -u0 * jnp.sin(lon) * jnp.sin(alpha)
+        u =  u0 * (bkd.cos(lat) * bkd.cos(alpha) + bkd.sin(lat) * bkd.cos(lon) * bkd.sin(alpha))
+        v = -u0 * bkd.sin(lon) * bkd.sin(alpha)
         vec = vector_convert_lonlat2xyz(
+            bkd=bkd,
             R=radius,
             u=u,
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+        tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         un = un.at[0, ids:ide+1].set(tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
@@ -161,7 +164,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
             meta=block.state.un.meta
         )
         # ============================================== 
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
             replace=un,

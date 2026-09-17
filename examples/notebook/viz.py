@@ -9,9 +9,9 @@
 #       format_name: percent
 #       format_version: '1.3'
 #   kernelspec:
-#     display_name: Python (terraflow-dev)
+#     display_name: Python 3
 #     language: python
-#     name: terraflow-dev
+#     name: python3
 # ---
 
 # %% [markdown]
@@ -33,7 +33,7 @@ grist_path = "../../data/GRIST_INPUT/uniform-pl-20211229/"
 grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
-dev = tf.util.device.CPU(float_type="r8", int_type="i4")
+dev = tf.util.device.CPU(backend="jax", float_type="r8", int_type="i4")
 
 para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev

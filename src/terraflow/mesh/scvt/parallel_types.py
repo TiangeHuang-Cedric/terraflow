@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from mpi4py import MPI
 import numpy as np
-import jax.numpy as jnp
 
 from terraflow.util.typing import Array
 from terraflow.util.parallel_types import Proc
@@ -26,15 +25,15 @@ class CommonSite:
     req_n_cell    : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
     req_n_vtx     : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
     req_n_edge    : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
-    cell_buf      : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    vtx_buf       : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    edge_buf      : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    global_cell_id: Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    global_vtx_id : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    global_edge_id: Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    local_cell_id : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    local_vtx_id  : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
-    local_edge_id : Array = field(default_factory=lambda: jnp.empty(0, dtype=jnp.int32))
+    cell_buf      : Array = field(default_factory=lambda: None)
+    vtx_buf       : Array = field(default_factory=lambda: None)
+    edge_buf      : Array = field(default_factory=lambda: None)
+    global_cell_id: Array = field(default_factory=lambda: None)
+    global_vtx_id : Array = field(default_factory=lambda: None)
+    global_edge_id: Array = field(default_factory=lambda: None)
+    local_cell_id : Array = field(default_factory=lambda: None)
+    local_vtx_id  : Array = field(default_factory=lambda: None)
+    local_edge_id : Array = field(default_factory=lambda: None)
 
 
 @dataclass

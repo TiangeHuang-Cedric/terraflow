@@ -15,9 +15,10 @@ grist_0d_file = grist_path + "grist.grid_file.g5.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g5.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
-    use_async_io=False, 
+    use_async_io=False,
     proc_io_stride=0
 )
 
@@ -55,7 +56,6 @@ topo_reader = tf.readers.topo.ETOPO1Reader(
     para=para,
     cfg=tf.readers.TopographyReaderConfig(
         regrid_type="fill",
-        fill_backend="scipy",
         fill_split_with_chunks=True,
         fill_lon_chunk_size=360,
         fill_lat_chunk_size=180,
@@ -71,8 +71,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
     cfg=tf.readers.BackgroundReaderConfig(
         hori_interp_backend="esmf",
         hori_interp_method="conserve_1st",
-        interp_at_midpoint=False,
-        vert_interp_backend="jax",
+        interp_at_midpoint=False
     ),
     dev=dev
 )
@@ -92,7 +91,7 @@ model = tf.model.build_hydrostatic_model(
     restart=False
 )
 
-integrate_fn = model.integrate()
+integrate_fn = model.integrate(with_jit=True)
 
 
 def wrap_grad_fn(un, model):

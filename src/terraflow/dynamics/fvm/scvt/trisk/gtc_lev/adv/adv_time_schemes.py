@@ -1,8 +1,5 @@
 from __future__ import annotations
 from typing import Callable, TYPE_CHECKING
-import jax
-
-from terraflow.util.pytree import tree_at
 
 
 if TYPE_CHECKING:
@@ -97,14 +94,14 @@ def rk2(
                 )
                 return batch, block
 
-            batch, block = jax.lax.cond(
+            batch, block = block.backend.cond(
                 batch.is_run_tracer_istep(),
                 run_tracers,
                 do_nothing,
                 (batch, block)
             )
 
-            block = tree_at(
+            block = block.backend.tree_at(
                 lambda b: b.adv_batches[batch_name],
                 block,
                 batch
@@ -166,14 +163,14 @@ def wrfrk3(
                 )
                 return batch, block
 
-            batch, block = jax.lax.cond(
+            batch, block = block.backend.cond(
                 batch.is_run_tracer_istep(),
                 run_tracers,
                 do_nothing,
                 (batch, block)
             )
 
-            block = tree_at(
+            block = block.backend.tree_at(
                 lambda b: b.adv_batches[batch_name],
                 block,
                 batch

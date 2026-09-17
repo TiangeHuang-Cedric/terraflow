@@ -1,24 +1,25 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+
 from terraflow.util import log
-from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.parallel import fill_field1d_array_halo
 from terraflow.mesh.scvt.regridder import Regridder
 from terraflow.prepare.scvt.topo import fill_grid
-from . import ref
-from .topo_smooth import topo_smooth, calc_zs_slope
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.prepare import ref
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.prepare.topo_smooth import topo_smooth, calc_zs_slope
+
 
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.prepare.readers.topo import AbstractTopographyReader
-    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block as BLOCK
+    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block as Block
 
     Float = typing.Float
     Array = typing.Array
 
 
-def prepare_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
+def prepare_topo(block: Block, reader: AbstractTopographyReader) -> Block:
     # Regrid topo
     block = regrid_topo(block=block, reader=reader)
     if reader.cfg.use_zs_grad_filter:
@@ -27,7 +28,8 @@ def prepare_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     return block
 
 
-def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
+def regrid_topo(block: Block, reader: AbstractTopographyReader) -> Block:
+    bkd  = block.backend
     para = block.para
     mesh = block.mesh
     if block.dev.is_root(): log.logger.info(f"Regrid topography.")
@@ -52,7 +54,7 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
             f=lnd,
             meta=block.static.landmask.meta
         )
-        block = tree_at(
+        block = bkd.tree_at(
             where=lambda b: (b.static.gzs.d, b.static.landmask.d),
             pytree=block,
             replace=(gzs, lnd),
@@ -84,7 +86,7 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
             f=gzs,
             meta=block.static.gzs.meta
         )
-        block = tree_at(
+        block = bkd.tree_at(
             where=lambda b: b.static.gzs.d,
             pytree=block,
             replace=gzs,
@@ -96,7 +98,7 @@ def regrid_topo(block: BLOCK, reader: AbstractTopographyReader) -> BLOCK:
     gzs = block.static.gzs.unwrap()
     dzsdn = block.static.dzsdn.unwrap()
     dzsdn = calc_zs_slope(block, gzs, dzsdn)
-    block = tree_at(
+    block = bkd.tree_at(
         where=lambda b: b.static.dzsdn.d,
         pytree=block,
         replace=dzsdn,

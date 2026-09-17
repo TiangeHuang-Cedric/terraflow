@@ -1,4 +1,5 @@
-from jax import numpy as jnp
+import math
+
 
 from terraflow.util.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractAdvectionModel2DTestCase
@@ -25,8 +26,8 @@ class SolidRotationTestCase(AbstractAdvectionModel2DTestCase):
         self.keywords = ("advection", "solid rotation", "atmosphere")
         self.period = 12 * 86400.0
         self.h0     = 1000.0
-        self.lon0   = 3 * jnp.pi / 2
+        self.lon0   = 3 * math.pi / 2
         self.lat0   = 0.0
-        self.alpha  = jnp.pi / 2
-        self.u0     = 2 * jnp.pi * para.radius.unwrap() / self.period
+        self.alpha  = math.pi / 2
+        self.u0     = 2 * math.pi * para.radius.unwrap() / self.period
         super().__init__(para)

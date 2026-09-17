@@ -12,19 +12,12 @@ from abc import abstractmethod
 import time
 import netCDF4 as nc4
 import numpy as np
-import jax.numpy as jnp
-import jax.experimental
 from mpi4py import MPI
 
 
-from terraflow.util import log, datetime as tfdatetime
+from terraflow.util import log
 from terraflow.util.device import AbstractDevice
-from terraflow.util.datetime import (
-    DateTimeManager,
-    perf_runtime,
-    perf_write_history,
-    format_seconds
-)
+from terraflow.util.datetime import DateTimeManager
 from terraflow.util.history.abstract import (
     AbstractHistoryset,
     AbstractHistory
@@ -32,8 +25,8 @@ from terraflow.util.history.abstract import (
 from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
 from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
-from terraflow.util.field import ScalarFieldMeta
-from terraflow.mesh.scvt.regridder import Regridder
+from terraflow.util.field import ScalarField, ScalarFieldMeta
+from terraflow.mesh.scvt.regridder import ESMFRegridder
 from terraflow.mesh.scvt.interp import interp_plev
 from terraflow.mesh.scvt.field import (
     SCVTFields, 
@@ -143,31 +136,26 @@ class SCVTHistoryIOMap:
     def collect(
         self,
         field_data: Array,
-        meta: SCVTFieldMeta,
-        dtype: type[np.float32] | type[np.float64],
+        meta: SCVTFieldMeta
     ) -> list[tuple[np.ndarray, np.ndarray]]:
-        local_piece = self.local_piece(field_data, meta, dtype)
+        local_piece = self.local_piece(field_data, meta)
         return self.history.comm_io.allgather(local_piece)
 
     def collect_root(
         self,
         field_data: Array,
-        meta: SCVTFieldMeta,
-        dtype: type[np.float32] | type[np.float64],
+        meta: SCVTFieldMeta
     ) -> list[tuple[np.ndarray, np.ndarray]] | None:
-        local_piece = self.local_piece(field_data, meta, dtype)
+        local_piece = self.local_piece(field_data, meta)
         return self.history.comm_io.gather(local_piece, root=0)
 
     def local_piece(
         self,
         field_data: Array,
-        meta: SCVTFieldMeta,
-        dtype: type[np.float32] | type[np.float64],
+        meta: SCVTFieldMeta
     ) -> tuple[np.ndarray, np.ndarray]:
-        local_data = np.asarray(
-            field_data[..., meta.ids:meta.ide + 1],
-            dtype=dtype
-        )
+        bkd = self.history.backend
+        local_data = bkd.to_numpy(field_data[..., meta.ids:meta.ide + 1])
         local_indices = self.history.owned_global_indices(meta)
         owned = self.history.source_owns_indices(self.name, local_indices)
         local_indices = local_indices[owned]
@@ -223,8 +211,8 @@ def build_history(
     h2_opt: dict = {},
     output_ngroups: int = 0,
     dev: Optional[AbstractDevice] = None,
-    float_type: Optional[type[np.float32] | type[np.float64]] = None,
-    int_type: Optional[type[np.int32] | type[np.int64]] = None,
+    float_type: Optional[str] = None,
+    int_type: Optional[str] = None,
 ) -> Union[UGRIDHistoryset, SCVTHistoryset]:
     if mode == "scvt":
         return SCVTHistoryset(
@@ -270,7 +258,6 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
     case_name   : str
     float_type  : type[np.float32] | type[np.float64]
     int_type    : type[np.int32] | type[np.int64]
-    proc        : Proc
     output_ngroups: int
     built       : bool
 
@@ -288,14 +275,13 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
         h2_opt: dict = {},
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
         **kwargs
     ) -> None:
         self.built = False
         self.time_manager = model.time_manager
         self.case_name = case_name
-        self.proc      = model.block.dev.proc
         self.output_h0 = output_h0
         self.output_h1 = output_h1
         self.output_h2 = output_h2
@@ -383,28 +369,6 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
     def has_built(self) -> bool:
         return self.built
 
-    def is_root(self) -> bool:
-        return self.proc.is_root()
-
-    def sync(self) -> None:
-        self.proc.comm_model.Barrier()
-
-    def output_diag(self, itimestep: int) -> None:
-        jax.experimental.io_callback(
-            self.log_diag,
-            None,
-            itimestep,
-            ordered=True
-        )
-
-    def output_prepare(self, save_interval_idx: int) -> None:
-        jax.experimental.io_callback(
-            self._prepare_for_output,
-            None,
-            save_interval_idx,
-            ordered=True
-        )
-
     def output(
         self,
         block: Block,
@@ -426,7 +390,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
             None
         """
         if itime_str == "old":
-            jax.experimental.io_callback(
+            self.backend.io_callback(
                 self._output_old,
                 None,
                 block,
@@ -435,7 +399,7 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
                 ordered=True
             )
         elif itime_str == "new":
-            jax.experimental.io_callback(
+            self.backend.io_callback(
                 self._output_new,
                 None,
                 block,
@@ -447,55 +411,6 @@ class AbstractBaseHistoryset(AbstractHistoryset, Generic[HY, SHY]):
             raise ValueError(
                 f"Invalid itime_str: {itime_str}, expected 'old' or 'new'."
             )
-
-    def log_diag(self, itimestep: int) -> None:
-        if not self.is_root():
-            return None
-        perf_runtime()
-
-        log.logger.log(
-            "RUNTIME",
-            f"==> {self.time_manager.curr_time4itimestep(itimestep)}  "
-            f"{format_seconds(tfdatetime.elapsed_seconds_in_integration, precision=16)}  "
-            f"{format_seconds(tfdatetime.elapsed_secondes_in_real_world, precision=16)}"
-        )
-        return None
-
-    def _prepare_for_output(self, save_interval_idx: int) -> None:
-        if not self.is_root():
-            return None
-        perf_runtime()
-
-        log.logger.log(
-            "RUNTIME",
-            f"==> {self.time_manager.curr_time4save(save_interval_idx)}  "
-            f"{format_seconds(tfdatetime.elapsed_seconds_in_integration, precision=16)}  "
-            f"{format_seconds(tfdatetime.elapsed_secondes_in_real_world, precision=16)}"
-        )
-        return None
-
-    def log_write_elapsed_seconds(self) -> None:
-        if not self.is_root():
-            return None
-        log.logger.success(
-            f"Time cost {format(perf_write_history(), '.16f')} seconds."
-        )
-        return None
-
-    def log_start_write(self, history: str) -> None:
-        if not self.is_root():
-            return None
-        log.logger.info(
-            f"Write {history} file."
-        )
-
-    def log_done_write(self, history: str, cost_time: float) -> None:
-        if not self.is_root():
-            return None
-        log.logger.success(
-            f"Done write {history} file cost {format(cost_time, '.16f')} seconds."
-        )
-        return None
 
     def _output_old(
         self,
@@ -691,8 +606,8 @@ class UGRIDHistoryset(
         use_dual: bool = False,
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
         **kwargs
     ) -> None:
         super().__init__(
@@ -734,8 +649,8 @@ class SCVTHistoryset(
         output_h2: bool = False,
         output_ngroups: int = 0,
         dev: Optional[AbstractDevice] = None,
-        float_type: Optional[type[np.float32] | type[np.float64]] = None,
-        int_type: Optional[type[np.int32] | type[np.int64]] = None,
+        float_type: Optional[str] = None,
+        int_type: Optional[str] = None,
         **kwargs
     ) -> None:
         mode = model.mode
@@ -904,25 +819,25 @@ class AbstractBaseHistory(AbstractHistory):
             raise ValueError(
                 f"Unsupported field location {meta.loc} for variable {meta.name}."
             )
-        global_id = np.asarray(global_id, dtype=np.int64)
+        global_id = self.backend.to_numpy(global_id)
         if global_id.size == 0:
-            return np.arange(meta.ids, meta.ide + 1, dtype=np.int64)
+            return np.arange(meta.ids, meta.ide + 1, dtype=np.int32)
         return global_id[meta.ids:meta.ide + 1]
 
     def source_owns_indices(self, name: str, global_indices: np.ndarray) -> np.ndarray:
         if self.io_nproc == 1:
             return np.ones(global_indices.shape, dtype=bool)
         if name == "cell":
-            cell_owner = np.asarray(self.global_mesh.cell_proc_idmap, dtype=np.int64)
+            cell_owner = self.backend.to_numpy(self.global_mesh.cell_proc_idmap)
             return cell_owner[global_indices] == self.proc.id_model
         if name == "vtx":
-            cells = np.asarray(self.global_mesh.cell_of_vtx , dtype=np.int64)[global_indices]
+            cells = self.backend.to_numpy(self.global_mesh.cell_of_vtx )[global_indices]
         elif name == "edge":
-            cells = np.asarray(self.global_mesh.cell_of_edge, dtype=np.int64)[global_indices]
+            cells = self.backend.to_numpy(self.global_mesh.cell_of_edge)[global_indices]
         else:
             raise ValueError(f"Invalid SCVT history IO map name {name}.")
         valid = cells >= 0
-        cell_owner = np.asarray(self.global_mesh.cell_proc_idmap, dtype=np.int64)
+        cell_owner = self.backend.to_numpy(self.global_mesh.cell_proc_idmap)
         owner = np.min(
             np.where(valid, cell_owner[np.where(valid, cells, 0)], np.iinfo(np.int64).max),
             axis=1
@@ -933,18 +848,15 @@ class AbstractBaseHistory(AbstractHistory):
         self,
         field_data: Array,
         meta: SCVTFieldMeta,
-        dtype: type[np.float32] | type[np.float64] | None = None
     ) -> np.ndarray | None:
-        dtype = self.float_type if dtype is None else dtype
         history_io_map = self.io_map(meta)
-        pieces = history_io_map.collect_root(field_data, meta, dtype)
+        pieces = history_io_map.collect_root(field_data, meta)
         if self.is_root():
             assert pieces is not None
-            fill_value = np.nan if np.issubdtype(dtype, np.floating) else 0
+            fill_value = np.nan
             global_data = np.full(
                 pieces[0][1].shape[:-1] + (self.global_spatial_size(meta),),
-                fill_value,
-                dtype=dtype
+                fill_value
             )
             for global_indices, data in pieces:
                 global_data[..., global_indices] = data
@@ -954,14 +866,12 @@ class AbstractBaseHistory(AbstractHistory):
     def _gather_field_pieces(
         self,
         field_data: Array,
-        meta: SCVTFieldMeta,
-        dtype: type[np.float32] | type[np.float64] | None = None
+        meta: SCVTFieldMeta
     ) -> list[tuple[np.ndarray, np.ndarray]] | None:
-        dtype = self.float_type if dtype is None else dtype
         history_io_map = self.io_map(meta)
         if self.grouped_io:
-            return history_io_map.collect(field_data, meta, dtype)
-        return history_io_map.collect_root(field_data, meta, dtype)
+            return history_io_map.collect(field_data, meta)
+        return history_io_map.collect_root(field_data, meta)
 
     def _write_spatial_range(
         self,
@@ -1058,7 +968,7 @@ class AbstractBaseHistory(AbstractHistory):
                 if self.is_root():
                     scalar_pending.append((
                         field.meta.name,
-                        np.asarray(data, dtype=self.float_type),
+                        self.backend.to_numpy(data),
                         field.meta.is_static
                     ))
             else:
@@ -1390,7 +1300,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
     hori_regrid_method: str
     hori_regrid_backend: str
     vert_interp: bool
-    _regridders: dict[tuple[str, Optional[int]], Regridder]
+    _regridders: dict[tuple[str, Optional[int]], ESMFRegridder]
     built: bool
 
     def __init__(
@@ -1412,7 +1322,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         south_north_resolution: float = 1.0,
         lon: Optional[np.ndarray | Array] = None,
         lat: Optional[np.ndarray | Array] = None,
-        plev: np.ndarray | Array = np.array([10, 20, 50, 100, 200, 300, 500, 700, 850, 925, 1000]),
+        plev: np.ndarray | Array = None,
         plev_unit: str = "hPa",
         output_ngroups: int = 0,
     ) -> None:
@@ -1457,26 +1367,32 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             int_type=self.int_type
         )
         self.para = model.block.para
-        self.mesh = self.global_mesh
+        self.mesh = self.local_mesh
         self.hori_regrid_method = hori_regrid_method
         self.hori_regrid_backend = hori_regrid_backend
         self.vert_interp = vert_interp
+        
+        if plev is None:
+            plev = np.array(
+                [10, 20, 50, 100, 200, 300, 500, 700, 850, 925, 1000], 
+                dtype=self.float_type
+            )
 
         if lon is not None and lat is not None:
-            self.structured_lon = np.array(lon)
-            self.structured_lat = np.array(lat)
-            self.structured_lev = np.array(plev)
+            self.structured_lon = np.array(lon , self.float_type)
+            self.structured_lat = np.array(lat , self.float_type)
+            self.structured_lev = np.array(plev, self.float_type)
         else:
             self.structured_lon = np.arange(
-                lon_west, lon_east, east_west_resolution
+                lon_west, lon_east, east_west_resolution, dtype=self.float_type
             )
             self.structured_lat = np.arange(
-                lat_south, lat_north, south_north_resolution
+                lat_south, lat_north, south_north_resolution, dtype=self.float_type
             )
             if plev_unit.lower() == "hpa" or plev_unit.lower() == "mb":
-                self.structured_lev = np.array(plev, dtype=np.float64) * 100.0
+                self.structured_lev = np.array(plev, self.float_type) * 100.0
             elif plev_unit.lower() == "pa":
-                self.structured_lev = np.array(plev, dtype=np.float64)
+                self.structured_lev = np.array(plev, self.float_type)
             else:
                 raise ValueError(
                     f"Unsupported plev_unit: {plev_unit}, expected 'hPa', 'Pa', or 'mb'."
@@ -1512,6 +1428,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             ):
                 self.add_fields(fields)
         self.sync()
+        self._prebuild_regridders(fields)
         return self
 
     def add_fields(self, fields: SCVTFields) -> None:
@@ -1575,10 +1492,6 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
                 raise ValueError(
                     f"Unsupported meta data type for variable {meta.name}: {type(meta)}."
                 )
-            # Set regridder for field if applicable
-            if isinstance(field, SCVTFieldLike):
-                ndbound = self._metadata_ndbound(field)
-                self._get_regridder(meta=field.meta, ndbound=ndbound)
         ds.close()
         return None
 
@@ -1591,141 +1504,203 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         ph_lev: Optional[np.ndarray] = None,
         **kwargs
     ) -> None:
-        var_dtype = self.float_type
-        ds = nc4.Dataset(self.file_path, mode="a") if self.is_root() else None
-        # Write remapped FieldMetaData fields
-        try:
-            for _, field in fields.items():
-                meta = field.meta
-                if not isinstance(meta, SCVTFieldMeta):
-                    continue
-                if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
-                    continue
-                if meta.name in PLEV_NAMES and self.vert_interp:
-                    continue
+        remapped_pending: list[tuple[SCVTFieldLike, np.ndarray, Optional[int]]] = []
+        scalar_pending: list[tuple[str, np.ndarray, bool]] = []
+        tracers_meta: dict[str, TracerMeta] | None = None
+        if hasattr(fields, "tracers_meta"):
+            tracers_meta = getattr(fields, "tracers_meta")
 
+        for _, field in fields.items():
+            meta = field.meta
+            if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
+                continue
+            if isinstance(field, SCVTFieldLike):
+                if field.meta.name in PLEV_NAMES and self.vert_interp:
+                    continue
                 if dim0_idx is None:
                     field_data = field.unwrap()
                 else:
                     field_data = field.unwrap()[dim0_idx, ...]
-                field_data = self._gather_field_data(
-                    field_data=field_data,
-                    meta=meta,
-                    dtype=var_dtype
+                ndbound = self._get_field_ndbound(field.meta)
+                remapped = self._remap_field(
+                    field_data=self.backend.to_numpy(field_data),
+                    meta=field.meta,
+                    ph=ph,
+                    ph_lev=ph_lev,
                 )
-                if field_data is None:
-                    continue
+                remapped_pending.append((field, remapped, ndbound))
+            elif isinstance(field, ScalarField):
                 if self.is_root():
-                    assert ds is not None
-                    idx = len(ds.variables["time"]) - 1
-                    field_data = self._remap_field(
-                        field_data=np.asarray(field_data),
-                        meta=meta,
-                        ph=ph,
-                        ph_lev=ph_lev,
-                    )
-                    if meta.is_static:
-                        ds.variables[meta.name][...] = np.asarray(
-                            field_data,
-                            dtype=var_dtype
-                        )
-                    elif not meta.is_tracer:
-                        ds.variables[meta.name][idx, ...] = np.asarray(
-                            field_data,
-                            dtype=var_dtype
-                        )
-                    else:
-                        if hasattr(fields, "tracers_meta"):
-                            tracers_meta: dict[str, TracerMeta] = getattr(
-                                fields, "tracers_meta"
-                            )
-                        else:
-                            raise ValueError(
-                                "tracers_meta is required for tracer fields."
-                            )
-                        if tracer_idx is None:
-                            raise ValueError(
-                                "tracer_idx is required for tracer fields."
-                            )
-                        tracer_indices = set(
-                            np.asarray(tracer_idx).reshape(-1).astype(int).tolist()
-                        )
-                        for q_idx, tracer_name in enumerate(tracers_meta.keys()):
-                            if q_idx in tracer_indices:
-                                ds.variables[tracer_name][idx, ...] = np.asarray(
-                                    field_data[q_idx, ...],
-                                    dtype=var_dtype
-                                )
-            # Write NumericMetaData fields
-            if self.is_root():
-                assert ds is not None
-                for _, field in fields.items():
-                    if not isinstance(field.meta, ScalarFieldMeta):
-                        continue
-                    if field.meta.output not in STRUCTURED_HISTORY_LIST or field.meta.output == "":
-                        continue
                     if dim0_idx is None:
                         field_data = field.unwrap()
                     else:
                         field_data = field.unwrap()[dim0_idx, ...]
-                    field_name = field.meta.name
+                    scalar_pending.append((
+                        meta.name,
+                        self.backend.to_numpy(field_data),
+                        meta.is_static,
+                    ))
+            else:
+                raise ValueError(
+                    f"Unsupported meta data type for variable {meta.name}: {type(meta)}."
+                )
+
+        for writer_rank in range(self.io_nproc):
+            if self.io_rank == writer_rank:
+                ds = nc4.Dataset(self.file_path, mode="a")
+                try:
                     idx = len(ds.variables["time"]) - 1
-                    if field.meta.is_static:
-                        ds.variables[field_name][...] = np.asarray(
-                            field_data, dtype=var_dtype
+                    for field, data, ndbound in remapped_pending:
+                        self._write_remapped_field(
+                            ds=ds,
+                            field=field,
+                            data=data,
+                            ndbound=ndbound,
+                            time_idx=idx,
+                            tracer_idx=tracer_idx,
+                            tracers_meta=tracers_meta,
                         )
-                    else:
-                        ds.variables[field_name][idx] = np.asarray(
-                            field_data, dtype=var_dtype
-                        )
-        finally:
-            if ds is not None:
-                ds.close()
+                    if self.is_root():
+                        for var_name, data, is_static in scalar_pending:
+                            if is_static:
+                                ds.variables[var_name][...] = data
+                            else:
+                                ds.variables[var_name][idx] = data
+                finally:
+                    ds.close()
+            self.sync()
         self.sync()
+        return None
+
+    def _write_structured_var(
+        self,
+        ds: nc4.Dataset,
+        var_name: str,
+        data: np.ndarray,
+        lat_slice: slice,
+        lon_slice: slice,
+        time_idx: int | None,
+    ) -> None:
+        if (lat_slice.stop or 0) <= (lat_slice.start or 0):
+            return None
+        if (lon_slice.stop or 0) <= (lon_slice.start or 0):
+            return None
+        var = ds.variables[var_name]
+        spatial_idx = (lat_slice, lon_slice)
+        if time_idx is None:
+            nc_idx = (slice(None),) * (var.ndim - 2) + spatial_idx
+        else:
+            nc_idx = (time_idx,) + (slice(None),) * (var.ndim - 3) + spatial_idx
+        var[nc_idx] = data
+        return None
+
+    def _write_remapped_field(
+        self,
+        ds: nc4.Dataset,
+        field: SCVTFieldLike,
+        data: np.ndarray,
+        ndbound: Optional[int],
+        time_idx: int,
+        tracer_idx: Optional[list[int]],
+        tracers_meta: Optional[dict[str, TracerMeta]],
+    ) -> None:
+        meta = field.meta
+        lat_slice, lon_slice = self._dst_grid_slices(meta=meta, ndbound=ndbound)
+        write_time_idx = None if meta.is_static else time_idx
+        if not meta.is_tracer:
+            self._write_structured_var(
+                ds=ds,
+                var_name=meta.name,
+                data=data,
+                lat_slice=lat_slice,
+                lon_slice=lon_slice,
+                time_idx=write_time_idx,
+            )
+            return None
+        if tracers_meta is None:
+            raise ValueError("tracers_meta is required for tracer fields.")
+        if tracer_idx is None:
+            raise ValueError("tracer_idx is required for tracer fields.")
+        tracer_indices = set(
+            self.backend.to_numpy(tracer_idx).reshape(-1).astype(int).tolist()
+        )
+        for q_idx, tracer_name in enumerate(tracers_meta.keys()):
+            if q_idx not in tracer_indices:
+                continue
+            self._write_structured_var(
+                ds=ds,
+                var_name=tracer_name,
+                data=data[q_idx, ...],
+                lat_slice=lat_slice,
+                lon_slice=lon_slice,
+                time_idx=write_time_idx,
+            )
         return None
 
     def _get_regridder(
         self,
         meta: SCVTFieldMeta,
         ndbound: Optional[int],
-    ) -> Regridder:
+    ) -> ESMFRegridder:
         loc = meta.loc
         key = (loc, ndbound)
         if key not in self._regridders:
+            if self.has_built():
+                available = sorted(
+                    (repr(item) for item in self._regridders.keys())
+                )
+                raise RuntimeError(
+                    "Missing prebuilt h2 ESMF regridder "
+                    f"for key={key}, variable={meta.name!r}; "
+                    f"available keys={available}."
+                )
             lon, lat = self.structured_lon, self.structured_lat
-            self._regridders[key] = Regridder(
-                src=Regridder.create_scvt_info(
+            self._regridders[key] = ESMFRegridder(
+                src=ESMFRegridder.create_scvt_mesh(
                     para=self.para,
                     mesh=self.mesh,
-                    loc=loc
+                    loc=loc,
+                    layout="triskc",
+                    with_halo=False,
                 ),
-                dst=Regridder.create_latlon_info(
-                    lon=jnp.array(lon),
-                    lat=jnp.array(lat)
+                dst=ESMFRegridder.create_latlon_grid(
+                    lon=np.array(lon),
+                    lat=np.array(lat)
                 ),
-                layout="triskc",
-                backend=self.hori_regrid_backend,
+                backend=self.backend,
                 ndbounds=None if ndbound is None else (ndbound,),
                 method=self.hori_regrid_method,
                 extrap=True,
-                esmf_conserve_opt={"norm_opt": "fracarea"},
+                conserve_opt={"norm_opt": "fracarea"},
                 precompute_weights=True,
             )
         return self._regridders[key]
 
-    def _metadata_ndbound(self, field: SCVTFieldLike) -> Optional[int]:
-        meta = field.meta
-        data = field.unwrap()
-
-        # For sfc or 2D variables, ndbound
+    def _get_field_ndbound(self, meta: SCVTFieldMeta) -> Optional[int]:
         if meta.at_sfc:
-            ndbound = None
-        # For 3D variables, ndbound is the product of leading dimensions (excluding spatial dimensions)
-        else:
-            dims = meta.dims
-            ndbound = data.shape[-2] if len(dims) >= 2 else 1
+            return None
+        return int(meta.nlev)
 
-        return ndbound
+    def _prebuild_regridders(self, fields: SCVTFields) -> None:
+        if self.hori_regrid_backend != "esmf":
+            return None
+        for _, field in fields.items():
+            meta = field.meta
+            if meta.output not in STRUCTURED_HISTORY_LIST or meta.output == "":
+                continue
+            if not isinstance(field, SCVTFieldLike):
+                continue
+            ndbound = self._get_field_ndbound(field.meta)
+            self._get_regridder(meta=field.meta, ndbound=ndbound)
+        self.sync()
+        return None
+
+    def _dst_grid_slices(
+        self,
+        meta: SCVTFieldMeta,
+        ndbound: Optional[int],
+    ) -> tuple[slice, slice]:
+        return self._get_regridder(meta=meta, ndbound=ndbound).dst_grid_slices()
 
     def _horizontal_remap(
         self,
@@ -1733,18 +1708,21 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         meta: SCVTFieldMeta,
         ndbound: Optional[int],
     ) -> np.ndarray:
+        bkd = self.backend
         regridder = self._get_regridder(meta=meta, ndbound=ndbound)
+        field_data = field_data[..., meta.ids:meta.ide + 1]
         if meta.is_tracer:
             return np.stack(
                 [
-                    np.array(
-                        regridder.regrid(jnp.asarray(field_data[q_idx, ...])),
-                        copy=True,
+                    self.backend.to_numpy(
+                        regridder.regrid(
+                            bkd.asarray(field_data[q_idx, ...])
+                        )
                     )
                     for q_idx in range(field_data.shape[0])
                 ]
             )
-        return np.array(regridder.regrid(jnp.asarray(field_data)), copy=True)
+        return self.backend.to_numpy(regridder.regrid(bkd.asarray(field_data)))
 
     def _remap_field(
         self,
@@ -1772,6 +1750,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
                     )
             ndbound = None
         else:
+            ndbound = self._get_field_ndbound(meta)
             # (ntracer, nlev, npoints)
             if meta.is_tracer:
                 if field_data.ndim != 3:
@@ -1780,10 +1759,23 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
                         f"{meta.loc}, but has shape {field_data.shape}, "
                         f"which does not match metadata dimensions {meta.dims}."
                     )
-                ndbound = field_data.shape[1]
+                if field_data.shape[1] != ndbound:
+                    raise ValueError(
+                        f"Variable {meta.name} has shape {field_data.shape}, "
+                        f"expected vertical dimension {ndbound} from metadata."
+                    )
             # (nlev, npoints)
             else:
-                ndbound = field_data.shape[0]
+                if field_data.ndim != 2:
+                    raise ValueError(
+                        f"Variable {meta.name} has shape {field_data.shape}, "
+                        f"expected (nlev, npoints) for {meta.loc!r}."
+                    )
+                if field_data.shape[0] != ndbound:
+                    raise ValueError(
+                        f"Variable {meta.name} has shape {field_data.shape}, "
+                        f"expected vertical dimension {ndbound} from metadata."
+                    )
         # =================================================
         # Horizontal regridding
         if meta.name in PLEV_NAMES:
@@ -1857,32 +1849,16 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
             return None, None
         ph_data = ph.unwrap()[itime, ...]
         ph_lev_data = ph_lev.unwrap()[itime, ...]
-        ph_data = self._gather_field_data(
-            field_data=ph_data,
+        ph_remapped = self._horizontal_remap(
+            field_data=self.backend.to_numpy(ph_data),
             meta=ph.meta,
-            dtype=self.float_type
+            ndbound=self._get_field_ndbound(ph.meta),
         )
-        ph_lev_data = self._gather_field_data(
-            field_data=ph_lev_data,
+        ph_lev_remapped = self._horizontal_remap(
+            field_data=self.backend.to_numpy(ph_lev_data),
             meta=ph_lev.meta,
-            dtype=self.float_type
+            ndbound=self._get_field_ndbound(ph_lev.meta),
         )
-        if ph_data is not None:
-            ph_remapped = self._horizontal_remap(
-                field_data=ph_data,
-                meta=ph.meta,
-                ndbound=ph_data.shape[0] if ph_data.ndim >= 2 else None
-            )
-        else:
-            ph_remapped = None
-        if ph_lev_data is not None:
-            ph_lev_remapped = self._horizontal_remap(
-                field_data=ph_lev_data,
-                meta=ph_lev.meta,
-                ndbound=ph_lev_data.shape[0] if ph_lev_data.ndim >= 2 else None
-            )
-        else:
-            ph_lev_remapped = None
         return ph_remapped, ph_lev_remapped
 
 

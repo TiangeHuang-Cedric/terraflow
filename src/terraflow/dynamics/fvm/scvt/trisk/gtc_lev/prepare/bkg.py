@@ -1,19 +1,13 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax.numpy as jnp
 
 
 from terraflow.util import typing, log, sphere_geometry, formula
-from terraflow.util.pytree import tree_at
 from terraflow.prepare.readers.era5 import ERA5Reader
 from terraflow.mesh.scvt.parallel import (
     fill_field1d_array_halo,
     fill_field2d_array_halo,
     fill_field3d_array_halo
-)
-from terraflow.prepare.vert_interp import (
-    VerticalLinearInterpolator,
-    VerticalLogLinearInterpolator
 )
 from terraflow.mesh.scvt.regridder import Regridder
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
@@ -25,7 +19,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import tracer_calc_qm
 
 if TYPE_CHECKING:
     from terraflow.prepare.readers.abstract import AbstractBackgroundReader
-    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block as BLOCK
+    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
 
 
 Float = typing.Float
@@ -37,8 +31,9 @@ def regrid_bkg_field(
     regridder: Regridder,
     data: Array,
 ) -> Array:
+    bkd = reader.dev.backend
     if reader.cfg.hori_interp_backend == "esmf" and data.ndim == 3:
-        return jnp.stack(
+        return bkd.stack(
             [regridder(data[k, :, :]) for k in range(int(data.shape[0]))],
             axis=0,
         )
@@ -46,9 +41,9 @@ def regrid_bkg_field(
 
 
 def prepare_bkg(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader
-) -> BLOCK:
+) -> Block:
     # Regridder for background data
     src = Regridder.create_latlon_info(
         lon=reader.lon,
@@ -60,15 +55,11 @@ def prepare_bkg(
         loc="cell",
     )
     if block.dev.is_root(): log.logger.info("Build regridder for background data.")
-    ndbounds = None
-    if reader.cfg.hori_interp_backend != "esmf":
-        ndbounds = (reader.lev.shape[0],)
     regridder_at_cell = Regridder(
         src=src,
         dst=dst_at_cell,
         layout="triskc",
         backend=reader.cfg.hori_interp_backend,
-        ndbounds=ndbounds,
         method=reader.cfg.hori_interp_method,
         extrap=True,
         esmf_extrap_method=reader.cfg.esmf_extrap_method,
@@ -88,7 +79,6 @@ def prepare_bkg(
             dst=dst_at_edge,
             layout="triskc",
             backend=reader.cfg.hori_interp_backend,
-            ndbounds=ndbounds,
             method=reader.cfg.hori_interp_method,
             extrap=True,
             esmf_extrap_method=reader.cfg.esmf_extrap_method,
@@ -96,21 +86,12 @@ def prepare_bkg(
             precompute_weights=True,
         )
 
-    vert_linear_interp = VerticalLinearInterpolator(
-        backend=reader.cfg.vert_interp_backend,
-        allow_extrap=True
-    )
-    vert_log_linear_interp = VerticalLogLinearInterpolator(
-        backend=reader.cfg.vert_interp_backend,
-        allow_extrap=True
-    )
     # Regrid background data and calculate derived variables
     # Stage 1:
     block = regrid_phs(
         block=block,
         reader=reader,
         regridder=regridder_at_cell,
-        vert_interp_linear=vert_linear_interp,
     )
     block = bkg_calc_ph(block=block)
     for cyc in range(3):
@@ -119,35 +100,30 @@ def prepare_bkg(
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
-            vert_interp_linear=vert_linear_interp,
         )
         block = regrid_wet_qc(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
-            vert_interp_linear=vert_linear_interp,
         )
         block = regrid_wet_qi(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
-            vert_interp_linear=vert_linear_interp,
         )
         block = regrid_wet_qr(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
-            vert_interp_linear=vert_linear_interp,
         )
         block = regrid_wet_qs(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
             mute=cyc != 0,
-            vert_interp_linear=vert_linear_interp,
         )
         block = tracer_calc_qm(block, "old")
         # Stage 2:
@@ -165,14 +141,12 @@ def prepare_bkg(
         block=block,
         reader=reader,
         regridder=regridder_uv,
-        vert_interp_linear=vert_linear_interp,
     )
     if reader.cfg.prepare_regrid_gz:
         block = regrid_gz(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
-            vert_interp_log_linear=vert_log_linear_interp,
         )
         block = bkg_calc_t(block=block)
     else:
@@ -180,8 +154,6 @@ def prepare_bkg(
             block=block,
             reader=reader,
             regridder=regridder_at_cell,
-            vert_interp_linear=vert_linear_interp,
-            vert_interp_log_linear=vert_log_linear_interp,
         )
     block = bkg_calc_tv(block=block)
     block = bkg_calc_pt(block=block)
@@ -189,11 +161,11 @@ def prepare_bkg(
 
 
 def regrid_phs(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): 
         log.logger.info("Regrid surface hydrostatic pressure.")
     g = block.para.gravity.unwrap()
@@ -204,14 +176,15 @@ def regrid_phs(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         z0 = regrid_bkg_field(reader, regridder, reader.z)
-        logp0 = jnp.expand_dims(jnp.log(reader.plev), axis=1)
-        logp0 = jnp.tile(logp0, (1, z0.shape[1]))
-        tmp = vert_interp_linear(
-            x1=jnp.flip(z0[:, ids:ide+1], axis=0),
-            data1=jnp.flip(logp0[:, ids:ide+1], axis=0),
+        logp0 = bkd.expand_dims(bkd.log(reader.plev), axis=1)
+        logp0 = bkd.tile(logp0, (1, z0.shape[1]))
+        tmp = bkd.vert_linear_interp(
+            x1=bkd.flip(z0[:, ids:ide+1], axis=0),
+            data1=bkd.flip(logp0[:, ids:ide+1], axis=0),
             x2=gzs[ids:ide + 1] / g,
+            allow_extrap=True
         )
-        tmp = jnp.exp(tmp).squeeze()
+        tmp = bkd.exp(tmp).squeeze()
         phs = phs.at[ids:ide+1].set(tmp)
     else:
         raise ValueError(
@@ -223,7 +196,7 @@ def regrid_phs(
         meta=block.state.phs.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.state.phs.d,
         pytree=block,
         replace=phs,
@@ -232,7 +205,8 @@ def regrid_phs(
     )
 
 
-def bkg_calc_ph(block: BLOCK) -> BLOCK:
+def bkg_calc_ph(block: Block) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): 
         log.logger.info("Calculate hydrostatic pressure on each level.")
     phs = block.state.phs.unwrap()[0, ...]
@@ -269,7 +243,7 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
     )
     # =================================================================
     if block.mode.is_hydrostatic():
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (
                 b.state.ph.d, b.state.ph_lev.d,
                 b.state.p.d, b.state.p_lev.d,
@@ -281,7 +255,7 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
             at_idxes=(0, 0, 0, 0, 0)
         )
     else:
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.ph.d, b.state.ph_lev.d),
             pytree=block,
             replace=(ph, ph_lev),
@@ -290,7 +264,8 @@ def bkg_calc_ph(block: BLOCK) -> BLOCK:
         )
 
 
-def calc_ph(block: BLOCK) -> BLOCK:
+def calc_ph(block: Block) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -309,7 +284,7 @@ def calc_ph(block: BLOCK) -> BLOCK:
         qm_ = qm[kds:kde, ids:ide+1]
         moist_dmg = dmg_ * (1.0 + qm_)
         ph_lev = ph_lev.at[kds:kde+1, ids:ide+1].set(
-            mg_lev[kds, ids:ide+1] + jnp.cumulative_sum(
+            mg_lev[kds, ids:ide+1] + bkd.cumulative_sum(
                 moist_dmg,
                 axis=0,
                 include_initial=True
@@ -317,7 +292,7 @@ def calc_ph(block: BLOCK) -> BLOCK:
         )
     else:
         ph_lev = ph_lev.at[kds:kde+1, ids:ide+1].set(
-            mg_lev[kds, ids:ide+1] + jnp.cumulative_sum(
+            mg_lev[kds, ids:ide+1] + bkd.cumulative_sum(
                 dmg[kds:kde, ids:ide+1],
                 axis=0,
                 include_initial=True
@@ -353,7 +328,7 @@ def calc_ph(block: BLOCK) -> BLOCK:
     )
     # =======================================================
     if block.mode.is_hydrostatic():
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (
                 b.state.phs.d, b.state.ph.d, b.state.ph_lev.d,
                 b.state.ps.d, b.state.p.d, b.state.p_lev.d
@@ -364,7 +339,7 @@ def calc_ph(block: BLOCK) -> BLOCK:
             at_idxes=(0, 0, 0, 0, 0, 0)
         )
     else:
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.phs.d, b.state.ph.d, b.state.ph_lev.d),
             pytree=block,
             replace=(phs, ph, ph_lev),
@@ -374,11 +349,11 @@ def calc_ph(block: BLOCK) -> BLOCK:
 
 
 def regrid_gz(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
-    regridder: Regridder,
-    vert_interp_log_linear: VerticalLogLinearInterpolator
-) -> BLOCK:
+    regridder: Regridder
+) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): log.logger.info("Regrid geopotential height.")
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -394,10 +369,11 @@ def regrid_gz(
     if isinstance(reader, ERA5Reader):
         z0 = regrid_bkg_field(reader, regridder, reader.z)
         p0 = reader.plev
-        tmp = vert_interp_log_linear(
+        tmp = bkd.vert_log_linear_interp(
             x1=p0,
             data1=z0[:, ids:ide+1],
             x2=ph_lev[full_kds:full_kde+1, ids:ide + 1],
+            allow_extrap=True
         )
         gz_lev = gz_lev.at[full_kds:full_kde+1, ids:ide+1].set(tmp * g)
         gz_lev = gz_lev.at[half_kde, ids:ide+1].set(gzs[ids:ide+1])
@@ -422,7 +398,7 @@ def regrid_gz(
         meta=block.state.gz.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.state.gz.d, b.state.gz_lev.d),
         pytree=block,
         replace=(gz, gz_lev),
@@ -431,7 +407,8 @@ def regrid_gz(
     )
 
 
-def bkg_calc_t(block: BLOCK) -> BLOCK:
+def bkg_calc_t(block: Block) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): log.logger.info("Calculate temperature.")
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -446,7 +423,7 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
     delta_gz = (
         gz_lev[kds:kde+1, ids:ide+1] - gz_lev[kds+1:kde+2, ids:ide+1]
     )
-    log_ratio = jnp.log(
+    log_ratio = bkd.log(
         ph_lev[kds+1:kde+2, ids:ide+1] / ph_lev[kds:kde+1, ids:ide+1]
     )
     tv = delta_gz / (rd * log_ratio)
@@ -468,7 +445,7 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
         meta=block.aux.t.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.t.d,
         pytree=block,
         replace=t,
@@ -476,12 +453,11 @@ def bkg_calc_t(block: BLOCK) -> BLOCK:
 
 
 def regrid_t(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
-    regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
-    vert_interp_log_linear: VerticalLogLinearInterpolator
-) -> BLOCK:
+    regridder: Regridder
+) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): log.logger.info("Regrid temperature.")
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -491,10 +467,11 @@ def regrid_t(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         t0 = regrid_bkg_field(reader, regridder, reader.t)
-        tmp = vert_interp_log_linear(
+        tmp = bkd.vert_log_linear_interp(
             x1=reader.plev,
             data1=t0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
@@ -507,7 +484,7 @@ def regrid_t(
         meta=block.aux.t.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.t.d,
         pytree=block,
         replace=t,
@@ -515,16 +492,16 @@ def regrid_t(
 
 
 def regrid_un_from_uv(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
-    regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator
-) -> BLOCK:
+    regridder: Regridder
+) -> Block:
+    bkd = block.backend
     radius = block.para.radius.unwrap()
     mesh = block.mesh
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ide = mesh.edge_ids, mesh.edge_ide
-    un = jnp.zeros_like(block.state.un.unwrap()[0, :, :])
+    un = bkd.zeros_like(block.state.un.unwrap()[0, :, :])
     # =================================================================
     if reader.cfg.interp_at_midpoint:
         cell_0 = mesh.cell_of_edge[ids:ide+1, 0]
@@ -533,14 +510,12 @@ def regrid_un_from_uv(
             block=block,
             reader=reader,
             regridder=regridder,
-            vert_interp_linear=vert_interp_linear
         )[kds:kde+1, :]
         u = 0.5 * (u_cell[:, cell_0] + u_cell[:, cell_1])
         v_cell = _regrid_v(
             block=block,
             reader=reader,
             regridder=regridder,
-            vert_interp_linear=vert_interp_linear
         )[kds:kde+1, :]
         v = 0.5 * (v_cell[:, cell_0] + v_cell[:, cell_1])
     else:
@@ -548,21 +523,20 @@ def regrid_un_from_uv(
             block=block,
             reader=reader,
             regridder=regridder,
-            vert_interp_linear=vert_interp_linear
         )[kds:kde+1, ids:ide+1]
         v = _regrid_v(
             block=block,
             reader=reader,
             regridder=regridder,
-            vert_interp_linear=vert_interp_linear
         )[kds:kde+1, ids:ide+1]
     vec_xyz = sphere_geometry.vector_convert_lonlat2xyz(
+        bkd=block.backend,
         R=radius,
         u=u, 
         v=v, 
         xyz=mesh.dual_edge_xyz[ids:ide+1, :]
     )
-    un_ = jnp.sum(vec_xyz * mesh.edge_nr[ids:ide+1, :], axis=-1)
+    un_ = bkd.sum(vec_xyz * mesh.edge_nr[ids:ide+1, :], axis=-1)
     un = un.at[kds:kde+1, ids:ide+1].set(un_)
     un = fill_field2d_array_halo(
         halo=mesh.halo,
@@ -570,7 +544,7 @@ def regrid_un_from_uv(
         meta=block.state.un.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.state.un.d,
         pytree=block,
         replace=un,
@@ -580,11 +554,11 @@ def regrid_un_from_uv(
 
 
 def _regrid_u(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
-    regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator
+    regridder: Regridder
 ) -> Float[Array, "nlev nedge"]:
+    bkd = block.backend
     if block.dev.is_root(): log.logger.info("Regrid u wind component.")
     mesh = block.mesh
     ph = block.state.ph.unwrap()[0, ...]
@@ -613,14 +587,15 @@ def _regrid_u(
             meta=block.state.un.meta
         )
         meta = block.state.un.meta
-    u = jnp.zeros_like(x2)
+    u = bkd.zeros_like(x2)
     # =================================================================
     if isinstance(reader, ERA5Reader):
         u0 = regrid_bkg_field(reader, regridder, reader.u)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=u0[:, ids:ide+1],
             x2=x2[kds:kde+1, ids:ide+1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
@@ -637,11 +612,11 @@ def _regrid_u(
 
 
 def _regrid_v(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
-    regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator
+    regridder: Regridder
 ) -> Float[Array, "nlev nedge"]:
+    bkd = block.backend
     if block.dev.is_root(): log.logger.info("Regrid v wind component.")
     mesh = block.mesh
     ph = block.state.ph.unwrap()[0, ...]
@@ -670,14 +645,15 @@ def _regrid_v(
             meta=block.state.un.meta
         )
         meta = block.state.un.meta
-    v = jnp.zeros_like(x2)
+    v = bkd.zeros_like(x2)
     # =================================================================
     if isinstance(reader, ERA5Reader):
         v0 = regrid_bkg_field(reader, regridder, reader.v)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=v0[:, ids:ide+1],
             x2=x2[kds:kde+1, ids:ide+1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
@@ -694,12 +670,12 @@ def _regrid_v(
 
 
 def regrid_wet_qv(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_qv = block.tracers.idx_qv
     if idx_qv == -1:
         return block
@@ -716,16 +692,17 @@ def regrid_wet_qv(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regrid_bkg_field(reader, regridder, reader.qv)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=q0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
             f"Unsupported reader type for qv interpolation: {type(reader)}"
         )
-    tmp = jnp.where(tmp < 0.0, 0.0, tmp)
+    tmp = bkd.where(tmp < 0.0, 0.0, tmp)
     q = q.at[idx_qv, kds:kde+1, ids:ide+1].set(tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
@@ -734,7 +711,7 @@ def regrid_wet_qv(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -744,12 +721,12 @@ def regrid_wet_qv(
 
 
 def regrid_wet_qc(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_qc = block.tracers.idx_qc
     if idx_qc == -1:
         return block
@@ -766,16 +743,17 @@ def regrid_wet_qc(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regrid_bkg_field(reader, regridder, reader.qc)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=q0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
             f"Unsupported reader type for qc interpolation: {type(reader)}"
         )
-    tmp = jnp.where(tmp < 0.0, 0.0, tmp)
+    tmp = bkd.where(tmp < 0.0, 0.0, tmp)
     q = q.at[idx_qc, kds:kde+1, ids:ide+1].set(tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
@@ -784,7 +762,7 @@ def regrid_wet_qc(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -794,12 +772,12 @@ def regrid_wet_qc(
 
 
 def regrid_wet_qi(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_qi = block.tracers.idx_qi
     if idx_qi == -1:
         return block
@@ -816,16 +794,17 @@ def regrid_wet_qi(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regrid_bkg_field(reader, regridder, reader.qi)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=q0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
             f"Unsupported reader type for qi interpolation: {type(reader)}"
         )
-    tmp = jnp.where(tmp < 0.0, 0.0, tmp)
+    tmp = bkd.where(tmp < 0.0, 0.0, tmp)
     q = q.at[idx_qi, kds:kde+1, ids:ide+1].set(tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
@@ -834,7 +813,7 @@ def regrid_wet_qi(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -844,11 +823,12 @@ def regrid_wet_qi(
 
 
 def regrid_wet_nc(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_nc = block.tracers.idx_nc
 
     if idx_nc == -1:
@@ -867,7 +847,7 @@ def regrid_wet_nc(
         q_nc = q[idx_nc, kds:kde+1, ids:ide+1]
     else:
         q_nc = q[idx_nc, kds:kde+1, ids:ide+1]
-    q_nc = jnp.where(q_nc < 0.0, 0.0, q_nc)
+    q_nc = bkd.where(q_nc < 0.0, 0.0, q_nc)
     q = q.at[idx_nc, kds:kde+1, ids:ide+1].set(q_nc)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
@@ -876,7 +856,7 @@ def regrid_wet_nc(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -886,11 +866,12 @@ def regrid_wet_nc(
 
 
 def regrid_wet_ni(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_ni = block.tracers.idx_ni
 
     if idx_ni == -1:
@@ -909,7 +890,7 @@ def regrid_wet_ni(
         q_ni = q[idx_ni, kds:kde+1, ids:ide+1]
     else:
         q_ni = q[idx_ni, kds:kde+1, ids:ide+1]
-    q_ni = jnp.where(q_ni < 0.0, 0.0, q_ni)
+    q_ni = bkd.where(q_ni < 0.0, 0.0, q_ni)
     q = q.at[idx_ni, kds:kde+1, ids:ide+1].set(q_ni)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
@@ -918,7 +899,7 @@ def regrid_wet_ni(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -928,12 +909,12 @@ def regrid_wet_ni(
 
 
 def regrid_wet_qr(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_qr = block.tracers.idx_qr
 
     if idx_qr == -1:
@@ -951,16 +932,17 @@ def regrid_wet_qr(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regrid_bkg_field(reader, regridder, reader.qr)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=q0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
             f"Unsupported reader type for qr interpolation: {type(reader)}"
         )
-    tmp = jnp.where(tmp < 0.0, 0.0, tmp)
+    tmp = bkd.where(tmp < 0.0, 0.0, tmp)
     q = q.at[idx_qr, kds:kde+1, ids:ide+1].set(tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
@@ -969,7 +951,7 @@ def regrid_wet_qr(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -979,12 +961,12 @@ def regrid_wet_qr(
 
 
 def regrid_wet_qs(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     regridder: Regridder,
-    vert_interp_linear: VerticalLinearInterpolator,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     idx_qs = block.tracers.idx_qs
 
     if idx_qs == -1:
@@ -1002,16 +984,17 @@ def regrid_wet_qs(
     # =================================================================
     if isinstance(reader, ERA5Reader):
         q0 = regrid_bkg_field(reader, regridder, reader.qs)
-        tmp = vert_interp_linear(
+        tmp = bkd.vert_linear_interp(
             x1=reader.plev,
             data1=q0[:, ids:ide+1],
             x2=ph[kds:kde+1, ids:ide + 1],
+            allow_extrap=True
         )
     else:
         raise ValueError(
             f"Unsupported reader type for qs interpolation: {type(reader)}"
         )
-    tmp = jnp.where(tmp < 0.0, 0.0, tmp)
+    tmp = bkd.where(tmp < 0.0, 0.0, tmp)
     q = q.at[idx_qs, kds:kde+1, ids:ide+1].set(tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
@@ -1020,7 +1003,7 @@ def regrid_wet_qs(
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1030,10 +1013,11 @@ def regrid_wet_qs(
 
 
 def bkg_calc_mgs(
-    block: BLOCK,
+    block: Block,
     reader: AbstractBackgroundReader,
     mute: bool = False
-) -> BLOCK:
+) -> Block:
+    bkd = block.backend
     if not mute:
         if block.dev.is_root(): 
             log.logger.info("Calculate surface dry-air pressure.")
@@ -1046,7 +1030,7 @@ def bkg_calc_mgs(
     qm     = block.tracers.qm    .unwrap()[:, :]
     # =================================================================
     delta_ph = ph_lev[kds+1:kde+2, ids:ide+1] - ph_lev[kds:kde+1, ids:ide+1]
-    tmp = phs[ids:ide+1] - jnp.sum(
+    tmp = phs[ids:ide+1] - bkd.sum(
         delta_ph * qm[kds:kde+1, ids:ide+1],
         axis=0
     )
@@ -1057,7 +1041,7 @@ def bkg_calc_mgs(
         meta=block.state.mgs.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.state.mgs.d,
         pytree=block,
         replace=mgs,
@@ -1066,7 +1050,7 @@ def bkg_calc_mgs(
     )
 
 
-def bkg_calc_mg(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_mg(block: Block, mute: bool = False) -> Block:
     if not mute:
         if block.dev.is_root(): 
             log.logger.info("Calculate dry-air pressure.")
@@ -1077,7 +1061,8 @@ def bkg_calc_mg(block: BLOCK, mute: bool = False) -> BLOCK:
     return block
 
 
-def bkg_calc_tv(block: BLOCK) -> BLOCK:
+def bkg_calc_tv(block: Block) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): 
         log.logger.info("Calculate virtual temperature.")
     # =================================================================
@@ -1106,14 +1091,15 @@ def bkg_calc_tv(block: BLOCK) -> BLOCK:
         f=tv,
         meta=block.aux.tv.meta
     )
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.tv.d,
         pytree=block,
         replace=tv,
     )
 
 
-def bkg_calc_pt(block: BLOCK) -> BLOCK:
+def bkg_calc_pt(block: Block) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): 
         log.logger.info("Calculate modified potential temperature.")
     # =================================================================
@@ -1129,7 +1115,7 @@ def bkg_calc_pt(block: BLOCK) -> BLOCK:
         tmp = formula.modified_potential_temperature(
             t=t[kds:kde+1, ids:ide+1],
             p=ph[kds:kde+1, ids:ide+1],
-            qv=jnp.array(
+            qv=bkd.array(
                 0.0,
                 device=block.dev(),
                 dtype=block.dev.float_type
@@ -1151,7 +1137,7 @@ def bkg_calc_pt(block: BLOCK) -> BLOCK:
         meta=block.state.pt.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.state.pt.d,
         pytree=block,
         replace=pt,
@@ -1160,7 +1146,8 @@ def bkg_calc_pt(block: BLOCK) -> BLOCK:
     )
 
 
-def bkg_calc_dry_qv(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_qv(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_qv = block.tracers.idx_qv
 
     if idx_qv == -1:
@@ -1186,7 +1173,7 @@ def bkg_calc_dry_qv(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1195,7 +1182,8 @@ def bkg_calc_dry_qv(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_qc(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_qc(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_qc = block.tracers.idx_qc
 
     if idx_qc == -1:
@@ -1221,7 +1209,7 @@ def bkg_calc_dry_qc(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1230,7 +1218,8 @@ def bkg_calc_dry_qc(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_qi(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_qi(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_qi = block.tracers.idx_qi
 
     if idx_qi == -1:
@@ -1256,7 +1245,7 @@ def bkg_calc_dry_qi(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1265,7 +1254,8 @@ def bkg_calc_dry_qi(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_nc(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_nc(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_nc = block.tracers.idx_nc
 
     if idx_nc == -1:
@@ -1291,7 +1281,7 @@ def bkg_calc_dry_nc(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1300,7 +1290,8 @@ def bkg_calc_dry_nc(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_ni(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_ni(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_ni = block.tracers.idx_ni
 
     if idx_ni == -1:
@@ -1326,7 +1317,7 @@ def bkg_calc_dry_ni(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1335,7 +1326,8 @@ def bkg_calc_dry_ni(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_qr(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_qr(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_qr = block.tracers.idx_qr
 
     if idx_qr == -1:
@@ -1361,7 +1353,7 @@ def bkg_calc_dry_qr(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,
@@ -1370,7 +1362,8 @@ def bkg_calc_dry_qr(block: BLOCK, mute: bool = False) -> BLOCK:
     )
 
 
-def bkg_calc_dry_qs(block: BLOCK, mute: bool = False) -> BLOCK:
+def bkg_calc_dry_qs(block: Block, mute: bool = False) -> Block:
+    bkd = block.backend
     idx_qs = block.tracers.idx_qs
 
     if idx_qs == -1:
@@ -1396,7 +1389,7 @@ def bkg_calc_dry_qs(block: BLOCK, mute: bool = False) -> BLOCK:
         meta=block.tracers.q.meta
     )
     # =================================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tracers.q.d,
         pytree=block,
         replace=q,

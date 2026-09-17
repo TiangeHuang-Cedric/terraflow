@@ -1,8 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
+
 from terraflow.util import typing
-from terraflow.util.pytree import tree_at
+
 
 if TYPE_CHECKING:
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
 
 def pgf_swm_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    bkd  = block.backend
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -30,9 +32,8 @@ def pgf_swm_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
     )
     dundt_pgf = dundt_pgf.at[kds:kde+1, ids:ide+1].set(tmp)
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_pgf.d),
         pytree=block,
         replace=(dundt, dundt_pgf)
     )    
-

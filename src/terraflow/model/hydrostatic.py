@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, overload, cast, Optional, Literal
 
+
 from terraflow.model.abstract import ModelMode
 from terraflow.mesh.abstract import AbstractMesh
 from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate

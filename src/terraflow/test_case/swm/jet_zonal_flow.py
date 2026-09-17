@@ -1,4 +1,5 @@
-from jax import numpy as jnp
+import math
+
 
 from terraflow.util.planet import PlanetParameterSet
 from terraflow.test_case.abstract import AbstractShallowWaterModelTestCase
@@ -34,11 +35,11 @@ class JetZonalFlowTestCase(AbstractShallowWaterModelTestCase):
         )
         self.keywords = ("shallow water", "jet zonal flow", "atmosphere")
         self.u_max = 80.0
-        self.lat0  = jnp.pi / 7.0
-        self.lat1  = jnp.pi / 2.0
+        self.lat0  = math.pi / 7.0
+        self.lat1  = math.pi / 2.0
         self.lat1  = self.lat1 - self.lat0
-        self.en    = float(jnp.exp(-4.0 / ((self.lat1 - self.lat0) ** 2)))
-        self.lat2  = jnp.pi / 4.0
+        self.en    = float(math.exp(-4.0 / ((self.lat1 - self.lat0) ** 2)))
+        self.lat2  = math.pi / 4.0
         self.alpha = 1.0 / 3.0
         self.beta  = 1.0 / 15.0
         self.gh0   = 1.0e4 * para.gravity.unwrap()

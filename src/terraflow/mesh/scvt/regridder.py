@@ -7,6 +7,9 @@ from terraflow.mesh.scvt._native_regridder import NativeRegridder
 from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
 
 
+ESMF_CONSERVATIVE_METHODS = {"conserve", "conserve_1st", "conserve_2nd"}
+
+
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.util.planet import PlanetParameterSet
@@ -115,8 +118,14 @@ class Regridder:
         self.method = method
         self.extrap = extrap
         self.esmf_extrap_method = esmf_extrap_method
-        self.esmf_conserve_opt = esmf_conserve_opt
+        self.esmf_conserve_opt  = esmf_conserve_opt
         self.precompute_weights = precompute_weights
+        if isinstance(dst, SCVTRegridInfo):
+            bkd = dst.mesh.dev.backend
+        elif isinstance(src, SCVTRegridInfo):
+            bkd = src.mesh.dev.backend
+        else:
+            raise ValueError(f"Unsupported dst type: {type(dst)}!")
         if self.backend == "native":
             if not isinstance(src, LatlonRegridInfo) or not isinstance(dst, SCVTRegridInfo):
                 raise ValueError(
@@ -132,14 +141,15 @@ class Regridder:
                 method=method,
                 extrap=extrap,
                 precompute_weights=precompute_weights,
+                backend=bkd,
             )
         elif self.backend == "esmf":
             # ================================================================
             # src (latlon)
             if isinstance(src, LatlonRegridInfo):
                 esmf_src = ESMFRegridder.create_latlon_grid(
-                    lon=np.array(src.lon),
-                    lat=np.array(src.lat)
+                    lon=bkd.to_numpy(src.lon),
+                    lat=bkd.to_numpy(src.lat)
                 )
             # src (scvt)
             elif isinstance(src, SCVTRegridInfo):
@@ -163,13 +173,21 @@ class Regridder:
                 )
             # dst (scvt)
             elif isinstance(dst, SCVTRegridInfo):
-                esmf_dst = ESMFRegridder.create_scvt_mesh(
-                    para=dst.para,
-                    mesh=dst.mesh,
-                    loc=dst.loc,
-                    layout=layout,
-                    with_halo=dst.with_halo,
-                )
+                if src_type == "latlon" and method not in ESMF_CONSERVATIVE_METHODS:
+                    esmf_dst = ESMFRegridder.create_locstream(
+                        mesh=dst.mesh,
+                        loc=dst.loc,
+                        layout=layout,
+                        with_halo=dst.with_halo,
+                    )
+                else:
+                    esmf_dst = ESMFRegridder.create_scvt_mesh(
+                        para=dst.para,
+                        mesh=dst.mesh,
+                        loc=dst.loc,
+                        layout=layout,
+                        with_halo=dst.with_halo,
+                    )
             else:
                 raise ValueError(
                     f"Unsupported dst grid type for ESMF backend: {type(dst)}"
@@ -183,7 +201,8 @@ class Regridder:
                 extrap=self.extrap,
                 extrap_method=self.esmf_extrap_method,
                 conserve_opt=self.esmf_conserve_opt,
-                precompute_weights=self.precompute_weights
+                precompute_weights=self.precompute_weights,
+                backend=bkd,
             )
         else:
             raise ValueError(f"Unsupported backend: {backend}")

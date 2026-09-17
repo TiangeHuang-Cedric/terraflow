@@ -1,9 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Self
-import jax
+
 
 from terraflow.util.device import AbstractDevice
-from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.operators import div_operator_2d
 from terraflow.mesh.scvt.parallel import (
     fill_field2d_array_halo,
@@ -119,7 +118,7 @@ def adv_prepare(block: Block, itime: int) -> Block:
         m = block.state.dmg.unwrap()[itime, :, :]
         for batch_name, batch in block.adv_batches.items():
             batch = batch.copy_m_old(m, block.mesh)
-            block = tree_at(
+            block = block.backend.tree_at(
                     where=lambda b: b.adv_batches[batch_name],
                     pytree=block,
                     replace=batch
@@ -130,6 +129,7 @@ def adv_prepare(block: Block, itime: int) -> Block:
 def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -> Block:
     
     dt_opt = block.adv_batch_bg.dt if dt is None else dt
+    bkd = block.backend
     
     block = set_wind(block, old)
     
@@ -165,14 +165,14 @@ def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -
         meta=block.state.dmg.meta
     )
     # =================================================
-    block = tree_at(
+    block = bkd.tree_at(
         where=lambda b: b.state.dmg.d,
         pytree=block,
         replace=m_new,
         at_dims=0,
         at_idxes=new
     )
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (
             b.adv_batch_bg.mfn.d, b.adv_batch_bg.mfz.d,
             b.aux.mfn.d, b.aux.mfz_lev.d
@@ -221,6 +221,7 @@ def adv_run_tracers_fn(
 
 
 def adv_set_new_mass(block: Block, new_idx: int) -> Block:
+    bkd = block.backend
     for batch_name, batch in block.adv_batches.items():
         
         def do_nothing(
@@ -249,14 +250,14 @@ def adv_set_new_mass(block: Block, new_idx: int) -> Block:
                     f=batch_m,
                     meta=batch.m_new.meta
                 )
-                block = tree_at(
+                block = bkd.tree_at(
                     where=lambda b: b.adv_batches[batch_name].m_new.d,
                     pytree=block,
                     replace=batch_m
                 )
             return block
         
-        block = jax.lax.cond(
+        block = block.backend.cond(
             batch.is_run_tracer_istep(),
             set_new_mass,
             do_nothing,
@@ -369,9 +370,9 @@ def adv_hori_run_tracers(
                 )
                 return carry_batch, q_new
 
-            batch, q_new = jax.lax.scan(
-                f=body_fn,
-                init=batch,
+            batch, q_new = block.backend.scan(
+                body_fn,
+                batch,
                 xs=(q, q_old, q_new)
             )
             return q_new, batch
@@ -386,7 +387,7 @@ def adv_hori_run_tracers(
                 meta=block.tracers.q.meta
             )
         # ==========================================
-        block = tree_at(
+        block = block.backend.tree_at(
             where=lambda b: b.tracers.q.d,
             pytree=block,
             replace=q_new_,
@@ -402,7 +403,7 @@ def adv_hori_run_tracers(
         def substep_not_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return batch
         
-        batch = jax.lax.cond(
+        batch = block.backend.cond(
            substep == block.const.adv_total_substeps - 1,
            substep_at_end,
            substep_not_at_end,
@@ -411,7 +412,7 @@ def adv_hori_run_tracers(
 
         return batch, block
     
-    return jax.lax.cond(
+    return block.backend.cond(
         batch.is_run_tracer_istep(),
         hori_run_tracers,
         do_nothing,
@@ -527,9 +528,9 @@ def adv_vert_run_tracers(
                 )
                 return carry_batch, q_new
 
-            batch, q_new = jax.lax.scan(
-                f=body_fn,
-                init=batch,
+            batch, q_new = block.backend.scan(
+                body_fn,
+                batch,
                 xs=(q, q_old, q_new)
             )
             return q_new, batch
@@ -544,7 +545,7 @@ def adv_vert_run_tracers(
                 meta=block.tracers.q.meta
             )
         # ==========================================
-        block = tree_at(
+        block = block.backend.tree_at(
             where=lambda b: b.tracers.q.d,
             pytree=block,
             replace=q_new_,
@@ -559,7 +560,7 @@ def adv_vert_run_tracers(
         def substep_not_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return batch
         
-        batch = jax.lax.cond(
+        batch = block.backend.cond(
            substep == block.const.adv_total_substeps - 1,
            substep_at_end,
            substep_not_at_end,
@@ -568,7 +569,7 @@ def adv_vert_run_tracers(
 
         return batch, block
     
-    return jax.lax.cond(
+    return block.backend.cond(
         batch.is_run_tracer_istep(),
         vert_run_tracers,
         do_nothing,
@@ -590,7 +591,7 @@ def set_wind(block: Block, itime: int) -> Block:
         mfz=block.aux.mfz_lev.unwrap(),
         mesh=block.mesh
     )
-    return tree_at(
+    return block.backend.tree_at(
         where=lambda b: b.adv_batch_bg,
         pytree=block,
         replace=batch
@@ -603,7 +604,7 @@ def accum_wind(block: Block, old: int) -> Block:
         mfz = block.aux.mfz_lev.unwrap()
         for batch_name, batch in block.adv_batches.items():
             batch = batch.accum_wind(mfn=mfn, mfz=mfz)
-            block = tree_at(
+            block = block.backend.tree_at(
                 where=lambda b: b.adv_batches[batch_name],
                 pytree=block,
                 replace=batch
@@ -612,7 +613,7 @@ def accum_wind(block: Block, old: int) -> Block:
         mfn = block.aux.mfn.unwrap()
         for batch_name, batch in block.adv_batches.items():
             batch = batch.accum_wind(mfn=mfn)
-            block = tree_at(
+            block = block.backend.tree_at(
                 where=lambda b: b.adv_batches[batch_name],
                 pytree=block,
                 replace=batch

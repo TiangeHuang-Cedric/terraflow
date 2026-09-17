@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
+import math
 
 from terraflow.test_case.abstract import AbstractBaroclinicModelTestCase
 
@@ -33,8 +33,8 @@ class MountainWaveTestCase(AbstractBaroclinicModelTestCase):
         self.h0 = 2000.0    # m
         self.d = 1.5e6
         self.u0 = 20.0      # m s-1
-        self.lonc = jnp.pi / 2.0
-        self.latc = jnp.pi / 6.0
+        self.lonc = math.pi / 2.0
+        self.latc = math.pi / 6.0
         self.kap = 2.0 / 7.0
         self.psp = 93000.0  # Pa
         self.N = 0.0182     # s-1

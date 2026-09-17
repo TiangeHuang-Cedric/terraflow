@@ -1,10 +1,9 @@
 from __future__ import annotations
 from typing import Self, TYPE_CHECKING
-import jax.numpy as jnp
-import equinox as eqx
+
 
 from terraflow.util import typing, device, formula
-from terraflow.util.pytree import tree_at
+from terraflow.util import equinox as eqx
 from terraflow.mesh.scvt.mesh_type import SCVTMesh
 from terraflow.mesh.scvt.field import SCVTField2D, SCVTFieldMeta
 from terraflow.dynamics.abstract import (
@@ -79,10 +78,11 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         ref_ps: Float[Array, "ncell"],
         dev: device.AbstractDevice
     ) -> Self:
-        a    = jnp.array(0.09923 , dtype=dev.float_type)
-        b    = jnp.array(247.7874, dtype=dev.float_type)
-        c    = jnp.array(-1.0385 , dtype=dev.float_type)
-        ps0  = jnp.array(1013.0  , dtype=dev.float_type)  # hPa
+        bkd  = dev.backend
+        a    = bkd.array(0.09923 , dtype=dev.float_type)
+        b    = bkd.array(247.7874, dtype=dev.float_type)
+        c    = bkd.array(-1.0385 , dtype=dev.float_type)
+        ps0  = bkd.array(1013.0  , dtype=dev.float_type)  # hPa
         ids     , ide     , ihe = mesh.cell_ids, mesh.cell_ide, mesh.cell_ihe[0]
         e_ids   , e_ide         = mesh.edge_ids, mesh.edge_ide
         full_kds, full_kde      = mesh.full_kds, mesh.full_kde
@@ -148,7 +148,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             (mg2 - mg1) * mesh.edpnr_eddtg[e_ids:e_ide+1] / mesh.de[e_ids:e_ide+1]
         )
         # ==========================================================
-        return eqx.tree_at(
+        return bkd.tree_at(
             lambda pro: (
                 pro.mg.d, pro.gz.d, pro.gz_lev.d,
                 pro.ad.d, pro.mpt.d, pro.dmgdn.d
@@ -253,6 +253,7 @@ def get_profile_meta():
 
 
 def pgf_ptb_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     kds  , kde   = mesh.full_kds, mesh.full_kde
     e_ids, e_ide = mesh.edge_ids, mesh.edge_ide
@@ -314,7 +315,7 @@ def pgf_ptb_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
     )
     dundt_pgf = dundt_pgf.at[kds:kde+1, ids:ide+1].set(tmp)
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_pgf.d),
         pytree=block,
         replace=(dundt, dundt_pgf)

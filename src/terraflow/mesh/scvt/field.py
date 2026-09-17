@@ -17,15 +17,12 @@ from typing import (
 import types
 import xarray as xr
 import uxarray as uxr
-import unxt as ux
-import jax.numpy as jnp
+import pint
 import numpy as np
-import equinox as eqx
 
 
 from terraflow.util import typing, device
-from terraflow.util.pytree import tree_at
-import terraflow.util.uxarray as tuxr
+from terraflow.util import equinox as eqx
 from terraflow.util.field import (
     AbstractMeta, 
     AbstractField,
@@ -35,6 +32,8 @@ from terraflow.util.field import (
 )
 
 if TYPE_CHECKING:
+    import terraflow.util.uxarray as tuxr
+    from terraflow.util.backend import AbstractBackend
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
 
 
@@ -82,6 +81,14 @@ class SCVTFieldMeta(AbstractMeta):
             id=self.id,
             nele=self.nele,
             nlev=self.nlev,
+            ids=self.ids,
+            ide=self.ide,
+            ims=self.ims,
+            ime=self.ime,
+            kds=self.kds,
+            kde=self.kde,
+            kms=self.kms,
+            kme=self.kme,
             at_cell=self.at_cell,
             at_vtx=self.at_vtx,
             at_edge=self.at_edge,
@@ -93,7 +100,8 @@ class SCVTFieldMeta(AbstractMeta):
             is_expand_dim0=self.is_expand_dim0,
             expand_dim0_len=self.expand_dim0_len,
             restart=self.restart,
-            initialized=self.initialized
+            initialized=self.initialized,
+            backend=self.backend,
         )
 
     @property
@@ -150,7 +158,7 @@ class SCVTFieldMeta(AbstractMeta):
 
 
 class SCVTField(AbstractField[SCVTFieldMeta]):
-    d   : Array         = eqx.field(default_factory=lambda: jnp.zeros(0))
+    d   : Array         = eqx.field(default=0)
     meta: SCVTFieldMeta = eqx.field(default_factory=lambda: SCVTFieldMeta())
     
     @classmethod
@@ -223,7 +231,8 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
             is_expand_dim0=is_expand_dim0,
             expand_dim0_len=expand_dim0_len,
             restart=restart,
-            initialized=True
+            initialized=True,
+            backend=dev.backend,
         )
         if meta.at_sfc:
             shape = (nele,)
@@ -233,7 +242,7 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
             shape = (ntracers,) + shape
         if meta.is_expand_dim0:
             shape = (expand_dim0_len, ) + shape
-        data = jnp.zeros(shape, device=dev(), dtype=dev.float_type)
+        data = dev.backend.zeros(shape, device=dev(), dtype=dev.float_type)
         return cls(d=data, meta=meta)
     
     @staticmethod
@@ -304,7 +313,7 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
                 other = other[at_expand_dim0_idx]
             if self.meta.is_tracer:
                 other = other[at_tracer_idx     ]
-            return tree_at(
+            return self.meta.backend.tree_at(
                 where=lambda f: f.d,
                 pytree=self,
                 replace=other[i_s:i_e+1]
@@ -315,7 +324,7 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
                 other = other[at_expand_dim0_idx]
             if self.meta.is_tracer:
                 other = other[at_tracer_idx     ]
-            return eqx.tree_at(
+            return self.meta.backend.tree_at(
                 where=lambda f: f.d,
                 pytree=self,
                 replace=other[k_s:k_e+1, i_s:i_e+1]
@@ -341,6 +350,8 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
         **kwargs
     ) -> tuxr.UGRIDDataArray:
         """Convert the Field to a UgridDataArray."""
+        import terraflow.util.uxarray as tuxr
+
         ds = field2ugrid(
             field=self,
             use_dual=use_dual,
@@ -540,7 +551,8 @@ class SCVTField4D(SCVTField):
 
 
 class SCVTFields(AbstractFields):
-    fields  : Dict[str, SCVTFieldMeta | ScalarFieldMeta] = eqx.field(static=True, default_factory=dict)
+    fields : Dict[str, SCVTFieldMeta | ScalarFieldMeta] = eqx.field(static=True, default_factory=dict)
+    backend: AbstractBackend = eqx.field(static=True, default=None)
 
     @classmethod
     def get_all_fields(cls) -> tuple[str, ...]:
@@ -580,47 +592,29 @@ class SCVTFields(AbstractFields):
     
     @classmethod
     def from_fields(cls, fields: Mapping[str, SCVTField | ScalarField], **kwargs) -> Self:
-        fields_meta: Mapping[str, SCVTFieldMeta | ScalarFieldMeta] = {}
+        backend = kwargs.pop("backend", None)
+        fields_meta: Dict[str, SCVTFieldMeta | ScalarFieldMeta] = {}
         for name, field in fields.items():
             fields_meta[name] = field.meta
+            if backend is None:
+                backend = field.meta.backend
         kwargs.update(fields)
-        return cls(fields=fields_meta, **kwargs)
+        return cls(fields=fields_meta, backend=backend, **kwargs)
 
     def _wrap(self, **kwargs: SCVTField | ScalarField) -> Self:
         names = self.existing_meta().keys()
         new_vals = {n: kwargs.get(n, getattr(self, n)) for n in names}
+        if self.backend is None:
+            raise ValueError("SCVTFields.backend is required for wrapping field values.")
         for k, v in new_vals.items():
-            if not isinstance(v, SCVTField):
+            if not isinstance(v, (SCVTField, ScalarField)):
                 raise TypeError(f"Variable '{k}' is not a Field.")
-            self = eqx.tree_at(
+            self = self.backend.tree_at(
                 where=lambda vs: object.__getattribute__(vs, k),
                 pytree=self,
                 replace=v
             )
         return self
-
-    def reset(self, *args, **kwargs) -> Self:
-        new_vars: Dict[str, SCVTField] = {}
-        for key in self.keys():
-            var = object.__getattribute__(self, key)
-            if var.meta.is_prognostic:
-                continue
-            if isinstance(var.d, jnp.ndarray):
-                new_vars[key] = SCVTField.create(
-                    data=jnp.zeros_like(var.d),
-                    meta=var.meta,
-                )
-            elif isinstance(var.d, ux.AbstractQuantity):
-                new_array = jnp.zeros_like(jnp.asarray(var.d.value))
-                new_vars[key] = SCVTField.create(
-                    data=ux.Quantity(new_array, var.d.unit),
-                    meta=var.meta,
-                )
-            else:
-                raise TypeError(
-                    f"Variable '{key}' is of unsupported type '{type(var)}' for reset operation."
-                )
-        return self._wrap(**new_vars)
 
     def keys(self) -> List[str]:
         return list(self.existing_meta().keys())
@@ -664,19 +658,39 @@ class SCVTFields(AbstractFields):
             new_variables[key] = var.zeros_like()
         return self._wrap(**new_variables)
 
-    def uconvert(self, usys: ux.AbstractUnitSystem) -> Self:
-        """Convert all parameters to the specified unit system."""
+    def to(self, unit: str) -> Self:
+        """Convert all parameters to the specified unit and return them."""
         new_variables: Dict[str, SCVTField | ScalarField] = {}
         for key, var in self.items():
-            new_variables[key] = var.uconvert(usys)
+            new_variables[key] = var.to(unit)
         return self._wrap(**new_variables)
 
-    def to_si(self) -> Self:
-        """Convert all parameters to SI units."""
+    def to_base_units(self) -> Self:
+        """Convert all parameters to base units and return them."""
         new_variables: Dict[str, SCVTField | ScalarField] = {}
         for key, var in self.items():
-            new_variables[key] = var.to_si()
+            new_variables[key] = var.to_base_units()
         return self._wrap(**new_variables)
+
+    def to_reduced_units(self) -> Self:
+        """Convert all parameters to reduced units and return them."""
+        new_variables: Dict[str, SCVTField | ScalarField] = {}
+        for key, var in self.items():
+            new_variables[key] = var.to_reduced_units()
+        return self._wrap(**new_variables)
+
+    def uconvert(self, usys: str = "SI") -> Self:
+        """Compatibility wrapper for previous unit-system conversion calls."""
+        if not (isinstance(usys, str) and usys.lower() == "si"):
+            raise ValueError(
+                "SCVTFields.uconvert only supports 'SI' after migrating to pint; "
+                "use to(unit), to_base_units(), or to_reduced_units()."
+            )
+        return self.to_base_units()
+
+    def to_si(self) -> Self:
+        """Convert all parameters to SI base units and return them."""
+        return self.to_base_units()
     
     def to_netcdf(
         self,
@@ -709,6 +723,8 @@ class SCVTFields(AbstractFields):
         **kwargs
     ) -> tuxr.UGRIDDataset:
         """Convert variable set to a UXarray.UxGrid."""
+        import terraflow.util.uxarray as tuxr
+
         ds = fields2ugrid(
             fields=self,
             use_dual=use_dual,
@@ -805,7 +821,7 @@ def fields2ugrid(
 
 
 def meta2ugrid(
-    value: Array | ux.AbstractQuantity,
+    value: Array | pint.Quantity,
     meta: SCVTFieldMeta,
     use_dual: bool = False,
     dim0_idx: Optional[int] = None
@@ -814,7 +830,7 @@ def meta2ugrid(
     Format a TerraFlow variable to UGRID xarray DataArray.
 
     Args:
-        value (Array | unxt.AbstractQuantity): The variable value. 
+        value (Array | pint.Quantity): The variable value.
             Its dimension must follow the order (time, vertical, horizontal).
         meta (Dict[str, Any]): The variable metadata.
         use_dual (bool): Whether to use dual mesh or primal mesh.
@@ -822,10 +838,10 @@ def meta2ugrid(
     Returns:
         xr.DataArray: The formatted UGRID xarray DataArray.
     """
-    if isinstance(value, ux.AbstractQuantity):
-        var = np.array(value.value)
-        units = value.unit.to_string()
-    elif isinstance(value, Array):
+    if isinstance(value, pint.Quantity):
+        var = np.array(value.magnitude)
+        units = str(value.units)
+    elif meta.backend.is_array(value):
         var = np.array(value)
         units = meta.units
     else:

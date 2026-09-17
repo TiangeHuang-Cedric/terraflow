@@ -9,25 +9,25 @@ from typing import (
     TypeVar,
     Generic,
     Self,
-    Dict,
     Callable
 )
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
 import numpy as np
 import xarray as xr
-import jax
-import jax.numpy as jnp
-from jax._src import pjit
-import equinox as eqx
 
 
 from terraflow.util import log, typing
+from terraflow.util import equinox as eqx
+from terraflow.util.backend import AbstractBackend
+from terraflow.util.device import AbstractDevice
 from terraflow.util.datetime import DateTimeManager
 from terraflow.dynamics.abstract import (
     AbstractBlock,
     AbstractFields,
 )
+
+
 
 BLOCK  = TypeVar("BLOCK" , bound=AbstractBlock  )
 FIELDS = TypeVar("FIELDS", bound=AbstractFields )
@@ -40,11 +40,10 @@ Array = typing.Array
 if TYPE_CHECKING:
     from terraflow.util.history.abstract import AbstractHistoryset
     from terraflow.model.config import Const, UserConfig
-    
 
 
 @overload
-def compiled_with_model(
+def compile(
     model: MODEL,
     fun: Callable[[MODEL], MODEL],
     with_jit: bool = True
@@ -53,38 +52,21 @@ def compiled_with_model(
 
 
 @overload
-def compiled_with_model(
+def compile(
     model: MODEL,
-    fun: Callable[[MODEL], Tuple[FIELDS, ...]],
+    fun: Callable[[MODEL], Tuple[MODEL, dict[str, Array]]],
     with_jit: bool = True
-) -> Callable[[MODEL], Tuple[FIELDS, ...]]:
+) -> Callable[[MODEL], Tuple[MODEL, dict[str, Array]]]:
     ...
 
 
-def compiled_with_model(
+def compile(
     model: MODEL,
-    fun: Callable[[MODEL], Union[MODEL, Tuple[FIELDS, ...]]],
+    fun: Callable[[MODEL], Union[MODEL, Tuple[MODEL, dict[str, Array]]]],
     with_jit: bool = True
-) -> Callable[[MODEL], Union[MODEL, Tuple[FIELDS, ...]]]:
-    import jax
-    if with_jit:
-        return jax.jit(fun).lower(model).compile()
-    else:
-        return fun
-
-
-@overload
-def block_until_ready(model: Dict[str, Array]) -> Dict[str, Array]:
-    ...
-
-
-@overload
-def block_until_ready(model: MODEL) -> MODEL:
-    ...
-
-
-def block_until_ready(model: MODEL | Dict[str, Array]) -> MODEL | Dict[str, Array]:
-    return jax.block_until_ready(model)
+) -> Callable[[MODEL], Union[MODEL, Tuple[MODEL, dict[str, Array]]]]:
+    backend = model.backend
+    return backend.compile(fun, model, with_jit=with_jit)
 
 
 @dataclass
@@ -259,14 +241,24 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
     def build_history(self, *args, **kwargs) -> Any:
         raise NotImplementedError
     
+    @property
+    def device(self) -> AbstractDevice:
+        return self.block.dev
+    
+    @property
+    def backend(self) -> AbstractBackend:
+        return self.block.dev.backend
+    
+    def block_until_ready(self) -> Self:
+        return self.backend.block_until_ready(self)
+    
     def io_callback(
         self,
         history: AbstractHistoryset,
         *,
         use_scan: bool = False,
-        outer_scan_fn: Callable = jax.lax.scan,
-        inner_scan_fn: Callable = jax.lax.scan,
-    ) -> Callable[[Self], Self] | pjit.JitWrapped:
+        with_jit: bool = True
+    ) -> Callable[[Self], Self]:
         """Solve the ODE from start_time to end_time.
 
         Args:
@@ -279,16 +271,33 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
             solving the ODE from start_time to end_time, while saving intermediate
             states to history.
         """
-        start_time = self.time_manager.start_time
-        end_time = self.time_manager.end_time
+        start_time    = self.time_manager.start_time
+        end_time      = self.time_manager.end_time
         save_interval = self.time_manager.save_interval
-        dt_dyn = self.time_manager.dt_dyn
+        dt_dyn        = self.time_manager.dt_dyn
 
-        outer_steps = int((end_time - start_time) / save_interval)
-        inner_steps = int((save_interval) / dt_dyn)
+        outer_steps   = int((end_time - start_time) / save_interval)
+        inner_steps   = int((save_interval) / dt_dyn)
+        backend       = self.backend
+        outer_scan_fn = backend.scan
+        inner_scan_fn = backend.scan
+
+        if backend.name == "torch":
+            log_every_time = self.time_manager.log_every
+            log_steps      = int(log_every_time / dt_dyn)
+            return io_boundary_in_python_loop(
+                history=history,
+                run_fn=self.terraflow_run,
+                diagnose_fn=self.terraflow_diagnose,
+                outer_steps=outer_steps,
+                inner_steps=inner_steps,
+                log_steps=log_steps,
+                backend=backend,
+                with_jit=with_jit
+            )
 
         if use_scan:
-            return io_callback_in_scan(
+            return_fn = io_callback_in_scan(
                 history=history,
                 run_fn=self.terraflow_run,
                 diagnose_fn=self.terraflow_diagnose,
@@ -297,17 +306,21 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
                 outer_scan_fn=outer_scan_fn,
                 inner_scan_fn=inner_scan_fn,
             )
+            return compile(self, fun=return_fn, with_jit=with_jit)
         else:
             log_every_time = self.time_manager.log_every
-            log_steps = int(log_every_time / dt_dyn)
-            return io_callback_in_while_loop(
+            log_steps      = int(log_every_time / dt_dyn)
+            return_fn = io_callback_in_while_loop(
                 history=history,
                 run_fn=self.terraflow_run,
                 diagnose_fn=self.terraflow_diagnose,
                 total_timesteps=outer_steps * inner_steps,
                 save_steps=inner_steps,
-                log_steps=log_steps
+                log_steps=log_steps,
+                cond_fn=backend.cond,
+                while_loop_fn=backend.while_loop,
             )
+            return compile(self, fun=return_fn, with_jit=with_jit) 
 
     def trajectory(
         self,
@@ -316,8 +329,7 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
         post_process_fn: Callable = (
             lambda x: x.trajectory_post_process()
         ),
-        outer_scan_fn=jax.lax.scan,
-        inner_scan_fn=jax.lax.scan,
+        with_jit: bool = True
     ) -> Callable[[Self], tuple[Self, dict[str, Array]]]:
         """Solve the ODE from start_time to end_time.
 
@@ -338,10 +350,13 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
         save_interval = self.time_manager.save_interval
         dt_dyn = self.time_manager.dt_dyn
 
-        outer_steps = int((end_time - start_time) / save_interval)
-        inner_steps = int((save_interval) / dt_dyn)
+        outer_steps   = int((end_time - start_time) / save_interval)
+        inner_steps   = int((save_interval) / dt_dyn)
+        backend       = self.backend
+        outer_scan_fn = backend.scan
+        inner_scan_fn = backend.scan
 
-        return trajectory_in_scan(
+        return_fn = trajectory_in_scan(
             run_fn=self.terraflow_run,
             diagnose_fn=self.terraflow_diagnose,
             outer_steps=outer_steps,
@@ -351,12 +366,9 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
         )
+        return compile(self, fun=return_fn, with_jit=with_jit)
 
-    def integrate(
-        self,
-        *,
-        total_scan_fn=jax.lax.scan,
-    ) -> Callable[[Self], Self]:
+    def integrate(self, with_jit: bool = True) -> Callable[[Self], Self]:
         """Integrate the ODE from start_time to end_time.
 
         Args:
@@ -367,17 +379,20 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
             integrating the ODE from start_time to end_time.
         """
         start_time = self.time_manager.start_time
-        end_time = self.time_manager.end_time
-        dt_dyn = self.time_manager.dt_dyn
+        end_time   = self.time_manager.end_time
+        dt_dyn     = self.time_manager.dt_dyn
 
-        total_steps = int((end_time - start_time) / dt_dyn)
+        total_steps   = int((end_time - start_time) / dt_dyn)
+        backend       = self.backend
+        total_scan_fn = backend.scan
 
-        return integrate_in_scan(
+        return_fn = integrate_in_scan(
             run_fn=self.terraflow_run,
             diagnose_fn=self.terraflow_diagnose,
             total_steps=total_steps,
             total_scan_fn=total_scan_fn,
         )
+        return compile(self, fun=return_fn, with_jit=with_jit)
 
     def diagnose_precision(
         self,
@@ -432,6 +447,8 @@ def io_callback_in_while_loop(
     total_timesteps: int,
     save_steps: int,
     log_steps: int,
+    cond_fn: Callable[[Any, Callable[..., Any], Callable[..., Any]], Any],
+    while_loop_fn: Callable[[Callable[..., Any], Callable[..., Any], Any], Any]
 ) -> Callable[[MODEL], MODEL]:
     return wrap_fn_for_while_loop(
         history=history,
@@ -439,8 +456,103 @@ def io_callback_in_while_loop(
         diagnose_fn=diagnose_fn,
         total_timesteps=total_timesteps,
         save_steps=save_steps,
-        log_steps=log_steps
+        log_steps=log_steps,
+        cond_fn=cond_fn,
+        while_loop_fn=while_loop_fn
     )
+
+
+def io_boundary_in_python_loop(
+    history: AbstractHistoryset,
+    run_fn: Callable,
+    diagnose_fn: Callable,
+    outer_steps: int,
+    inner_steps: int,
+    log_steps: int,
+    backend: AbstractBackend,
+    with_jit: bool
+) -> Callable[[MODEL], MODEL]:
+    compiled_steps_fn: dict[int, Callable[[MODEL], MODEL]] = {}
+
+    def make_step_fn(steps: int) -> Callable[[MODEL], MODEL]:
+        repeated_step_fn = repeated(
+            fn=run_fn,
+            steps=steps,
+            scan_fn=backend.scan,
+        )
+
+        def step_fn(model: MODEL) -> MODEL:
+            block = model.block
+            block = repeated_step_fn(block)
+            return model.backend.tree_at(
+                where=lambda m: m.block,
+                pytree=model,
+                replace=block,
+            )
+
+        return step_fn
+
+    def diagnose_model(model: MODEL) -> MODEL:
+        block = model.block
+        block = diagnose_fn(block)
+        return model.backend.tree_at(
+            where=lambda m: m.block,
+            pytree=model,
+            replace=block,
+        )
+
+    def return_fn(model: MODEL) -> MODEL:
+        def run_steps(model: MODEL, steps: int) -> MODEL:
+            if steps not in compiled_steps_fn:
+                compiled_steps_fn[steps] = compile(
+                    model=model,
+                    fun=make_step_fn(steps),
+                    with_jit=with_jit,
+                )
+            return compiled_steps_fn[steps](model)
+
+        model = backend.block_until_ready(model)
+        history.output_prepare(save_interval_idx=0)
+        history.output(
+            block=model.block,
+            itime_str="old",
+            save_idx=0,
+            first_call=True,
+        )
+
+        for save_idx in range(1, outer_steps + 1):
+            interval_start_step = (save_idx - 1) * inner_steps
+            interval_end_step = save_idx * inner_steps
+            itimestep = interval_start_step
+            while itimestep < interval_end_step:
+                next_log_step = (
+                    ((itimestep // log_steps) + 1) * log_steps
+                    if log_steps > 0
+                    else interval_end_step
+                )
+                next_stop = min(interval_end_step, next_log_step)
+                model = run_steps(model, next_stop - itimestep)
+                model = backend.block_until_ready(model)
+                itimestep = next_stop
+                if (
+                    log_steps > 0
+                    and itimestep % log_steps == 0
+                    and itimestep != interval_end_step
+                ):
+                    history.output_diag(itimestep=itimestep)
+
+            model = diagnose_model(model)
+            model = backend.block_until_ready(model)
+            history.output_prepare(save_interval_idx=save_idx)
+            history.output(
+                block=model.block,
+                itime_str="old",
+                save_idx=save_idx,
+            )
+
+        return model
+
+    return return_fn
 
 
 def io_callback_in_scan(
@@ -449,10 +561,10 @@ def io_callback_in_scan(
     inner_steps: int,
     diagnose_fn: Callable,
     history: AbstractHistoryset,
+    outer_scan_fn: Callable,
+    inner_scan_fn: Callable,
     *,
     post_process_fn: Callable = lambda x: x.get_state(x.old),
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], MODEL]:
     return wrap_fn_for_split_scan(
         history=history,
@@ -471,13 +583,13 @@ def trajectory_in_scan(
     diagnose_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    outer_scan_fn: Callable,
+    inner_scan_fn: Callable,
     *,
     start_with_input: bool = False,
     post_process_fn: Callable = (
         lambda x: x.trajectory_post_process()
     ),
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], Tuple[MODEL, dict[str, Array]]]:
     """Returns a function that accumulates repeated applications of `step_fn`.
 
@@ -511,17 +623,18 @@ def trajectory_in_scan(
     )
 
     def return_fn(old_model: MODEL) -> Tuple[MODEL, dict[str, Array]]:
-        old_block = old_model.block
+        old_block: AbstractBlock = old_model.block
         final_model, trajectory = outer_fn(old_model)
         if start_with_input:
-            trajectory = jax.tree_util.tree_map(
-                lambda o, t: jnp.concatenate(
-                    [jnp.expand_dims(o, axis=0), t],
+            backend = old_block.backend
+            trajectory = backend.tree_map(
+                lambda o, t: backend.concatenate(
+                    [backend.expand_dims(o, axis=0), t],
                     axis=0
                 ),
                 old_block.trajectory_post_process(),
                 trajectory,
-                is_leaf=lambda x: isinstance(x, Array)
+                is_leaf=lambda x: backend.is_array(x)
             )
         return final_model, trajectory
 
@@ -532,8 +645,7 @@ def integrate_in_scan(
     run_fn: Callable,
     diagnose_fn: Callable,
     total_steps: int,
-    *,
-    total_scan_fn: Callable = jax.lax.scan,
+    total_scan_fn: Callable,
 ) -> Callable[[MODEL], MODEL]:
     return wrap_fn_for_scan(
         run_fn=run_fn,
@@ -562,36 +674,38 @@ def wrap_fn_for_split_scan(
     run_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    outer_scan_fn: Callable,
+    inner_scan_fn: Callable,
     history: AbstractHistoryset,
     diagnose_fn: Optional[Callable] = None,
     post_process_fn: Optional[Callable] = None,
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], MODEL]:
     ...
+
 
 @overload
 def wrap_fn_for_split_scan(
     run_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    outer_scan_fn: Callable,
+    inner_scan_fn: Callable,
     history: None = None,
     diagnose_fn: Optional[Callable] = None,
     post_process_fn: Optional[Callable] = None,
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], tuple[MODEL, Any]]:
     ...
+
 
 def wrap_fn_for_split_scan(
     run_fn: Callable,
     outer_steps: int,
     inner_steps: int,
+    outer_scan_fn: Callable,
+    inner_scan_fn: Callable,
     history: Optional[AbstractHistoryset] = None,
     diagnose_fn: Optional[Callable] = None,
     post_process_fn: Optional[Callable] = None,
-    outer_scan_fn: Callable = jax.lax.scan,
-    inner_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], Union[MODEL, tuple[MODEL, Any]]]:
     diagnose_fn = diagnose_fn if diagnose_fn is not None else lambda block: block
     post_process_fn = post_process_fn if post_process_fn is not None else lambda block: None
@@ -633,7 +747,7 @@ def wrap_fn_for_split_scan(
                 xs=None,
                 length=outer_steps
             )
-            model = eqx.tree_at(
+            model = model.backend.tree_at(
                 where=lambda m: m.block,
                 pytree=model,
                 replace=block                
@@ -659,7 +773,7 @@ def wrap_fn_for_split_scan(
                 length=outer_steps
             )
             block = final_carry[0]
-            return eqx.tree_at(
+            return model.backend.tree_at(
                 where=lambda m: m.block,
                 pytree=model,
                 replace=block                
@@ -671,8 +785,8 @@ def wrap_fn_for_split_scan(
 def wrap_fn_for_scan(
     run_fn: Callable,
     total_steps: int,
+    total_scan_fn: Callable,
     diagnose_fn: Optional[Callable] = None,
-    total_scan_fn: Callable = jax.lax.scan,
 ) -> Callable[[MODEL], MODEL]:
     diagnose_fn = diagnose_fn if diagnose_fn is not None else lambda block: block
 
@@ -690,7 +804,7 @@ def wrap_fn_for_scan(
     def return_fn(model: MODEL) -> MODEL:
         block = model.block
         block = wrap_fn(block)
-        return eqx.tree_at(
+        return model.backend.tree_at(
             where=lambda m: m.block,
             pytree=model,
             replace=block                
@@ -703,6 +817,8 @@ def wrap_fn_for_while_loop(
     run_fn: Callable,
     total_timesteps: int,
     save_steps: int,
+    cond_fn: Callable,
+    while_loop_fn: Callable,
     diagnose_fn: Optional[Callable] = None,
     history: Optional[AbstractHistoryset] = None,
     log_steps: Optional[int] = None,
@@ -725,7 +841,7 @@ def wrap_fn_for_while_loop(
         def while_loop_body_fn_1(carry: tuple[BLOCK, int]) -> tuple[BLOCK, int]:
             block, itimestep = carry
             block = run_fn(block)
-            block = jax.lax.cond(
+            block = cond_fn(
                 itimestep % save_steps == 0,
                 process_on_save_step,
                 lambda block: block,
@@ -747,14 +863,14 @@ def wrap_fn_for_while_loop(
 
         def while_loop_body_fn_2(carry: tuple[BLOCK, int]) -> tuple[BLOCK, int]:
             block, itimestep = carry
-            jax.lax.cond(
+            cond_fn(
                 itimestep % log_steps == 0,
                 output_on_log_step,
                 lambda _: None,
                 itimestep
             )
             block = run_fn(block)
-            jax.lax.cond(
+            cond_fn(
                 itimestep % save_steps == 0,
                 output_on_save_step,
                 lambda _, __: None,
@@ -767,13 +883,13 @@ def wrap_fn_for_while_loop(
         def return_fn(model: MODEL) -> MODEL:
             block = model.block
             carry = (block, 1)
-            final_carry = jax.lax.while_loop(
+            final_carry = while_loop_fn(
                 cond_fun=while_loop_cond_fn,
                 body_fun=while_loop_body_fn_1,
                 init_val=carry
             )
             block = final_carry[0]
-            return eqx.tree_at(
+            return model.backend.tree_at(
                 where=lambda m: m.block,
                 pytree=model,
                 replace=block
@@ -789,13 +905,13 @@ def wrap_fn_for_while_loop(
                 first_call=True
             )
             carry = (block, 1)
-            final_carry = jax.lax.while_loop(
+            final_carry = while_loop_fn(
                 cond_fun=while_loop_cond_fn,
                 body_fun=while_loop_body_fn_2,
                 init_val=carry
             )
             block = final_carry[0]
-            return eqx.tree_at(
+            return model.backend.tree_at(
                 where=lambda m: m.block,
                 pytree=model,
                 replace=block
@@ -807,7 +923,7 @@ def wrap_fn_for_while_loop(
 def repeated(
     fn: Callable,
     steps: int,
-    scan_fn: Callable = jax.lax.scan
+    scan_fn: Callable
 ) -> Callable:
     """
     Returns a version of fn() that is repeatedly applied `steps` times.

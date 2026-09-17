@@ -1,7 +1,5 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from jax import numpy as jnp
-import jax
 
 from terraflow.util.sphere_geometry import (
     project_sphere2plane,
@@ -28,6 +26,7 @@ def div_operator_1d(
     with_halo: bool = False
 ) -> Array:
     """Divergence operator"""
+    bkd = mesh.dev.backend
     if div_loc == "cell":
         i_s = mesh.cell_ids
         i_e = mesh.cell_ihe[0] if with_halo else mesh.cell_ide
@@ -39,8 +38,8 @@ def div_operator_1d(
         ed_idx  = cell_ed  # (ncell, maxnnb)
         le_tile = le[ed_idx]  # (ncell, maxnnb)
         x_tile  = f[ed_idx]  # (ncell, maxnnb)
-        x_tile  = jnp.where(ed_idx < 0, 0.0, x_tile)
-        res = jnp.sum(
+        x_tile  = bkd.where(ed_idx < 0, 0.0, x_tile)
+        res = bkd.sum(
             cell_nr * le_tile * x_tile,
             axis=-1
         ) / area_cell
@@ -58,6 +57,7 @@ def div_operator_2d(
     with_halo: bool = False
 ) -> Float[Array, "nlev nPolg"]:
     """Divergence operator"""
+    bkd = mesh.dev.backend
     k_s = mesh.full_kds if div_loc != "lev" else mesh.half_kds
     k_e = mesh.full_kde if div_loc != "lev" else mesh.half_kde
     if div_loc == "cell" or div_loc == "lev":
@@ -72,13 +72,13 @@ def div_operator_2d(
             ed_idx = cell_ed  # (ncell, maxnnb)
             leng_tile = le[ed_idx]  # (ncell, maxnnb)
             x_tile = f_1d[ed_idx]  # (ncell, maxnnb)
-            x_tile = jnp.where(ed_idx < 0, 0.0, x_tile)
-            return jnp.sum(
+            x_tile = bkd.where(ed_idx < 0, 0.0, x_tile)
+            return bkd.sum(
                 cell_nr * leng_tile * x_tile,
                 axis=-1
             ) / area_cell
 
-        res = jax.vmap(
+        res = bkd.vmap(
             _wrap,
             in_axes=0,
             out_axes=0
@@ -97,6 +97,7 @@ def curl_operator_1d(
     with_halo: bool = False
 ) -> Float[Array, "nlev npoint"]:
     """Curl operator"""
+    bkd = mesh.dev.backend
     if curl_loc == "vtx":
         i_s = mesh.vtx_ids
         i_e = mesh.vtx_ihe[0] if with_halo else mesh.vtx_ide
@@ -108,10 +109,10 @@ def curl_operator_1d(
         # ==========================================================
         ed_idx = vtx_ed  # (nvtx, maxnnb)
         f_tile = f[ed_idx]  # (nvtx, maxnnb)
-        f_tile = jnp.where(ed_idx < 0, 0.0, f_tile)
+        f_tile = bkd.where(ed_idx < 0, 0.0, f_tile)
         de_tile = de[ed_idx]  # (nvtx, maxnnb)
         edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
-        res = jnp.sum(
+        res = bkd.sum(
             f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
             axis=-1
         ) / area_vtx
@@ -129,6 +130,7 @@ def curl_operator_2d(
     with_halo: bool = False
 ) -> Float[Array, "nlev npoint"]:
     """Curl operator"""
+    bkd = mesh.dev.backend
     k_s = mesh.full_kds if curl_loc != "lev" else mesh.half_kds
     k_e = mesh.full_kde if curl_loc != "lev" else mesh.half_kde
     if curl_loc == "vtx" or curl_loc == "lev_vtx":
@@ -144,15 +146,15 @@ def curl_operator_2d(
         def _wrap(f_1d: Float[Array, "nedge"]) -> Float[Array, "nvtx"]:
             ed_idx = vtx_ed  # (nvtx, maxnnb)
             f_tile = f_1d[ed_idx]  # (nvtx, maxnnb)
-            f_tile = jnp.where(ed_idx < 0, 0.0, f_tile)
+            f_tile = bkd.where(ed_idx < 0, 0.0, f_tile)
             de_tile = de[ed_idx]  # (nvtx, maxnnb)
             edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
-            return jnp.sum(
+            return bkd.sum(
                 f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
                 axis=-1
             ) / area_vtx
 
-        res = jax.vmap(
+        res = bkd.vmap(
             _wrap,
             in_axes=0,
             out_axes=0
@@ -171,6 +173,7 @@ def grad_operator_1d(
     with_halo: bool = False
 ) -> Float[Array, "nlev nEdge"]:
     """Gradient operator"""
+    bkd = mesh.dev.backend
     if f_loc == "cell":
         i_s = mesh.edge_ids
         i_e = mesh.edge_ihe[0] if with_halo else mesh.edge_ide
@@ -195,6 +198,7 @@ def grad_operator_2d(
     with_halo: bool = False
 ) -> Float[Array, "nlev nEdge"]:
     """Gradient operator"""
+    bkd = mesh.dev.backend
     k_s = mesh.full_kds if f_loc != "lev" else mesh.half_kds
     k_e = mesh.full_kde if f_loc != "lev" else mesh.half_kde
     if f_loc == "cell":
@@ -209,7 +213,7 @@ def grad_operator_2d(
             q1 = f_1d[cell_of_edge[:, 1]]
             return (q1 - q0) * edpnr_eddtg / de
 
-        res = jax.vmap(
+        res = bkd.vmap(
             _wrap,
             in_axes=0,
             out_axes=0
@@ -236,8 +240,9 @@ def wind_c2a_operator(
     dual_edge_xyz = mesh.dual_edge_xyz              # (nedge, 3)
     edge_nr       = mesh.edge_nr                    # (nedge, 3)
     le            = mesh.le                         # (nedge,)
+    bkd           = mesh.dev.backend
 
-    eps = jnp.finfo(cell_xyz.dtype).eps
+    eps = bkd.eps(cell_xyz.dtype)
 
     def _wrap_at_single_lev(un: Float[Array, "nedge"]) -> dict[str, Float[Array, "ncell"]]:
 
@@ -251,24 +256,24 @@ def wind_c2a_operator(
         # Create mask for valid neighbors: (ncell, maxnnb)
         # Use shape inference to get maxnnb instead of accessing it as a field
         maxnnb = cell_ed.shape[1]
-        pos = jnp.arange(maxnnb)[None, :]  # (1, maxnnb)
+        pos = bkd.arange(maxnnb)[None, :]  # (1, maxnnb)
         mask = pos < cell_nnb[:, None]  # (ncell, maxnnb)
 
         # Project edge midpoints onto tangent plane at cell centroids
         # OPc: (ncell, 3) -> (ncell, 1, 3) for broadcasting
         OPc = cell_xyz[:, None, :]  # (ncell, 1, 3)
-        rei = jax.vmap(
-            lambda R, opc, opi: project_sphere2plane(R, opc[0], opi),
+        rei = bkd.vmap(
+            lambda R, opc, opi: project_sphere2plane(bkd, R, opc[0], opi),
             in_axes=(None, 0, 0)
         )(R, OPc, OPi)  # (ncell, maxnnb, 3)
 
         # Compute norms and normalize
-        rei_norm = jnp.linalg.norm(rei, axis=-1)  # (ncell, maxnnb)
-        rei_norm = jnp.maximum(rei_norm, eps * 100)
+        rei_norm = bkd.norm(rei, axis=-1)  # (ncell, maxnnb)
+        rei_norm = bkd.maximum(rei_norm, eps * 100)
         rei_unit = rei / rei_norm[:, :, None]  # (ncell, maxnnb, 3)
 
         # Dot product: nei . rei_unit
-        dot_val = jnp.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
+        dot_val = bkd.sum(nei * rei_unit, axis=-1)  # (ncell, maxnnb)
 
         # Contribution per neighbor: rei * wind * dot_val * leng
         # (ncell, maxnnb, 3)
@@ -278,17 +283,17 @@ def wind_c2a_operator(
         contrib = contrib * mask[:, :, None]  # (ncell, maxnnb, 3)
 
         # Sum contributions across neighbors
-        vector_xyz = jnp.sum(contrib, axis=1)  # (ncell, 3)
+        vector_xyz = bkd.sum(contrib, axis=1)  # (ncell, 3)
 
         # Divide by cell area
-        area = jnp.maximum(area_cell, eps * 100)  # (ncell,)
+        area = bkd.maximum(area_cell, eps * 100)  # (ncell,)
         vector_xyz = vector_xyz / area[:, None]  # (ncell, 3)
 
         # Convert to lat-lon coordinates
-        result = vector_convert_xyz2lonlat(R, vector_xyz, cell_xyz)  # returns dict with 'u', 'v'
+        result = vector_convert_xyz2lonlat(bkd, R, vector_xyz, cell_xyz)  # returns dict with 'u', 'v'
         return result
 
-    res =  jax.vmap(
+    res =  bkd.vmap(
         _wrap_at_single_lev,
         in_axes=0,
         out_axes=0
@@ -307,12 +312,13 @@ def wind_a2c_operator(
     v: Float[Array, "nlev ncell"],
     un: Float[Array, "nlev nedge"]
 ) -> Float[Array, "nlev nedge"]:
+    bkd = mesh.dev.backend
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ide = mesh.edge_ids, mesh.edge_ide
     v1 = mesh.cell_of_edge[ids:ide+1, 0]
     v2 = mesh.cell_of_edge[ids:ide+1, 1]
     u_tmp = 0.5 * (u[kds:kde+1, v1] + u[kds:kde+1, v2])
     v_tmp = 0.5 * (v[kds:kde+1, v1] + v[kds:kde+1, v2])
-    vec = vector_convert_lonlat2xyz(R, u_tmp, v_tmp, mesh.dual_edge_xyz[ids:ide+1, :])
-    tmp = jnp.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
+    vec = vector_convert_lonlat2xyz(bkd, R, u_tmp, v_tmp, mesh.dual_edge_xyz[ids:ide+1, :])
+    tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
     return un.at[kds:kde+1, ids:ide+1].set(tmp)

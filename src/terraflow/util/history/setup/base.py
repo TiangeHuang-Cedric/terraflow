@@ -4,10 +4,12 @@ import netCDF4 as nc4
 import datetime
 import numpy as np
 
+
 FLOAT_NP2NC = {
     np.float32: "f4",
     np.float64: "f8"
 }
+
 
 INT_NP2NC = {
     np.int32: "i4",

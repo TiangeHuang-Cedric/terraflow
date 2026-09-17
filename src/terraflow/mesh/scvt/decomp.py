@@ -1,6 +1,5 @@
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING, cast
-import jax.numpy as jnp
+from typing import TYPE_CHECKING, cast
 import numpy as np
 import pymetis
 from mpi4py import MPI
@@ -26,7 +25,7 @@ def build_cell_csr_from_dense(
     n_cell = cell_nb.shape[0]
     maxnnb = cell_nb.shape[1]
 
-    indptr = np.empty(n_cell + 1, dtype=np.int64)
+    indptr  = np.empty(n_cell + 1     , dtype=np.int64)
     indices = np.empty(n_cell * maxnnb, dtype=np.int64)
 
     indptr[0] = 0
@@ -187,12 +186,13 @@ def domain_list_search_index(
     domain: Domain,
     mesh: SCVTMesh,
 ) -> None:
-    cell_vtx = np.asarray(mesh.vtx_of_cell, dtype=np.int64)
-    cell_edge = np.asarray(mesh.cell_ed, dtype=np.int64)
-    cell_nnb = np.asarray(mesh.cell_nnb, dtype=np.int64)
-    n_vtx = int(mesh.n_vtx)
-    n_edge = int(mesh.n_edge)
-    cell_id = np.asarray(domain.cell_id, dtype=np.int64)
+    bkd = mesh.dev.backend
+    cell_vtx  = bkd.to_numpy(mesh.vtx_of_cell)
+    cell_edge = bkd.to_numpy(mesh.cell_ed    )
+    cell_nnb  = bkd.to_numpy(mesh.cell_nnb   )
+    n_vtx     = int(mesh.n_vtx)
+    n_edge    = int(mesh.n_edge)
+    cell_id   = bkd.to_numpy(domain.cell_id  )
     vtx_id, edge_id = domain_entities_from_cells(
         cell_id,
         cell_vtx,
@@ -202,11 +202,11 @@ def domain_list_search_index(
         n_edge,
     )
     domain.cell_id = cell_id
-    domain.vtx_id = vtx_id
+    domain.vtx_id  = vtx_id
     domain.edge_id = edge_id
-    domain.n_cell = len(domain.cell_id)
-    domain.n_vtx = len(domain.vtx_id)
-    domain.n_edge = len(domain.edge_id)
+    domain.n_cell  = len(domain.cell_id)
+    domain.n_vtx   = len(domain.vtx_id)
+    domain.n_edge  = len(domain.edge_id)
 
 
 def metis_run(proc: SCVTProc, mesh: SCVTMesh) -> None:
@@ -241,10 +241,11 @@ def find_cmpt_indices(
     mesh: SCVTMesh,
 ) -> None:
     if proc.is_root(): log.logger.info("Find computation domain indices.")
-    cell_proc_idmap = np.asarray(proc.cell_proc_idmap, dtype=np.int32)
+    bkd = mesh.dev.backend
+    cell_proc_idmap  = bkd.to_numpy(proc.cell_proc_idmap)
     proc.cmpt.cell_id = np.flatnonzero(
         cell_proc_idmap == proc.id_model
-    ).astype(np.int32)
+    )
     domain_list_search_index(proc.cmpt, mesh)
 
 
@@ -253,10 +254,11 @@ def find_bdry_halo_indices(
     mesh: SCVTMesh,
 ) -> tuple[np.ndarray, np.ndarray]:
     if proc.is_root(): log.logger.info("Find boundary and halo domain indices.")
+    bkd = mesh.dev.backend
     cell_proc_idmap = proc.cell_proc_idmap
-    n_cell = int(mesh.n_cell)
-    cell_nnb = np.asarray(mesh.cell_nnb, dtype=np.int64)
-    cell_nb = np.asarray(mesh.cell_nb, dtype=np.int64)
+    n_cell   = int(mesh.n_cell)
+    cell_nnb = bkd.to_numpy(mesh.cell_nnb)
+    cell_nb  = bkd.to_numpy(mesh.cell_nb )
 
     bdry_layer, halo_layer = build_bdry_halo_layers(
         n_cell,
@@ -387,14 +389,15 @@ def set_sendrecv_sites(
     halo_layer: np.ndarray
 ) -> None:
     if proc.is_root(): log.logger.info("Set send/recv sites for halo exchange.")
-    cell_proc_idmap = np.asarray(proc.cell_proc_idmap, dtype=np.int32)
-    cell_vtx  = np.asarray(mesh.vtx_of_cell, dtype=np.int64)
-    cell_edge = np.asarray(mesh.cell_ed, dtype=np.int64)
-    cell_nnb  = np.asarray(mesh.cell_nnb, dtype=np.int64)
-    np_model  = int(proc.np_model)
-    rank   = int(proc.id_model)
-    n_vtx  = int(mesh.n_vtx)
-    n_edge = int(mesh.n_edge)
+    bkd = mesh.dev.backend
+    cell_proc_idmap = bkd.to_numpy(proc.cell_proc_idmap)
+    cell_vtx        = bkd.to_numpy(mesh.vtx_of_cell)
+    cell_edge       = bkd.to_numpy(mesh.cell_ed    )
+    cell_nnb        = bkd.to_numpy(mesh.cell_nnb   )
+    np_model        = int(proc.np_model)
+    rank            = int(proc.id_model)
+    n_vtx           = int(mesh.n_vtx)
+    n_edge          = int(mesh.n_edge)
 
     comm  = cast(MPI.Intracomm, proc.comm_model)
     empty = np.empty(0, dtype=np.int32)
@@ -474,12 +477,12 @@ def set_sendrecv_sites(
                 n_cell=int(global_cell_id.size),
                 n_vtx=int(global_vtx_id.size),
                 n_edge=int(global_edge_id.size),
-                global_cell_id=jnp.asarray(global_cell_id, dtype=jnp.int32),
-                global_vtx_id=jnp.asarray(global_vtx_id, dtype=jnp.int32),
-                global_edge_id=jnp.asarray(global_edge_id, dtype=jnp.int32),
-                local_cell_id=jnp.asarray(local_cell_id, dtype=jnp.int32),
-                local_vtx_id=jnp.asarray(local_vtx_id, dtype=jnp.int32),
-                local_edge_id=jnp.asarray(local_edge_id, dtype=jnp.int32),
+                global_cell_id=bkd.asarray(global_cell_id, dtype=bkd.int32),
+                global_vtx_id=bkd.asarray(global_vtx_id, dtype=bkd.int32),
+                global_edge_id=bkd.asarray(global_edge_id, dtype=bkd.int32),
+                local_cell_id=bkd.asarray(local_cell_id, dtype=bkd.int32),
+                local_vtx_id=bkd.asarray(local_vtx_id, dtype=bkd.int32),
+                local_edge_id=bkd.asarray(local_edge_id, dtype=bkd.int32),
             )
         )
 
@@ -531,12 +534,12 @@ def set_sendrecv_sites(
                 n_cell=int(global_cell_id.size),
                 n_vtx=int(global_vtx_id.size),
                 n_edge=int(global_edge_id.size),
-                global_cell_id=jnp.asarray(global_cell_id, dtype=jnp.int32),
-                global_vtx_id=jnp.asarray(global_vtx_id, dtype=jnp.int32),
-                global_edge_id=jnp.asarray(global_edge_id, dtype=jnp.int32),
-                local_cell_id=jnp.asarray(local_cell_id, dtype=jnp.int32),
-                local_vtx_id=jnp.asarray(local_vtx_id, dtype=jnp.int32),
-                local_edge_id=jnp.asarray(local_edge_id, dtype=jnp.int32),
+                global_cell_id=bkd.asarray(global_cell_id, dtype=bkd.int32),
+                global_vtx_id=bkd.asarray(global_vtx_id, dtype=bkd.int32),
+                global_edge_id=bkd.asarray(global_edge_id, dtype=bkd.int32),
+                local_cell_id=bkd.asarray(local_cell_id, dtype=bkd.int32),
+                local_vtx_id=bkd.asarray(local_vtx_id, dtype=bkd.int32),
+                local_edge_id=bkd.asarray(local_edge_id, dtype=bkd.int32),
             )
         )
 

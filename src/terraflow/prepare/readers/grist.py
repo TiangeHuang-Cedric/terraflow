@@ -2,9 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from dataclasses import dataclass
 import gc
-import jax
-import jax.numpy as jnp
 import xarray as xr
+
 
 from terraflow.util import typing, log
 from terraflow.prepare.readers.abstract import (
@@ -14,6 +13,7 @@ from terraflow.prepare.readers.abstract import (
 if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
     from terraflow.util.planet import PlanetParameterSet
+
 
 Float = typing.Float
 Array = typing.Array
@@ -46,12 +46,9 @@ class GRISTStaticDataReaderConfig(AbstractReaderConfig):
 
 @dataclass
 class GRISTBackgroundReaderConfig(AbstractReaderConfig):
-    # "jax" or "native"
-    vert_interp_backend: str = "jax"
 
     def __print__(self):
         print("================ GRIST Background Reader Config ==================")
-        print(f"  vert_interp_backend        = {self.vert_interp_backend}")
         print("==================================================================")
 
 
@@ -104,121 +101,122 @@ class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
         return "-180>180"
     
     def load_data(self):
+        bkd = self.dev.backend
         float_type = self.dev.float_type
         ds = xr.open_dataset(self.static_file, engine="netcdf4")
-        self.lon = jnp.array(
+        self.lon = bkd.array(
             ds["lon"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lat = jnp.array(
+        self.lat = bkd.array(
             ds["lat"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.phis = jnp.array(
+        self.phis = bkd.array(
             ds["PHIS"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lu_index = jnp.array(
+        self.lu_index = bkd.array(
             ds["LU_INDEX"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lu_index_frac = jnp.array(
+        self.lu_index_frac = bkd.array(
             ds["LU_INDEX_FRAC"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.soiltop = jnp.array(
+        self.soiltop = bkd.array(
             ds["SOILTOP"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.soiltop_frac = jnp.array(
+        self.soiltop_frac = bkd.array(
             ds["SOILTOP_FRAC"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.mask = jnp.array(
+        self.mask = bkd.array(
             ds["MASK"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.soiltemp = jnp.array(
+        self.soiltemp = bkd.array(
             ds["SOILTEMP"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.snoalb = jnp.array(
+        self.snoalb = bkd.array(
             ds["SNOALB"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.greenfrac = jnp.array(
+        self.greenfrac = bkd.array(
             ds["GREENFRAC"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.albedo = jnp.array(
+        self.albedo = bkd.array(
             ds["ALBEDO"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.varsso = jnp.array(
+        self.varsso = bkd.array(
             ds["VARSSO"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.con = jnp.array(
+        self.con = bkd.array(
             ds["CON"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.oa1 = jnp.array(
+        self.oa1 = bkd.array(
             ds["OA1"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.oa2 = jnp.array(
+        self.oa2 = bkd.array(
             ds["OA2"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.oa3 = jnp.array(
+        self.oa3 = bkd.array(
             ds["OA3"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.oa4 = jnp.array(
+        self.oa4 = bkd.array(
             ds["OA4"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.ol1 = jnp.array(
+        self.ol1 = bkd.array(
             ds["OL1"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.ol2 = jnp.array(
+        self.ol2 = bkd.array(
             ds["OL2"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.ol3 = jnp.array(
+        self.ol3 = bkd.array(
             ds["OL3"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.ol4 = jnp.array(
+        self.ol4 = bkd.array(
             ds["OL4"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.var2d = jnp.array(
+        self.var2d = bkd.array(
             ds["VAR2D"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
 
@@ -248,7 +246,7 @@ class GRISTStaticDataReader(AbstractReader[GRISTStaticDataReaderConfig]):
         delattr(self, "var2d"        )
         self.loaded = False
         gc.collect
-        jax.clear_caches()
+        self.dev.backend.clear_caches()
 
 
 class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
@@ -294,88 +292,89 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
         return "-180>180"
      
     def load_data(self):
+        bkd = self.dev.backend
         float_type = self.dev.float_type
         ds = xr.open_dataset(self.bkg_file, engine="netcdf4")
         # ------------- Load data -------------
-        self.lon = jnp.array(
+        self.lon = bkd.array(
             ds["lon"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lat = jnp.array(
+        self.lat = bkd.array(
             ds["lat"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.plev = jnp.array(
+        self.plev = bkd.array(
             ds["plev"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         self.time_str = str(ds["time"].values)
-        self.ps = jnp.array(
+        self.ps = bkd.array(
             ds["PS"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.q = jnp.array(
+        self.q = bkd.array(
             ds["Q"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.skintemp = jnp.array(
+        self.skintemp = bkd.array(
             ds["SKINTEMP"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.snow = jnp.array(
+        self.snow = bkd.array(
             ds["SNOW"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.snowh = jnp.array(
+        self.snowh = bkd.array(
             ds["SNOWH"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.soilh = jnp.array(
+        self.soilh = bkd.array(
             ds["SOILH"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.t = jnp.array(
+        self.t = bkd.array(
             ds["T"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.u = jnp.array(
+        self.u = bkd.array(
             ds["U"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.v = jnp.array(
+        self.v = bkd.array(
             ds["V"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.xice = jnp.array(
+        self.xice = bkd.array(
             ds["XICE"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.soiltemp = jnp.array(
+        self.soiltemp = bkd.array(
             ds["SoilTemp"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.nsoil_levels = jnp.array(
+        self.nsoil_levels = bkd.array(
             ds["nSoilLevels"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
-        self.soilmoist = jnp.array(
+        self.soilmoist = bkd.array(
             ds["SoilMoist"].values,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ).T
 
@@ -399,4 +398,4 @@ class GRISTBackgroundReader(AbstractReader[GRISTBackgroundReaderConfig]):
         delattr(self, "soilmoist"   )
         self.loaded = False
         gc.collect
-        jax.clear_caches()
+        self.dev.backend.clear_caches()

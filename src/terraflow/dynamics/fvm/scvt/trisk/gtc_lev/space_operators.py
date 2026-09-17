@@ -1,18 +1,16 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax
-import jax.numpy as jnp
 
 
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
-from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
+from terraflow.util.profile import profile_scope
 from terraflow.util import formula
-from terraflow.util.pytree import tree_at, error_if
+from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.mesh.scvt import operators as op
 from terraflow.mesh.scvt import interp
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind, interface
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.tracer import tracer_calc_qm
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import interface
+
 
 if TYPE_CHECKING:
     from terraflow.util import typing
@@ -36,11 +34,11 @@ def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) ->
     if mode.is_baroclinic():
         block = calc_ph    (block, itime)
     if mode.nonhydrostatic and not mode.restart:
-        if (jnp.sum(block.state.p.d[itime, :, :]) == 0):
+        if (block.backend.sum(block.state.p.d[itime, :, :]) == 0):
             # Set pressure to hydrostatic pressure in the initial condition.
             ph     = block.state.ph    .d[itime, :, :]
             ph_lev = block.state.ph_lev.d[itime, :, :] 
-            block = tree_at(
+            block = block.backend.tree_at(
                 where=lambda b: (b.state.p, b.state.ph),
                 pytree=block,
                 replace=(ph, ph_lev),
@@ -99,8 +97,9 @@ def operators_prepare_2(
     return block
 
 
-@jax.named_scope("calc_mg")
+@profile_scope("calc_mg")
 def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -125,7 +124,7 @@ def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         )
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.state.mg.d, b.state.mg_lev.d),
         pytree=block,
         replace=(mg, mg_lev),
@@ -134,8 +133,9 @@ def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     )
 
 
-@jax.named_scope("calc_ph")
+@profile_scope("calc_ph")
 def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -153,7 +153,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     qm_ = qm[kds:kde, ids:ihe+1]
     moist_dmg = dmg_ * (1.0 + qm_)
     ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
-        mg_lev[kds, ids:ihe+1] + jnp.cumulative_sum(
+        mg_lev[kds, ids:ihe+1] + bkd.cumulative_sum(
             moist_dmg,
             axis=0,
             include_initial=True
@@ -174,7 +174,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     phs = phs.at[ids:ihe+1].set(ph_lev[kde, ids:ihe+1])
     # =======================================================
     if block.mode.is_hydrostatic():
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (
                 b.state.phs.d, b.state.ph.d, b.state.ph_lev.d, 
                 b.state.ps.d, b.state.p.d, b.state.p_lev.d
@@ -185,7 +185,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             at_idxes=(star_idx, star_idx, star_idx, star_idx, star_idx, star_idx)
         )
     else:
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (b.state.phs.d, b.state.ph.d, b.state.ph_lev.d),
             pytree=block,
             replace=(phs, ph, ph_lev),
@@ -194,8 +194,9 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         )
     
 
-@jax.named_scope("calc_t")
+@profile_scope("calc_t")
 def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -230,7 +231,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             formula.temperature(
                 pt=pt[full_kds:full_kde+1, ids:ihe+1],
                 p=p[full_kds:full_kde+1, ids:ihe+1],
-                qv=jnp.asarray(0.0, dtype=pt.dtype),
+                qv=bkd.asarray(0.0, dtype=pt.dtype),
                 para=block.para
             )
         )
@@ -238,15 +239,16 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             t[full_kds:full_kde+1, ids:ihe+1]
         )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.aux.t.d, b.aux.tv.d),
         pytree=block,
         replace=(t, tv)
     )
 
 
-@jax.named_scope("calc_rhod")
+@profile_scope("calc_rhod")
 def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -259,15 +261,16 @@ def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         dmg[kds:kde+1, ids:ihe+1] / dgz
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.rhod.d,
         pytree=block,
         replace=rhod
     )
     
 
-@jax.named_scope("calc_mfz")
+@profile_scope("calc_mfz")
 def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     half_kds = mesh.half_kds
     half_kde = mesh.half_kde
@@ -283,7 +286,7 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         ke=half_kde - 1
     )
     mfz_lev = mfz_lev.at[half_kds+1:half_kde, polg_ids:polg_ide+1].set(
-        - dmgdt_lev - jnp.cumsum(
+        - dmgdt_lev - bkd.cumsum(
             dmf[:half_kde-1, polg_ids:polg_ide+1],
             axis=0
         )
@@ -294,15 +297,16 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         meta=block.aux.mfz_lev.meta
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.mfz_lev.d,
         pytree=block,
         replace=mfz_lev,
     )
     
 
-@jax.named_scope("calc_ke")    
+@profile_scope("calc_ke")
 def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     cell_ids, cell_ihe = mesh.cell_ids, mesh.cell_ihe[0]
     vtx_ids , vtx_ihe  = mesh.vtx_ids , mesh.vtx_ihe [0]
@@ -323,14 +327,14 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
     def edge2cell(un: FLT[Array, "nedge"]) -> FLT[Array, "ncell"]:
         ed_idx = cell_ed
         Ae = le[ed_idx] * de[ed_idx] / 4.0 # (ncell,)
-        local_sum = jnp.sum(
-            jnp.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2), 
+        local_sum = bkd.sum(
+            bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2), 
             axis=-1
         )
         return local_sum / area_cell  # (ncell,)
     
     ke = ke.at[kds:kde+1, cell_ids:cell_ihe+1].set(
-        jax.vmap(
+        bkd.vmap(
             edge2cell,
             in_axes=0,
             out_axes=0
@@ -343,8 +347,8 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         def edge2vtx(un: FLT[Array, "nedge"]) -> FLT[Array, "nvtx"]:
             ed_idx = vtx_ed
             Ae = le[ed_idx] * de[ed_idx] / 4.0 # (nvtx,)
-            local_sum = jnp.sum(
-                jnp.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2),
+            local_sum = bkd.sum(
+                bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2),
                 axis=-1
             )
             return local_sum / area_vtx # (nvtx,)
@@ -352,34 +356,34 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         def vtx2cell(ke_vtx: FLT[Array, "nvtx"]) -> FLT[Array, "ncell"]:
             v_idx = vtx_of_cell
             Ae = kite_area_cell
-            local_sum = jnp.sum(
-                jnp.where(v_idx < 0, 0.0, Ae * ke_vtx[v_idx]),
+            local_sum = bkd.sum(
+                bkd.where(v_idx < 0, 0.0, Ae * ke_vtx[v_idx]),
                 axis=-1
             )
             return local_sum / area_cell # (ncell,)
         
         ke_vtx = ke_vtx.at[kds:kde+1, vtx_ids:vtx_ihe+1].set(
-            jax.vmap(
+            bkd.vmap(
                 edge2vtx, 
                 in_axes=0, 
                 out_axes=0
             )(un[kds:kde+1, :])
         )
         
-        ke_vtx_cell = jax.vmap(vtx2cell, in_axes=0, out_axes=0)(ke_vtx[kds:kde+1,:])
+        ke_vtx_cell = bkd.vmap(vtx2cell, in_axes=0, out_axes=0)(ke_vtx[kds:kde+1,:])
         
         ke = ke.at[kds:kde+1, cell_ids:cell_ihe+1].set(
             ke_cell_wgt * ke_cell + (1.0 - ke_cell_wgt) * ke_vtx_cell
         )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.aux.ke.d, b.aux.ke_vtx.d),
         pytree=block,
         replace=(ke, ke_vtx),
     )
     
 
-@jax.named_scope("calc_div")
+@profile_scope("calc_div")
 def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mesh = block.mesh
     un   = block.state.un  .unwrap()[star_idx, :, :]
@@ -417,15 +421,17 @@ def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             meta=block.aux.div2.meta
         )
     # ==========================================================
-    return tree_at(
+    bkd = block.backend
+    return bkd.tree_at(
         where=lambda b: (b.aux.div.d, b.aux.div2.d),
         pytree=block,
         replace=(div, div2),
     )
     
 
-@jax.named_scope("calc_gz")
+@profile_scope("calc_gz")
 def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[0]
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -442,17 +448,17 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     kds, kde = half_kds, half_kde
     # =======================================
     # From half_kde to half_kds
-    tmp = rd * tv[kds:kde, ids:ihe+1] * jnp.log(
+    tmp = rd * tv[kds:kde, ids:ihe+1] * bkd.log(
         ph_lev[kds+1:kde+1, ids:ihe+1] / ph_lev[kds:kde, ids:ihe+1]
     )
-    _gz_lev = gzs[ids:ihe+1] + jnp.cumulative_sum(
-        jnp.flip(tmp, axis=0),
+    _gz_lev = gzs[ids:ihe+1] + bkd.cumulative_sum(
+        bkd.flip(tmp, axis=0),
         axis=0,
         include_initial=True
     )
     # =======================================
     # Flip back, from half_kds to half_kde
-    _gz_lev = jnp.flip(_gz_lev, axis=0)
+    _gz_lev = bkd.flip(_gz_lev, axis=0)
     # =======================================
     # Wrap Back
     gz_lev = gz_lev.at[kds:kde+1, ids:ihe+1].set(_gz_lev)
@@ -466,7 +472,7 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         )
     )
     # ===================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.state.gz.d, b.state.gz_lev.d),
         pytree=block,
         replace=(gz, gz_lev),
@@ -475,8 +481,9 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     )
     
 
-@jax.named_scope("calc_dmg")
+@profile_scope("calc_dmg")
 def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids     , ihe      = mesh.cell_ids, mesh.cell_ihe[0]
     full_kds, full_kde = mesh.full_kds, mesh.full_kde
@@ -496,17 +503,15 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             mg_lev[kds+1:kde+2, ids:ihe+1] - mg_lev[kds:kde+1  , ids:ihe+1]
         )
         dmg_valid = dmg[kds:kde+1, ids:ihe+1]
-        dmg = error_if(
+        dmg = bkd.error_if(
             x=dmg,
-            pred=jnp.any(dmg_valid <= 0),
+            pred=bkd.any(dmg_valid <= 0),
             msg="The dry-air weight levels are not monotonic!",
-            is_metal=block.dev.is_metal()
         )
-        dmg = error_if(
+        dmg = bkd.error_if(
             x=dmg,
-            pred=jnp.any(jnp.isnan(dmg_valid)),
+            pred=bkd.any(bkd.isnan(dmg_valid)),
             msg="The dry-air weight levels contain NaN values!",
-            is_metal=block.dev.is_metal()
         )
         # ======================================================
         # half_kds + 1 <= k <= half_kde - 1
@@ -549,7 +554,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             x_loc=block.state.dmg    .meta.loc,
             y_loc=block.aux  .dmg_vtx.meta.loc
         )
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (
                 b.state.dmg.d, b.state.dmg_lev.d,
                 b.aux.dmg_edge.d, b.aux.dmg_vtx.d
@@ -586,7 +591,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             y_loc=block.aux  .dmg_vtx.meta.loc
         )
         # ====================================================== 
-        return tree_at(
+        return bkd.tree_at(
             where=lambda b: (
                 b.state.dmg.d,
                 b.aux.dmg_edge.d, b.aux.dmg_vtx.d
@@ -598,8 +603,9 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         )
     
 
-@jax.named_scope("calc_mf")
+@profile_scope("calc_mf")
 def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -611,15 +617,16 @@ def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
         un[kds:kde+1, ids:ihe+1] * dmg_edge[kds:kde+1, ids:ihe+1]
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.mfn.d,
         pytree=block,
         replace=mfn
     )
     
 
-@jax.named_scope("calc_ut")
+@profile_scope("calc_ut")
 def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -634,28 +641,28 @@ def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
 
     def _wrap(un: FLT[Array, "nedge"]) -> FLT[Array, "nedge"]:
         wind_tile = un[ep_idx]
-        wind_tile = jnp.where(ep_idx < 0, 0.0, wind_tile)
-        return jnp.sum(
+        wind_tile = bkd.where(ep_idx < 0, 0.0, wind_tile)
+        return bkd.sum(
             wgt[ids:ide+1, :] * le[ids:ide+1, :] * wind_tile,
             axis=-1
         ) / de[ids:ide+1]
 
     ut = ut.at[kds:kde+1, ids:ide+1].set(
-        jax.vmap(
+        bkd.vmap(
             _wrap,
             in_axes=0,
             out_axes=0
         )(un[kds:kde+1])
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.ut.d,
         pytree=block,
         replace=ut,
     )
 
 
-@jax.named_scope("calc_vor")
+@profile_scope("calc_vor")
 def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = False) -> Block:
     un = block.state.un.unwrap()[star_idx, :, :]
     vor = block.aux.vor.unwrap()
@@ -668,15 +675,17 @@ def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = Fal
         with_halo=with_halo
     )
     # ==========================================================
-    return tree_at(
+    bkd = block.backend
+    return bkd.tree_at(
         where=lambda b: b.aux.vor.d,
         pytree=block,
         replace=vor,
     )
     
 
-@jax.named_scope("calc_pv")
+@profile_scope("calc_pv")
 def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -695,20 +704,21 @@ def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         meta=block.aux.pv.meta
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.pv.d,
         pytree=block,
         replace=pv,
     )
 
 
-@jax.named_scope("interp_pv_midpoint")
+@profile_scope("interp_pv_midpoint")
 def interp_pv_midpoint(
     block: Block, 
     star_idx: INT[Array, ""] | int, 
     dt: float, 
     substep: int
 ) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -725,20 +735,21 @@ def interp_pv_midpoint(
         f=pv_edge,
         meta=block.aux.pv_edge.meta
     )
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.pv_edge.d,
         pytree=block,
         replace=pv_edge
     )
 
 
-@jax.named_scope("interp_pv_upwind")
+@profile_scope("interp_pv_upwind")
 def interp_pv_upwind(
     block: Block, 
     star_idx: INT[Array, ""] | int, 
     dt: float, 
     substep: int    
 ) -> Block:
+    bkd         = block.backend
     mesh        = block.mesh
     para        = block.para
     stencil_2nd = block.equaux.adv.upwind.stencil_vtx_2nd
@@ -752,7 +763,7 @@ def interp_pv_upwind(
     pv      = block.aux  .pv     .unwrap()
     pv_edge = block.aux  .pv_edge.unwrap()
     # ==========================================================
-    eps = jnp.finfo(un.dtype).eps
+    eps = bkd.eps(un.dtype)
     un_ = un[kds:kde+1, ids:ide+1]
     ut_ = ut[kds:kde+1, ids:ide+1]
     v1 = mesh.vtx_of_edge[ids:ide+1, 0]
@@ -760,11 +771,12 @@ def interp_pv_upwind(
     q1 = pv[kds:kde+1, v1]
     q2 = pv[kds:kde+1, v2]
     flux1 = 0.5 * (q1 + q2)
-    b = jnp.abs(ut_) / (jnp.sqrt(un_ ** 2 + ut_ ** 2) + eps)
+    b = bkd.abs(ut_) / (bkd.sqrt(un_ ** 2 + ut_ ** 2) + eps)
     if upwind_order_pv == 1:
         wind = ut_ * mesh.edp12_edptg[ids:ide+1]
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind1_hori(
+            bkd,
             q=pv,
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
@@ -777,12 +789,13 @@ def interp_pv_upwind(
         wind = ut_ * mesh.edp12_edptg[ids:ide+1]
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind3_hori(
+            bkd,
             q=pv,
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             edd_leng=le,
             stencil_2nd_idx=stencil_2nd.idxes,
-            stencil_2nd_wgt=stencil_2nd.wgt,
+            stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
         )
         pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
@@ -792,14 +805,15 @@ def interp_pv_upwind(
         wind = ut_ * mesh.edp12_edptg[ids:ide+1]
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind5_hori(
+            bkd,
             q=pv,
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             edd_leng=le,
             stencil_2nd_idx=stencil_2nd.idxes,
-            stencil_2nd_wgt=stencil_2nd.wgt,
+            stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
             stencil_4th_idx=stencil_4th.idxes,
-            stencil_4th_wgt=stencil_4th.wgt,
+            stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
         )
         pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
@@ -812,7 +826,7 @@ def interp_pv_upwind(
         f=pv_edge,
         meta=block.aux.pv_edge.meta
     )
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.aux.pv_edge.d,
         pytree=block,
         replace=pv_edge
@@ -833,8 +847,9 @@ def interp_pv(
         raise ValueError(f"interp_pv: unsupported pv_adv_scheme {block.cfg.pv_adv_scheme}!")
 
 
-@jax.named_scope("calc_coriolis")
+@profile_scope("calc_coriolis")
 def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, substep: int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -853,7 +868,7 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
         pv_edge: FLT[Array, "nEdge"],
     ) -> FLT[Array, "nEdge"]:
         pv_iee = pv_edge[ids:ide+1]
-        pv_iep = jnp.take(
+        pv_iep = bkd.take(
             pv_edge,
             ep_idx,
             axis=0
@@ -861,14 +876,14 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
         pv_eep = (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
 
         mfx_tile = mfn[ep_idx]  # (nedg, maxnnb*2)
-        mfx_tile = jnp.where(ep_idx < 0, 0.0, mfx_tile)
+        mfx_tile = bkd.where(ep_idx < 0, 0.0, mfx_tile)
         mfx_tile = mfx_tile * pv_eep
-        return jnp.sum(
+        return bkd.sum(
             wgt * le * mfx_tile,
             axis=-1
         ) / de
 
-    tmp = - jax.vmap(
+    tmp = - bkd.vmap(
         _wrap, 
         in_axes=(0, 0), 
         out_axes=0
@@ -879,15 +894,16 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
     )
     dundt_coriolis = dundt_coriolis.at[kds:kde+1, ids:ide+1].set(tmp)
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_coriolis.d),
         pytree=block,
         replace=(dundt, dundt_coriolis)
     )
 
 
-@jax.named_scope("calc_grad_ke")
+@profile_scope("calc_grad_ke")
 def calc_grad_ke(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ide = mesh.edge_ids, mesh.edge_ide
@@ -905,14 +921,14 @@ def calc_grad_ke(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Blo
     )
     dundt_grad_ke = dundt_grad_ke.at[kds:kde+1, ids:ide+1].set(tmp)
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_grad_ke.d),
         pytree=block,
         replace=(dundt, dundt_grad_ke)
     )
 
 
-@jax.named_scope("calc_grad_mf")
+@profile_scope("calc_grad_mf")
 def calc_grad_mf(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mfn = block.aux.mfn.unwrap()
     dmf = block.aux.dmf.unwrap()
@@ -924,15 +940,17 @@ def calc_grad_mf(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         div_loc=block.aux.dmf.meta.loc
     )
     # ==========================================================
-    return tree_at(
+    bkd = block.backend
+    return bkd.tree_at(
         where=lambda b: b.aux.dmf.d,
         pytree=block,
         replace=dmf,
     )
 
 
-@jax.named_scope("calc_grad_ptf")
+@profile_scope("calc_grad_ptf")
 def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -982,35 +1000,37 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         (ptfz[kds+1:kde+2, ids:ide+1] - ptfz[kds:kde+1, ids:ide+1])
     )
     
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.adv_batch_pt.qmfn.d, b.adv_batch_pt.qmfz.d, b.tend.dptdt.d),
         pytree=block,
         replace=(ptfn, ptfz, dptdt)
     )
 
 
-@jax.named_scope("calc_dmgsdt")
+@profile_scope("calc_dmgsdt")
 def calc_dmgsdt(block: Block, star_idx: INT[Array, ""] | int) -> Block:
+    bkd = block.backend
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
     kds, kde = mesh.full_kds, mesh.full_kde
     dmf    = block.aux .dmf   .unwrap()
     dmgsdt = block.tend.dmgsdt.unwrap()
     # ==========================================================
-    dmgsdt = jnp.zeros_like(dmgsdt)
+    dmgsdt = bkd.zeros_like(dmgsdt)
     dmgsdt = dmgsdt.at[ids:ide+1].set(
-        - jnp.sum(dmf[kds:kde+1, ids:ide+1], axis=0)
+        - bkd.sum(dmf[kds:kde+1, ids:ide+1], axis=0)
     )
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.tend.dmgsdt.d,
         pytree=block,
         replace=dmgsdt
     )
 
 
-@jax.named_scope("calc_wedundlev")
+@profile_scope("calc_wedundlev")
 def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
+    bkd      = block.backend
     mesh     = block.mesh
     ids, ide = mesh.edge_ids, mesh.edge_ide
     kds, kde = mesh.full_kds, mesh.full_kde
@@ -1065,7 +1085,7 @@ def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> B
     else:
         raise ValueError(f"calc_wedundlev: unsupported uv_vert_adv_type {block.cfg.uv_vert_adv_type}!")
     # ==========================================================
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_wedundeta.d),
         pytree=block,
         replace=(dundt, dundt_wedundeta)

@@ -8,9 +8,10 @@ grist_0d_file = grist_path + "grist.grid_file.g4.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g4.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
-    use_async_io=False, 
+    use_async_io=False,
     proc_io_stride=0
 )
 
@@ -29,4 +30,4 @@ mesh = tf.mesh.SCVTMesh.from_grist(
     dev=dev
 )
 
-mesh.output(dev.proc)
+mesh.output()

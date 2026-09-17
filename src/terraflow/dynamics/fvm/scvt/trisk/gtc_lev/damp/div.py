@@ -1,11 +1,10 @@
 from __future__ import annotations
 from typing import Self, TYPE_CHECKING
-import jax.numpy as jnp
+import numpy as np
 
 
 from terraflow.util.device import AbstractDevice
 from terraflow.util.math import exp_two_values
-from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryData
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import calc_div
@@ -30,7 +29,7 @@ class DivDampdata(AbstractEquationAuxiliaryData):
     def empty(cls) -> Self:
         return cls(
             initialized=False,
-            cn=jnp.array([])
+            cn=np.array([])
         )
 
     @classmethod
@@ -60,26 +59,27 @@ class DivDampdata(AbstractEquationAuxiliaryData):
         ims, ime = mesh.edge_ims, mesh.edge_ime
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.edge_ids, mesh.edge_ide
+        bkd = dev.backend
 
-        cn = jnp.zeros(
+        cn = bkd.zeros(
             (kme-kms+1, ime-ims+1), 
             device=dev(), 
             dtype=dev.float_type
         )
         
         if cfg.div_damp_order == 2:
-            one            = jnp.asarray(1.0               , dtype=dev.float_type)
-            div_damp_top   = jnp.asarray(cfg.div_damp_top  , dtype=dev.float_type)
-            div_damp_k0    = jnp.asarray(cfg.div_damp_k0   , dtype=dev.float_type)
-            div_damp_coef2 = jnp.asarray(cfg.div_damp_coef2, dtype=dev.float_type)
-            k              = jnp.arange(kds, kde+1, 1)
-            c1 = exp_two_values(div_damp_top, one, one, div_damp_k0, k)
+            one            = bkd.asarray(1.0               , dtype=dev.float_type)
+            div_damp_top   = bkd.asarray(cfg.div_damp_top  , dtype=dev.float_type)
+            div_damp_k0    = bkd.asarray(cfg.div_damp_k0   , dtype=dev.float_type)
+            div_damp_coef2 = bkd.asarray(cfg.div_damp_coef2, dtype=dev.float_type)
+            k              = bkd.arange(kds, kde+1, 1)
+            c1 = exp_two_values(dev.backend, div_damp_top, one, one, div_damp_k0, k)
             tmp = c1[:, None] * div_damp_coef2 * mesh.area_edge[None, ids:ide+1] / cfg.dt_dyn_seconds
             cn = cn.at[kds:kde+1, ids:ide+1].set(tmp)
         elif cfg.div_damp_order == 4:
-            div_damp_coef4 = jnp.asarray(cfg.div_damp_coef4, dtype=dev.float_type)
+            div_damp_coef4 = bkd.asarray(cfg.div_damp_coef4, dtype=dev.float_type)
             tmp = div_damp_coef4 * mesh.area_edge[ids:ide+1]**2 / cfg.dt_dyn_seconds
-            tmp = jnp.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
+            tmp = bkd.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
             cn = cn.at[kds:kde+1, ids:ide+1].set(tmp)
         else:
             raise ValueError(f"Unsupported div_damp_order {cfg.div_damp_order}!")
@@ -95,6 +95,7 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
     block = calc_div(block, itime)
     
     mesh = block.mesh
+    bkd  = block.backend
     cn   = block.equaux.damp.div.cn
     un   = block.state.un  .unwrap()[itime, :, :]
     div  = block.aux  .div .unwrap()
@@ -132,7 +133,7 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
             meta=block.state.un.meta
         )
     
-    return tree_at(
+    return bkd.tree_at(
         where=lambda b: b.state.un.d,
         pytree=block,
         replace=un,

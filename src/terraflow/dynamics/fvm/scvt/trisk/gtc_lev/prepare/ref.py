@@ -1,17 +1,18 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax.numpy as jnp
+
 
 from terraflow.util import log
-from terraflow.util.pytree import tree_at
 from terraflow.mesh.scvt.parallel import fill_field1d_array_halo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.damp.laplace import laplace_damp_1d
 
+
 if TYPE_CHECKING:
-    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block as BLOCK
+    from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block as Block
 
 
-def ref_calc_ps(block: BLOCK) -> BLOCK:
+def ref_calc_ps(block: Block) -> Block:
+    bkd = block.backend
     if block.dev.is_root(): 
         log.logger.info(
             "Calculating reference surface pressure and its perturbation."
@@ -29,9 +30,9 @@ def ref_calc_ps(block: BLOCK) -> BLOCK:
         ref_ps_perb = block.static.ref_ps_perb.unwrap()
         # ==============================================
         ids, ide = mesh.cell_ids, mesh.cell_ide
-        tmp = p0 * jnp.exp(
+        tmp = p0 * bkd.exp(
             -t0 / a
-            + jnp.sqrt((t0 / a) ** 2 - 2 * gzs[ids:ide+1] / a / rd)
+            + bkd.sqrt((t0 / a) ** 2 - 2 * gzs[ids:ide+1] / a / rd)
         )
         ref_ps = ref_ps.at[ids:ide+1].set(tmp)
         ref_ps = fill_field1d_array_halo(
@@ -59,7 +60,7 @@ def ref_calc_ps(block: BLOCK) -> BLOCK:
             meta=block.static.ref_ps_perb.meta
         )
         # ==============================================
-        block = tree_at(
+        block = bkd.tree_at(
             where=lambda b: (
                 b.static.ref_ps.d,
                 b.static.ref_ps_smth.d,

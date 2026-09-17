@@ -1,8 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import gc
-import jax
-import jax.numpy as jnp
+import numpy as np
 
 
 from terraflow.util import typing, log
@@ -54,6 +53,7 @@ class ETOPO1Reader(AbstractTopographyReader):
         max_lon: float = 180.0,
         max_lat: float = 90
     ):
+        bkd = self.dev.backend
         float_type = self.dev.float_type
         gravity = self.para.gravity.unwrap()
         ds0 = self.open_dataset()
@@ -68,28 +68,28 @@ class ETOPO1Reader(AbstractTopographyReader):
             max_lat=max_lat,
         )
         ds0.close()
-        lon = ds["x"].values
-        lat = ds["y"].values
+        lon = np.array(ds["x"].values, copy=True, order="C")
+        lat = np.array(ds["y"].values, copy=True, order="C")
         self.check_input_range("ETOPO1", lon, lat)
         # Load data
-        self.lon = jnp.array(
+        self.lon = bkd.array(
             lon,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lat = jnp.array(
+        self.lat = bkd.array(
             lat,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.gzs = jnp.array(
-            ds["z"].values,
-            device=jax.local_devices(backend="cpu")[0],
+        self.gzs = bkd.array(
+            np.array(ds["z"].values, copy=True, order="C"),
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ) * gravity
-        self.mask = jnp.array(
-            ds["mask"].values,
-            device=jax.local_devices(backend="cpu")[0],
+        self.mask = bkd.array(
+            np.array(ds["mask"].values, copy=True, order="C"),
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
         ds.close()
@@ -113,7 +113,7 @@ class ETOPO1Reader(AbstractTopographyReader):
         delattr(self, "mask")
         self.loaded = False
         gc.collect()
-        jax.clear_caches()
+        self.dev.backend.clear_caches()
 
 
 class GMETED2010Reader(AbstractTopographyReader):
@@ -152,6 +152,7 @@ class GMETED2010Reader(AbstractTopographyReader):
         max_lon: float = 360.0,
         max_lat: float = 90
     ):
+        bkd = self.dev.backend
         float_type = self.dev.float_type
         gravity = self.para.gravity.unwrap()
         ds0 = self.open_dataset()
@@ -166,22 +167,22 @@ class GMETED2010Reader(AbstractTopographyReader):
             max_lat=max_lat,
         )
         ds0.close()
-        lon = ds["lon"].values
-        lat = ds["lat"].values
+        lon = np.array(ds["lon"].values, copy=True, order="C")
+        lat = np.array(ds["lat"].values, copy=True, order="C")
         self.check_input_range("GMETED2010", lon, lat)
-        self.lon = jnp.array(
+        self.lon = bkd.array(
             lon,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.lat = jnp.array(
+        self.lat = bkd.array(
             lat,
-            device=jax.local_devices(backend="cpu")[0],
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         )
-        self.gzs = jnp.array(
-            ds["htopo"].values,
-            device=jax.local_devices(backend="cpu")[0],
+        self.gzs = bkd.array(
+            np.array(ds["htopo"].values, copy=True, order="C"),
+            device=bkd.local_devices(backend="cpu")[0],
             dtype=float_type
         ) * gravity
         ds.close()
@@ -204,4 +205,4 @@ class GMETED2010Reader(AbstractTopographyReader):
         delattr(self, "gzs" )
         self.loaded = False
         gc.collect()
-        jax.clear_caches()
+        self.dev.backend.clear_caches()

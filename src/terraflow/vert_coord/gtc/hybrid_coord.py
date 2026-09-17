@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Self, TYPE_CHECKING
-import jax.numpy as jnp
+
 
 from terraflow.util import typing, device
 from terraflow.vert_coord.abstract import AbstractGeneralizedTerrainFollowingCoordinate
@@ -8,6 +8,7 @@ from terraflow.util.history.setup.vert import HybridVerticalCoordinateSetup
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
+    from terraflow.util.device import AbstractDevice
     import numpy as np
 
 IntType = typing.IntType
@@ -25,19 +26,13 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
     """
     HybridVertCoordinate represents a vertical coordinate system following the hybrid staggering.
     """
-    p0: Float[Array, "1"]
-    ptop: Float[Array, "1"]
+    p0        : Float[Array, "1"]
+    ptop      : Float[Array, "1"]
     local_ptop: Float[Array, "1"]
-    hyai: Float[Array, "nlev+1"]
-    hybi: Float[Array, "nlev+1"]
-    hyam: Float[Array, "nlev"]
-    hybm: Float[Array, "nlev"]
-    full_nlev: int
-    half_nlev: int
-    full_lev: Float[Array, "nlev"]
-    half_lev: Float[Array, "nlev+1"]
-    full_dlev: Float[Array, "nlev"]
-    half_dlev: Float[Array, "nlev+1"]
+    hyai      : Float[Array, "nlev+1"]
+    hybi      : Float[Array, "nlev+1"]
+    hyam      : Float[Array, "nlev"]
+    hybm      : Float[Array, "nlev"]
 
     def __init__(
         self,
@@ -49,8 +44,11 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyam: Float[Array, "nlev"],
         hybm: Float[Array, "nlev"],
         full_lev: Float[Array, "nlev"],
-        half_lev: Float[Array, "nlev+1"]
+        half_lev: Float[Array, "nlev+1"],
+        dev: AbstractDevice
     ):
+        bkd = dev.backend
+        self.dev = dev
         self.p0 = p0
         self.ptop = ptop
         self.local_ptop = local_ptop
@@ -67,7 +65,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         full_dlev = self.half_lev[1:] - self.half_lev[:-1]
         # =========================================================
         # half dlev
-        half_dlev = jnp.zeros_like(self.half_lev)
+        half_dlev = bkd.zeros_like(self.half_lev)
         # =========================================
         # k = 1
         tmp = self.full_lev[0] - self.half_lev[0]
@@ -100,7 +98,8 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyam: Float[Array, "nlev"],
         hybm: Float[Array, "nlev"],
         full_lev: Float[Array, "nlev"],
-        half_lev: Float[Array, "nlev+1"]
+        half_lev: Float[Array, "nlev+1"],
+        dev: AbstractDevice
     ) -> Self:
         """Initialize the HybridVertCoordinate with global coefficients."""
         return cls(
@@ -112,7 +111,8 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     def get_full_lev(self) -> Float[Array, "nlev"]:
@@ -191,29 +191,6 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         dmgsdt = dmgsdt[None, :]
         tmp = hybi[ks+1:ke, ...] - hybi[ks:ke+1, ...]
         return tmp * dmgsdt
-    
-    @classmethod
-    def onelayer(
-        cls,
-        dev: device.AbstractDevice,
-    ) -> Self:
-        hyai = jnp.zeros(2, device=dev(), dtype=dev.float_type)
-        hybi = jnp.zeros(2, device=dev(), dtype=dev.float_type)
-        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
-        p0 = HYBRID_COORD_P0
-        ptop = PTOP
-        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
-        return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
-            hyai=hyai,
-            hybi=hybi,
-            hyam=hyam,
-            hybm=hybm,
-            full_lev=full_lev,
-            half_lev=half_lev
-        )
 
     @classmethod
     def test_l15(
@@ -229,21 +206,23 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_test_l15
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l15(dev)
         p0 = HYBRID_COORD_P0
         ptop = p0 * hybi[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -260,21 +239,23 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with test 15-level coefficients (variant 2).
         """
         from .hybrid_coord_test import hybrid_coord_test_l15_2
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l15_2(dev)
         p0 = HYBRID_COORD_P0
         ptop = p0 * hybi[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -291,21 +272,23 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with test 26-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_test_l26
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l26(dev)
         p0 = HYBRID_COORD_P0
         ptop = p0 * hybi[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -322,21 +305,23 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with test 30-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_test_l30
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l30(dev)
         p0 = HYBRID_COORD_P0
         ptop = p0 * hybi[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -356,6 +341,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with DCMIP1-2 coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_dcmip12
+        bkd = dev.backend
         p0 = HYBRID_COORD_P0
         ptop, hyai, hybi = hybrid_coord_dcmip12(
             p0=p0,
@@ -366,15 +352,16 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -391,6 +378,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 50-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_ecmwf_l50
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_ecmwf_l50(dev)
         p0 = 1e5  # ECMWF standard surface pressure in Pa
         hyai = hyai / p0
@@ -398,15 +386,16 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -423,6 +412,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with ECMWF 90-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_ecmwf_l90
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_ecmwf_l90(dev)
         p0 = 1e5  # ECMWF standard surface pressure in Pa
         hyai = hyai / p0
@@ -430,15 +420,16 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -455,19 +446,21 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 26-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_wrf_l26
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_wrf_l26(dev)
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
+            p0=bkd.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=bkd.array(PTOP, dtype=dev.float_type),
+            local_ptop=bkd.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -484,19 +477,21 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 32-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_wrf_l32
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_wrf_l32(dev)
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
+            p0=bkd.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=bkd.array(PTOP, dtype=dev.float_type),
+            local_ptop=bkd.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -513,19 +508,21 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 60-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_wrf_l60
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_wrf_l60(dev)
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
+            p0=bkd.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=bkd.array(PTOP, dtype=dev.float_type),
+            local_ptop=bkd.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -542,19 +539,21 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with WRF 64-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_wrf_l64
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_wrf_l64(dev)
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(HYBRID_COORD_P0, dtype=dev.float_type),
-            ptop=jnp.array(PTOP, dtype=dev.float_type),
-            local_ptop=jnp.array(PTOP, dtype=dev.float_type),
+            p0=bkd.array(HYBRID_COORD_P0, dtype=dev.float_type),
+            ptop=bkd.array(PTOP, dtype=dev.float_type),
+            local_ptop=bkd.array(PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -574,20 +573,22 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 32-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_cam_l32
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_cam_l32(dev)
         ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
     @classmethod
@@ -607,20 +608,22 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             HybridVertCoordinate: An instance of HybridVertCoordinate with CAM 30-level coefficients.
         """
         from .hybrid_coord_test import hybrid_coord_cam_l30
+        bkd = dev.backend
         hyai, hybi = hybrid_coord_cam_l30(dev)
         ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
-            p0=jnp.array(p0, dtype=dev.float_type),
-            ptop=jnp.array(ptop, dtype=dev.float_type),
-            local_ptop=jnp.array(LOCAL_PTOP, dtype=dev.float_type),
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
             hyai=hyai,
             hybi=hybi,
             hyam=hyam,
             hybm=hybm,
             full_lev=full_lev,
-            half_lev=half_lev
+            half_lev=half_lev,
+            dev=dev
         )
 
 

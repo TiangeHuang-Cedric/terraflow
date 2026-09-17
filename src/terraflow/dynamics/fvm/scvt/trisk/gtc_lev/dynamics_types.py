@@ -3,9 +3,10 @@ from typing import (
     Self,
     TYPE_CHECKING
 )
-import equinox as eqx
+
 
 from terraflow.util.device import AbstractDevice
+from terraflow.util import equinox as eqx
 from terraflow.util.field import ScalarField
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,

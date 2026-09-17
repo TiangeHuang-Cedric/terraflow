@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 import importlib
 
 if TYPE_CHECKING:
-    from terraflow.model.abstract import compiled_with_model, block_until_ready
     from terraflow.model.config import UserConfig
     from terraflow.model.shallow_water import build_shallow_water_model
     from terraflow.model.hydrostatic import build_hydrostatic_model
@@ -12,8 +11,6 @@ if TYPE_CHECKING:
 
 
 _LAZY_CLASS = {
-    "block_until_ready": "terraflow.model.abstract.block_until_ready",
-    "compiled_with_model": "terraflow.model.abstract.compiled_with_model",
     "UserConfig": "terraflow.model.config.UserConfig",
     "build_shallow_water_model": "terraflow.model.shallow_water.build_shallow_water_model",
     "build_hydrostatic_model": "terraflow.model.hydrostatic.build_hydrostatic_model",
@@ -23,8 +20,6 @@ _LAZY_CLASS = {
 
 
 __all__ = [
-    "block_until_ready",
-    "compiled_with_model",
     "UserConfig",
     "build_shallow_water_model",
     "build_hydrostatic_model",

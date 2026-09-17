@@ -9,9 +9,10 @@ grist_0d_file = grist_path + "grist.grid_file.g6.ccvt.0d.nc"
 grist_2d_file = grist_path + "grist.grid_file.g6.ccvt.2d.nc"
 
 dev = tf.util.device.CPU(
+    backend="jax",
     float_type="r8",
     int_type="i4",
-    use_async_io=False, 
+    use_async_io=False,
     proc_io_stride=0
 )
 
@@ -60,15 +61,12 @@ history = model.build_history(
     output_h2=False,
 )
 
-integrate_fn = tf.model.compiled_with_model(
-    model=model,
-    fun=model.io_callback(history=history),
-)
+integrate_fn = model.io_callback(history=history, with_jit=True)
 
 tf.util.datetime.perf_start("integration")
 
 final = integrate_fn(model)
-tf.model.block_until_ready(final)
+dev.block_until_ready(final)
 
 tf.util.datetime.perf_end("integration")
 

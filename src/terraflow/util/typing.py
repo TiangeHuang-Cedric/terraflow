@@ -1,23 +1,19 @@
 import datetime
-import jax.numpy as jnp
 import numpy as np
-import unxt as ux
 import jaxtyping
-from typing import TypeVar
-import os
-
-# Enable runtime type checking for unxt
-os.environ["UNXT_ENABLE_RUNTIME_TYPECHECKING"] = "beartype.beartype"
+import pint
+from typing import TypeVar, Any
 
 
-Array = jaxtyping.Array
-ArrayWithUnits = jaxtyping.Array | ux.AbstractQuantity
+Array = Any
+ArrayWithUnits = Any | pint.Quantity
 Float = jaxtyping.Float
 Int = jaxtyping.Int
-FloatType = float | jnp.float32 | jnp.float64 | np.float32 | np.float64
-IntType = int | jnp.int32 | jnp.int64 | np.int32 | np.int64
-Numeric = FloatType | IntType
-Bool = bool | jnp.bool | np.bool
+DTypeLike = jaxtyping.DTypeLike
+FloatType = float | jaxtyping.Float16 | jaxtyping.Float32 | jaxtyping.Float64
+IntType = int | jaxtyping.Int16 | jaxtyping.Int32 | jaxtyping.Int64 
+Number = FloatType | IntType
+Bool = bool | jaxtyping.Bool
 Str = str | np.str_
 NoneType = type(None)
 

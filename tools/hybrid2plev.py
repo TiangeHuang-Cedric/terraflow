@@ -17,10 +17,10 @@ import argparse
 import numpy as np
 import xarray as xr
 from xarray.coders import CFDatetimeCoder
-import unxt as ux
 import jax
 import jax.numpy as jnp
 import terraflow.core as tf
+from terraflow.util.planet import unit_registry
 
 
 LON_NAME = ["lon", "ilon", "lon_cell", "lon_edge", "lon_vtx"]
@@ -35,8 +35,6 @@ def parse_levels(levels_text: str, unit: str) -> np.ndarray:
         raise ValueError(
             "--levels must not be empty, e.g. --levels 1000,850,500"
         )
-    if unit.lower() == "hpa":
-        values = values * 100.0
     return values.astype(float)
 
 
@@ -61,7 +59,7 @@ def interp_hybrid2pressure(
             x,
             mlev,
             plev,
-            backend="jax",
+            dev=tf.util.device.CPU(backend="jax"),
             allow_extrap=True,
         ),
         in_axes=(0, 0),
@@ -146,11 +144,11 @@ def parse_hydrostatic_pressure(args: argparse.Namespace) -> jnp.ndarray:
         if args.pres_unit
         else infer_pressure_unit(pres_da.attrs.get("units"))
     )
-    mlev: ux.Quantity = ux.Quantity(
+    mlev = unit_registry.Quantity(
         jnp.array(pres_da.values),
-        unit=pres_unit
+        pres_unit,
     )
-    return mlev.decompose(ux.unitsystems.si).value
+    return jnp.asarray(mlev.to("Pa").magnitude)
 
 
 def parse_target_levels(args: argparse.Namespace) -> jnp.ndarray:
@@ -158,14 +156,16 @@ def parse_target_levels(args: argparse.Namespace) -> jnp.ndarray:
         level_values = parse_levels(args.levels, args.levels_unit)
     else:
         level_values = np.array(args.levels, dtype=float)
-    plev = ux.Quantity(
+    plev = unit_registry.Quantity(
         jnp.array(level_values),
-        unit="Pa" if args.levels_unit.lower() == "pa" else "hPa"
+        infer_pressure_unit(args.levels_unit),
     )
+    plev_pa = plev.to("Pa")
     tf.util.log.logger.info(
-        f"Target levels (plev) shape: {plev.shape}, values: {plev.value}, unit: {plev.unit}"
+        f"Target levels (plev) shape: {plev_pa.magnitude.shape}, "
+        f"values: {plev_pa.magnitude}, unit: {plev_pa.units}"
     )
-    return plev.decompose(ux.unitsystems.si).value
+    return jnp.asarray(plev_pa.magnitude)
 
 
 def interp_run(

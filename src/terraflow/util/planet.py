@@ -1,8 +1,16 @@
-from typing import Self, Dict, Union, Optional, List
-import unxt as ux
+from __future__ import annotations
+from typing import TYPE_CHECKING, Self, Dict, Union, Optional, List
+import pint
+
 
 from terraflow.util import log
-from terraflow.util.device import AbstractDevice
+
+
+if TYPE_CHECKING:
+    from terraflow.util.device import AbstractDevice
+
+
+unit_registry = pint.UnitRegistry()
 
 
 kb   : float = 1.380649e-23        # Boltzmann constant (J K-1)
@@ -102,15 +110,15 @@ class PlanetParameter:
         name: str,
         description: str,
         unit: str,
-        data: float | ux.AbstractQuantity
+        data: float | pint.Quantity
     ):
         self.name        = name
         self.description = description
         self.unit        = unit
 
         # Extract numeric value and store as plain float
-        if isinstance(data, ux.AbstractQuantity):
-            self.d = float(data.ustrip(unit))
+        if isinstance(data, pint.Quantity):
+            self.d = float(data.to(unit).magnitude)
         else:
             self.d = float(data)
 
@@ -122,12 +130,6 @@ class PlanetParameter:
             f"value={self.d})"
         )
 
-    def _unit_convert(self, usys: ux.AbstractUnitSystem | str) -> str:
-        """Convert its unit to a specified unit system."""
-        quantity: ux.AbstractQuantity = ux.Quantity(1.0, self.unit)
-        si_quantity = quantity.uconvert(usys)
-        return str(si_quantity.unit)
-
     def copy(self) -> "PlanetParameter":
         """Create a copy of the parameter."""
         import copy
@@ -137,23 +139,43 @@ class PlanetParameter:
         """Return the raw value without unit."""
         return self.d
 
-    def to(self, unit: str):
-        """Convert the parameter value to the specified unit and return it."""
-        value: ux.AbstractQuantity = ux.Quantity(self.d, self.unit)
-        self.d    = float(value.ustrip(unit))
-        self.unit = unit
+    def as_quantity(self):
+        """Return the parameter value as a pint quantity."""
+        return unit_registry.Quantity(self.d, self.unit)
 
-    def uconvert(self, usys: ux.AbstractUnitSystem):
-        """Decompose the parameter value and return it."""
-        quantity: ux.AbstractQuantity = ux.Quantity(self.d, self.unit)
-        self.d = float(quantity.ustrip(usys))
-        self.unit = self._unit_convert(usys)
+    def to(self, unit: str) -> Self:
+        """Convert the parameter value to the specified unit."""
+        value = self.as_quantity().to(unit)
+        self.d = float(value.magnitude)
+        self.unit = str(value.units)
+        return self
 
-    def to_si(self):
-        """Convert the parameter value to SI unit and return it."""
-        quantity: ux.AbstractQuantity = ux.Quantity(self.d, self.unit)
-        self.d = float(quantity.ustrip(ux.unitsystems.si))
-        self.unit = self._unit_convert(ux.unitsystems.si)
+    def to_base_units(self) -> Self:
+        """Convert the parameter value to base units."""
+        value = self.as_quantity().to_base_units()
+        self.d = float(value.magnitude)
+        self.unit = str(value.units)
+        return self
+
+    def to_reduced_units(self) -> Self:
+        """Convert the parameter value to reduced units."""
+        value = self.as_quantity().to_reduced_units()
+        self.d = float(value.magnitude)
+        self.unit = str(value.units)
+        return self
+
+    def uconvert(self, usys: str = "SI") -> Self:
+        """Compatibility wrapper for previous unit-system conversion calls."""
+        if isinstance(usys, str) and usys.lower() == "si":
+            return self.to_base_units()
+        raise ValueError(
+            "PlanetParameter.uconvert only supports 'SI' after migrating to pint; "
+            "use to(unit), ito(unit), to_base_units(), or to_reduced_units()."
+        )
+
+    def to_si(self) -> Self:
+        """Convert the parameter value to SI base units."""
+        return self.to_base_units()
 
 
 class PlanetParameterSet:
@@ -275,17 +297,30 @@ class PlanetParameterSet:
         import copy
         return copy.deepcopy(self)
 
-    def uconvert(self, usys: ux.AbstractUnitSystem):
-        """Decompose all parameters to the specified unit system and return it."""
+    def uconvert(self, usys: str = "SI") -> Self:
+        """Convert all parameters to the specified unit system."""
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
                 self.parameters[key].uconvert(usys)
+        return self
 
-    def to_si(self):
-        """Convert all parameters to SI units."""
+    def to_base_units(self) -> Self:
+        """Convert all parameters to base units."""
         for key, param in zip(self.keys(), self.values()):
             if not isinstance(param, str):
-                self.parameters[key].to_si()
+                self.parameters[key].to_base_units()
+        return self
+
+    def to_reduced_units(self) -> Self:
+        """Convert all parameters to reduced units."""
+        for key, param in zip(self.keys(), self.values()):
+            if not isinstance(param, str):
+                self.parameters[key].to_reduced_units()
+        return self
+
+    def to_si(self) -> Self:
+        """Convert all parameters to SI units."""
+        return self.to_base_units()
 
     @property
     def gravity(self) -> PlanetParameter:

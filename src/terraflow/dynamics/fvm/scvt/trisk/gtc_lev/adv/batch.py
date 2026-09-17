@@ -1,10 +1,9 @@
 from __future__ import annotations
 from typing import Optional, Self, TYPE_CHECKING
-import equinox as eqx
-import jax
-import jax.numpy as jnp
+
 
 from terraflow.util import typing
+from terraflow.util import equinox as eqx
 from terraflow.util.device import AbstractDevice
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
@@ -14,6 +13,7 @@ from terraflow.mesh.scvt.field import (
 )
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.model.abstract import ModelMode
+
 
 if TYPE_CHECKING:
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
@@ -279,7 +279,7 @@ class AdvBatchType(SCVTFields):
                 f=m,
                 meta=self.m.meta
             )
-        return eqx.tree_at(
+        return self.backend.tree_at(
             where=lambda b: b.m.d,
             pytree=self,
             replace=m
@@ -295,25 +295,25 @@ class AdvBatchType(SCVTFields):
         m_new: Optional[FLT[Array, "nlev ncell"]] = None,
         mesh: Optional[SCVTMesh] = None
     ) -> Self:
-        self = eqx.tree_at(
+        self = self.backend.tree_at(
             where=lambda b: b.un.d,
             pytree=self,
             replace=un
         )
         if w is not None:
-            self = eqx.tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.w.d,
                 pytree=self,
                 replace=w
             )
         if mfn is not None:
-            self = eqx.tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.mfn.d,
                 pytree=self,
                 replace=mfn
             )
         if mfz is not None:
-            self = eqx.tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.mfz.d,
                 pytree=self,
                 replace=mfz
@@ -323,7 +323,7 @@ class AdvBatchType(SCVTFields):
                 raise ValueError("AdvBatchType.set_wind: mesh must be provided when m is present.")
             self = self.copy_m_old(m, mesh)
         if m_new is not None:
-            self = eqx.tree_at(
+            self = self.backend.tree_at(
                 where=lambda b: b.m_new.d,
                 pytree=self,
                 replace=m_new
@@ -335,22 +335,23 @@ class AdvBatchType(SCVTFields):
         mfn: FLT[Array, "nlev nedge"],
         mfz: Optional[FLT[Array, "nlevp ncell"]] = None,
     ) -> Self:
+        bkd = self.backend
 
         def do_nothing(batch: Self) -> Self:
             return batch
 
         def istep_at_reset(batch: Self) -> Self:
             # istep == 0
-            mfn_zeros = jnp.zeros_like(mfn)
+            mfn_zeros = bkd.zeros_like(mfn)
             if mfz is not None:
-                mfz_zeros = jnp.zeros_like(mfz)
-                return eqx.tree_at(
+                mfz_zeros = bkd.zeros_like(mfz)
+                return self.backend.tree_at(
                     lambda b: (b.mfn.d, b.mfz.d),
                     batch,
                     (mfn_zeros, mfz_zeros)
                 )
             else:
-                return eqx.tree_at(
+                return self.backend.tree_at(
                     lambda b: b.mfn.d,
                     batch,
                     mfn_zeros
@@ -363,13 +364,13 @@ class AdvBatchType(SCVTFields):
 
             if mfz is not None:
                 mfz_at_end = batch.mfz.d / nsteps
-                return eqx.tree_at(
+                return self.backend.tree_at(
                     lambda b: (b.mfn.d, b.mfz.d),
                     batch,
                     (mfn_at_end, mfz_at_end)
                 )
             else:
-                return eqx.tree_at(
+                return self.backend.tree_at(
                     lambda b: b.mfn.d,
                     batch,
                     mfn_at_end
@@ -380,45 +381,43 @@ class AdvBatchType(SCVTFields):
             mfn_accum = batch.mfn.d + mfn
             if mfz is not None:
                 mfz_accum = batch.mfz.d + mfz
-                return eqx.tree_at(
+                return self.backend.tree_at(
                     lambda b: (b.mfn.d, b.mfz.d),
                     batch,
                     (mfn_accum, mfz_accum)
                 )
             else:
-                return eqx.tree_at(
+                return self.backend.tree_at(
                     lambda b: b.mfn.d,
                     batch,
                     mfn_accum
                 )
 
-        self = jax.lax.cond(
-            pred=self.istep == 0,
-            true_fun=istep_at_reset,
-            false_fun=do_nothing,
-            operand=self
+        self = bkd.cond(
+            self.istep == 0,
+            istep_at_reset,
+            do_nothing,
+            self,
         )
 
-        self = jax.lax.cond(
-            pred=jnp.logical_and(
-                self.istep >= 0, self.istep <= self.nsteps - 1
-            ),
-            true_fun=istep_at_accumulating,
-            false_fun=do_nothing,
-            operand=self
+        self = bkd.cond(
+            bkd.logical_and(self.istep >= 0, self.istep <= self.nsteps - 1),
+            istep_at_accumulating,
+            do_nothing,
+            self,
         )
 
-        self = jax.lax.cond(
-            pred=self.istep == self.nsteps - 1,
-            true_fun=istep_at_end,
-            false_fun=do_nothing,
-            operand=self
+        self = bkd.cond(
+            self.istep == self.nsteps - 1,
+            istep_at_end,
+            do_nothing,
+            self,
         )
 
         return self
     
     def swap_time_indices(self) -> Self:
-        return eqx.tree_at(
+        return self.backend.tree_at(
             lambda b: (b.old, b.new),
             self,
             (self.new, self.old)
@@ -443,24 +442,24 @@ class AdvBatchType(SCVTFields):
         nsteps = self.nsteps
 
         def not_reset_istep(batch: Self):
-            return eqx.tree_at(
+            return self.backend.tree_at(
                 where=lambda b: b.istep,
                 pytree=batch,
                 replace=istep + 1
             )
 
         def reset_istep(batch: Self):
-            return eqx.tree_at(
+            return self.backend.tree_at(
                 where=lambda b: b.istep,
                 pytree=batch,
                 replace=0
             )
 
-        return jax.lax.cond(
-            pred=istep == nsteps - 1,
-            true_fun=reset_istep,
-            false_fun=not_reset_istep,
-            operand=self
+        return self.backend.cond(
+            istep == nsteps - 1,
+            reset_istep,
+            not_reset_istep,
+            self,
         )
 
 
@@ -470,6 +469,7 @@ def scvt_adv_fill_vhalo(
     mesh: SCVTMesh,
     no_negvals: bool
 ) -> FLT[Array, "nlev ncell"]:
+    bkd = mesh.dev.backend
     if meta.loc == "cell":
         kds, kde = mesh.full_kds, mesh.full_kde
         kms, kme = mesh.full_kms, mesh.full_kme
@@ -492,13 +492,13 @@ def scvt_adv_fill_vhalo(
     if no_negvals:
         if kms < kds:
             top = f[kms:kds, ids:ide+1]
-            top_fill = jnp.broadcast_to(f[kds, ids:ide+1], top.shape)
-            top = jnp.where(top < 0, top_fill, top)
+            top_fill = bkd.broadcast_to(f[kds, ids:ide+1], top.shape)
+            top = bkd.where(top < 0, top_fill, top)
             f = f.at[kms:kds, ids:ide+1].set(top)
         if kde < kme:
             bottom = f[kde+1:kme+1, ids:ide+1]
-            bottom_fill = jnp.broadcast_to(f[kde, ids:ide+1], bottom.shape)
-            bottom = jnp.where(bottom < 0, bottom_fill, bottom)
+            bottom_fill = bkd.broadcast_to(f[kde, ids:ide+1], bottom.shape)
+            bottom = bkd.where(bottom < 0, bottom_fill, bottom)
             f = f.at[kde+1:kme+1, ids:ide+1].set(bottom)
 
     return f

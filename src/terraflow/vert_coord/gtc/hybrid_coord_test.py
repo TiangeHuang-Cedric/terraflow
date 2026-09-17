@@ -1,8 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-import jax.numpy as jnp
+
 
 from terraflow.util import typing, device
+
 
 if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
@@ -59,7 +60,8 @@ def hybrid_coord_test_l15(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.889499311970263770000,  # 15
         1.000000000000000000000   # 16
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_test_l15_2(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -108,7 +110,8 @@ def hybrid_coord_test_l15_2(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.791209025995572630000,  # 15
         1.000000000000000000000   # 16
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_test_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -170,7 +173,8 @@ def hybrid_coord_test_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.98511220,  # 26
         1.00000000   # 27
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_test_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -240,7 +244,8 @@ def hybrid_coord_test_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.943722092575058240000,  # 30
         1.000000000000000000000,  # 31
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_dcmip12(
@@ -249,19 +254,20 @@ def hybrid_coord_dcmip12(
     para: PlanetParameterSet,
     dev: device.AbstractDevice
 ) -> tuple[Array, Array, Array]:
+    bkd  = dev.backend
     ztop = 12000.0
-    t0 = 300
-    g = para.gravity.unwrap()
-    rd = para.rd.unwrap()
+    t0   = 300
+    g    = para.gravity.unwrap()
+    rd   = para.rd.unwrap()
     # ========================================
-    ptop = p0 * jnp.exp(-g * ztop / rd / t0)
+    ptop = p0 * bkd.exp(-g * ztop / rd / t0)
     eta_top = ptop / p0
     deta = (1 - eta_top) / nlev
-    eta = eta_top + jnp.arange(0, nlev + 1, dtype=dev.float_type) * deta
+    eta = eta_top + bkd.arange(0, nlev + 1, dtype=dev.float_type) * deta
     hyai = eta
-    hybi = jnp.zeros_like(hyai)
+    hybi = bkd.zeros_like(hyai)
     # ========================================
-    return ptop, jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    return ptop, bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_ecmwf_l50(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -379,7 +385,8 @@ def hybrid_coord_ecmwf_l50(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.992281,  # 49
         1.000000   # 50
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_ecmwf_l90(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -569,7 +576,8 @@ def hybrid_coord_ecmwf_l90(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.997630,  # 90
         1.000000   # 91
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_wrf_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -640,7 +648,8 @@ def hybrid_coord_wrf_l26(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.9795195430185113,  # 26
         1.0000000000000000   # 27
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_wrf_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -723,7 +732,8 @@ def hybrid_coord_wrf_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.9804356127137464,  # 32
         1.0000000000000000   # 33
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_wrf_l60(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -782,7 +792,8 @@ def hybrid_coord_wrf_l60(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.9448242187499996, 0.9643229166666663, 0.9827365451388883,
         1.0000000000000000
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_wrf_l64(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -929,7 +940,8 @@ def hybrid_coord_wrf_l64(dev: device.AbstractDevice) -> tuple[Array, Array]:
         9.83849883e-01,  # 64
         1.00000000e+00   # 65
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_cam_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -1012,7 +1024,8 @@ def hybrid_coord_cam_l32(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.98511219024658200,  # 32
         1.00000000000000000   # 33
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
 
 
 def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
@@ -1092,4 +1105,5 @@ def hybrid_coord_cam_l30(dev: device.AbstractDevice) -> tuple[Array, Array]:
         0.985112190246582000,  # 30
         1.000000000000000000   # 31
     ]
-    return jnp.array(hyai, dtype=dev.float_type), jnp.array(hybi, dtype=dev.float_type)
+    bkd = dev.backend
+    return bkd.array(hyai, dtype=dev.float_type), bkd.array(hybi, dtype=dev.float_type)
