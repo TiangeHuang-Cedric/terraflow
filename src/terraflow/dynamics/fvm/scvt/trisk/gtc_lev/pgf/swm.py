@@ -27,13 +27,13 @@ def pgf_swm_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
     g1 = gz[kds:kde+1, v1]
     g2 = gz[kds:kde+1, v2]
     tmp = -(g2-g1) * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
-    dundt     = dundt    .at[kds:kde+1, ids:ide+1].set(
+    dundt     = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)),
         dundt[kds:kde+1, ids:ide+1] + tmp
     )
-    dundt_pgf = dundt_pgf.at[kds:kde+1, ids:ide+1].set(tmp)
+    dundt_pgf = bkd.slice_update(dundt_pgf, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     # ==========================================================
     return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_pgf.d),
         pytree=block,
         replace=(dundt, dundt_pgf)
-    )    
+    )

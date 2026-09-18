@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import (
-    TYPE_CHECKING, 
+    TYPE_CHECKING,
     Self,
-    Callable, 
+    Callable,
     Tuple
 )
 from abc import ABC, abstractmethod
@@ -15,7 +15,7 @@ from terraflow.util.profile import profile_scope
 from terraflow.util import equinox as eqx
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo, fill_raw_array_halo
 from terraflow.dynamics.abstract import (
-    AbstractEquationAuxiliaryData, 
+    AbstractEquationAuxiliaryData,
     AbstractEquationAuxiliaryDataset
 )
 
@@ -38,10 +38,10 @@ if TYPE_CHECKING:
 
 @profile_scope("upwind_calc_mass_hflx")
 def upwind_calc_mass_hflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    m: FLT[Array, "nlev npoint"], 
-    mfn: FLT[Array, "nlev nedge"], 
+    m: FLT[Array, "nlev npoint"],
+    mfn: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     bkd = block.backend
@@ -63,40 +63,40 @@ def upwind_calc_mass_hflx(
             v2 = mesh.cell_of_edge[ids:ide+1, 1]
             wind = un[kds:kde+1, ids:ide+1]
             tmp  = 0.5 * (m[kds:kde+1, v1] + m[kds:kde+1, v2]) * wind
-            mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            mfn = bkd.slice_update(mfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 1:
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             tmp  = upwind1_hori(
                 bkd,
-                q=m, 
-                wind=wind, 
+                q=m,
+                wind=wind,
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 wgt=upwind_wgt,
             ) * un[kds:kde+1, ids:ide+1]
-            mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            mfn = bkd.slice_update(mfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 3:
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind3_hori(
                 bkd,
-                q=m, 
-                wind=wind, 
-                edd_v=mesh.cell_of_edge[ids:ide+1, :], 
+                q=m,
+                wind=wind,
+                edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
                 stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
                 upwind_optimized=upwind_optimized
             ) * un[kds:kde+1, ids:ide+1]
-            mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            mfn = bkd.slice_update(mfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 5:
             wind = un[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind5_hori(
                 bkd,
-                q=m, 
-                wind=wind, 
-                edd_v=mesh.cell_of_edge[ids:ide+1, :], 
+                q=m,
+                wind=wind,
+                edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
                 stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
@@ -104,7 +104,7 @@ def upwind_calc_mass_hflx(
                 stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
             ) * un[kds:kde+1, ids:ide+1]
-            mfn = mfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            mfn = bkd.slice_update(mfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         else:
             raise ValueError(f"upwind_calc_tracer_hflx: unsupported upwind order {upwind_order}!")
         return fill_field2d_array_halo(
@@ -118,10 +118,10 @@ def upwind_calc_mass_hflx(
 
 @profile_scope("upwind_calc_tracer_hflx")
 def upwind_calc_tracer_hflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    q: FLT[Array, "nlev npoint"], 
-    qmfn: FLT[Array, "nlev nedge"], 
+    q: FLT[Array, "nlev npoint"],
+    qmfn: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     bkd = block.backend
@@ -143,40 +143,40 @@ def upwind_calc_tracer_hflx(
             v2 = mesh.cell_of_edge[ids:ide+1, 1]
             wind = mfn[kds:kde+1, ids:ide+1]
             tmp  = 0.5 * (q[kds:kde+1, v1] + q[kds:kde+1, v2]) * wind
-            qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            qmfn = bkd.slice_update(qmfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 1:
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             tmp  = upwind1_hori(
                 bkd,
-                q=q, 
-                wind=wind, 
+                q=q,
+                wind=wind,
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
-                wgt=upwind_wgt, 
+                wgt=upwind_wgt,
             ) * mfn[kds:kde+1, ids:ide+1]
-            qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            qmfn = bkd.slice_update(qmfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 3:
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind3_hori(
                 bkd,
-                q=q, 
-                wind=wind, 
-                edd_v=mesh.cell_of_edge[ids:ide+1, :], 
+                q=q,
+                wind=wind,
+                edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
                 stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
                 upwind_optimized=upwind_optimized
             ) * mfn[kds:kde+1, ids:ide+1]
-            qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            qmfn = bkd.slice_update(qmfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif upwind_order == 5:
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind5_hori(
                 bkd,
-                q=q, 
-                wind=wind, 
-                edd_v=mesh.cell_of_edge[ids:ide+1, :], 
+                q=q,
+                wind=wind,
+                edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
                 stencil_2nd_idx=stencil_2nd.idxes,
                 stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
@@ -184,7 +184,7 @@ def upwind_calc_tracer_hflx(
                 stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
                 wgt=upwind_wgt,
             ) * mfn[kds:kde+1, ids:ide+1]
-            qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
+            qmfn = bkd.slice_update(qmfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         else:
             raise ValueError(f"upwind_calc_tracer_hflx: unsupported upwind order {upwind_order}!")
         return fill_field2d_array_halo(
@@ -199,15 +199,15 @@ def upwind_calc_tracer_hflx(
 @profile_scope("upwind_calc_tracer_vflx")
 def upwind_calc_tracer_vflx(
     batch: batch.AdvBatchType,
-    block: Block, 
-    q: FLT[Array, "nlev npoint"], 
-    qmfz: FLT[Array, "nlev nedge"], 
+    block: Block,
+    q: FLT[Array, "nlev npoint"],
+    qmfz: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     bkd = block.backend
     if batch.loc == "cell":
         upwind_order = block.cfg.upwind_order
-        upwind_wgt   = block.cfg.upwind_wgt        
+        upwind_wgt   = block.cfg.upwind_wgt
         mesh     = block.mesh
         mfz      = batch.mfz.unwrap()
         kds, kde = mesh.half_kds, mesh.half_kde
@@ -218,7 +218,7 @@ def upwind_calc_tracer_vflx(
                 q[kds:kde-1, ids:ide+1]
                 + q[kds+1:kde, ids:ide+1]
             ) * mfz[kds+1:kde, ids:ide+1]
-            qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(res) 
+            qmfz = bkd.slice_update(qmfz, (slice(kds+1, kde), slice(ids, ide+1)), res)
         elif upwind_order == 1:
             # half_kds + 1 <= k <= half_kde - 1
             mid_mfz = mfz[kds+1:kde, ids:ide+1]
@@ -231,7 +231,7 @@ def upwind_calc_tracer_vflx(
                 q_0=q_0,
                 q_plus_1=q_plus_1
             ) * mid_mfz
-            qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(res) 
+            qmfz = bkd.slice_update(qmfz, (slice(kds+1, kde), slice(ids, ide+1)), res)
         elif upwind_order == 3:
             # =================================================
             # k = half_kds
@@ -266,11 +266,11 @@ def upwind_calc_tracer_vflx(
             # k = half_kde
             bottom0 = bkd.zeros_like(q[kde-1, ids:ide+1])
             # =================================================
-            qmfz = qmfz.at[kds        , ids:ide+1].set(top0   )
-            qmfz = qmfz.at[kds+1      , ids:ide+1].set(top1   )
-            qmfz = qmfz.at[kds+2:kde-1, ids:ide+1].set(res    )
-            qmfz = qmfz.at[kde-1      , ids:ide+1].set(bottom1)
-            qmfz = qmfz.at[kde        , ids:ide+1].set(bottom0)
+            qmfz = bkd.slice_update(qmfz, (kds, slice(ids, ide+1)), top0   )
+            qmfz = bkd.slice_update(qmfz, (kds+1, slice(ids, ide+1)), top1   )
+            qmfz = bkd.slice_update(qmfz, (slice(kds+2, kde-1), slice(ids, ide+1)), res    )
+            qmfz = bkd.slice_update(qmfz, (kde-1, slice(ids, ide+1)), bottom1)
+            qmfz = bkd.slice_update(qmfz, (kde, slice(ids, ide+1)), bottom0)
         elif upwind_order == 5:
             # =================================================
             # k = half_kds
@@ -309,11 +309,11 @@ def upwind_calc_tracer_vflx(
             # k = half_kde
             bottom0 = bkd.zeros_like(q[kde-1, ids:ide+1])
             # =================================================
-            qmfz = qmfz.at[kds        , ids:ide+1].set(top0   )
-            qmfz = qmfz.at[kds+1:kds+3, ids:ide+1].set(top1   )
-            qmfz = qmfz.at[kds+3:kde-2, ids:ide+1].set(res    )
-            qmfz = qmfz.at[kde-2:kde  , ids:ide+1].set(bottom1)
-            qmfz = qmfz.at[kde        , ids:ide+1].set(bottom0)
+            qmfz = bkd.slice_update(qmfz, (kds, slice(ids, ide+1)), top0   )
+            qmfz = bkd.slice_update(qmfz, (slice(kds+1, kds+3), slice(ids, ide+1)), top1   )
+            qmfz = bkd.slice_update(qmfz, (slice(kds+3, kde-2), slice(ids, ide+1)), res    )
+            qmfz = bkd.slice_update(qmfz, (slice(kde-2, kde), slice(ids, ide+1)), bottom1)
+            qmfz = bkd.slice_update(qmfz, (kde, slice(ids, ide+1)), bottom0)
         else:
             raise ValueError(f"upwind_calc_tracer_vflx: unsupported upwind order {upwind_order}!")
         return fill_field2d_array_halo(
@@ -323,7 +323,7 @@ def upwind_calc_tracer_vflx(
         )
     elif batch.loc == "lev":
         upwind_order = block.cfg.upwind_order
-        upwind_wgt   = block.cfg.upwind_wgt        
+        upwind_wgt   = block.cfg.upwind_wgt
         mesh         = block.mesh
         mfz          = batch.mfz.unwrap()
         kds, kde = mesh.full_kds, mesh.full_kde
@@ -333,7 +333,7 @@ def upwind_calc_tracer_vflx(
             res = 0.5 * (
                 q[kds:kde+1, ids:ide+1] + q[kds+1:kde+2, ids:ide+1]
             ) * mfz[kds:kde+1, ids:ide+1]
-            qmfz = qmfz.at[kds:kde+1, ids:ide+1].set(res)
+            qmfz = bkd.slice_update(qmfz, (slice(kds, kde+1), slice(ids, ide+1)), res)
         elif upwind_order == 1:
             # full_kds <= k <= full_kde
             q_0 = q[kds:kde+1, ids:ide+1]
@@ -346,7 +346,7 @@ def upwind_calc_tracer_vflx(
                 q_0=q_0,
                 q_plus_1=q_plus_1
             ) * mfz_tmp
-            qmfz = qmfz.at[kds:kde+1, ids:ide+1].set(res)
+            qmfz = bkd.slice_update(qmfz, (slice(kds, kde+1), slice(ids, ide+1)), res)
         elif upwind_order == 3:
             # =================================================
             # k = full_kds
@@ -375,9 +375,9 @@ def upwind_calc_tracer_vflx(
                 q[kde, ids:ide+1] + q[kde+1, ids:ide+1]
             ) * mfz[kde, ids:ide+1]
             # =================================================
-            qmfz = qmfz.at[kds      , ids:ide+1].set(top)
-            qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(mid)
-            qmfz = qmfz.at[kde      , ids:ide+1].set(bottom)
+            qmfz = bkd.slice_update(qmfz, (kds, slice(ids, ide+1)), top)
+            qmfz = bkd.slice_update(qmfz, (slice(kds+1, kde), slice(ids, ide+1)), mid)
+            qmfz = bkd.slice_update(qmfz, (kde, slice(ids, ide+1)), bottom)
         elif upwind_order == 5:
             # =================================================
             # full_kds <= k <= full_kds + 1
@@ -410,9 +410,9 @@ def upwind_calc_tracer_vflx(
                 q[kde-1:kde+1, ids:ide+1] + q[kde:kde+2, ids:ide+1]
             ) * mfz[kde-1:kde+1, ids:ide+1]
             # =================================================
-            qmfz = qmfz.at[kds:kds+2  , ids:ide+1].set(top   )
-            qmfz = qmfz.at[kds+2:kde-1, ids:ide+1].set(mid   )
-            qmfz = qmfz.at[kde-1:kde+1, ids:ide+1].set(bottom)
+            qmfz = bkd.slice_update(qmfz, (slice(kds, kds+2), slice(ids, ide+1)), top   )
+            qmfz = bkd.slice_update(qmfz, (slice(kds+2, kde-1), slice(ids, ide+1)), mid   )
+            qmfz = bkd.slice_update(qmfz, (slice(kde-1, kde+1), slice(ids, ide+1)), bottom)
         else:
             raise ValueError(f"upwind_calc_tracer_vflx: unsupported upwind order {upwind_order}!")
         return fill_field2d_array_halo(
@@ -423,7 +423,7 @@ def upwind_calc_tracer_vflx(
     else:
         raise ValueError(f"upwind_calc_tracer_vflx: unsupported batch location {batch.loc}!")
 
-   
+
 def upwind1_hori(
     bkd: AbstractBackend,
     q: FLT[Array, "nlev nCell"],
@@ -433,13 +433,13 @@ def upwind1_hori(
 ) -> FLT[Array, "nlev nEdge"]:
     v1 = edd_v[:, 0]
     v2 = edd_v[:, 1]
-    
+
     def _wrap(q: FLT[Array, "nCell"], wind: FLT[Array, "nEdge"]) -> FLT[Array, "nEdge"]:
         return (
             0.5 * (q[v1] + q[v2])
             - 0.5 * bkd.sign(wind) * wgt * (q[v2] - q[v1])
         )
-        
+
     return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
@@ -458,7 +458,7 @@ def upwind3_hori(
     wgt: FloatType = 0.75,
     upwind_optimized: bool = True
 ) -> FLT[Array, "nlev nEdge"]:
-    
+
     def _wrap(q: FLT[Array, "nCell"], wind: FLT[Array, "nEdge"]) -> FLT[Array, "nEdge"]:
         if upwind_optimized:
             nedge = edd_v.shape[0]
@@ -486,7 +486,7 @@ def upwind3_hori(
             return operator_3rd4th_order_formula(
                 bkd, x1, x2, dx1_2nd, dx2_2nd, wind, wgt
             )
-    
+
     return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
@@ -506,7 +506,7 @@ def upwind5_hori(
     stencil_4th_wgt: FLT[Array, "nEdge 2 max_m"],
     wgt: FloatType = 0.75,
 ) -> FLT[Array, "nlev nEdge"]:
-    
+
     def _wrap(q: FLT[Array, "nCell"], wind: FLT[Array, "nEdge"]) -> FLT[Array, "nEdge"]:
         v1_idx = edd_v[:, 0]  # (nEdge, )
         v2_idx = edd_v[:, 1]  # (nEdge, )
@@ -527,7 +527,7 @@ def upwind5_hori(
         return operator_5th6th_order_formula(
             bkd, x1, x2, dx1_2nd, dx2_2nd, dx1_4th, dx2_4th, wind, wgt
         )
-        
+
     return bkd.vmap(
         _wrap,
         in_axes=(0, 0),
@@ -608,10 +608,10 @@ class UpwindStencilDataset(AbstractEquationAuxiliaryDataset):
             stencil_vtx_2nd=UpwindStencilData.empty(),
             stencil_vtx_4th=UpwindStencilData.empty(),
         )
-        
+
     @classmethod
     def initialize(
-        cls, 
+        cls,
         cfg: UserConfig,
         para: PlanetParameterSet,
         mesh: SCVTMesh,
@@ -677,7 +677,7 @@ class UpwindStencilDataset(AbstractEquationAuxiliaryDataset):
                     loc="vtx",
                     polynomial_order=4,
                     dev=dev
-                    
+
                 )
             else:
                 stencil_vtx_2nd = UpwindStencilData.empty()
@@ -735,7 +735,7 @@ class UpwindStencilData(AbstractEquationAuxiliaryData):
             idxes=stencil_idxes,
             wgt=wgt,
         )
- 
+
 class AbstractUpwindStencilInfo(eqx.Module, ABC):
     n_coeff            : int      = eqx.field(static=True)
     polynomial_order   : int      = eqx.field(static=True)
@@ -779,8 +779,8 @@ class AbstractUpwindStencilInfo(eqx.Module, ABC):
             bkd, local_x, local_y
         )  # (max_m, n_coeff)
         return bkd.pinv(b_matrix)  # (..., n_coeff, max_m)
-    
-    
+
+
 class UpwindStencilInfoAtCell(AbstractUpwindStencilInfo):
     def __init__(self, polynomial_order: int):
         super().__init__(polynomial_order)
@@ -793,16 +793,16 @@ class UpwindStencilInfoAtCell(AbstractUpwindStencilInfo):
             self.stencil_fn = calc_hx_4th_stencil
 
     def calc_stencil(
-        self, 
+        self,
         mesh: SCVTMesh
     ) -> Tuple[INT[Array, "ncell"], INT[Array, "ncell max_m"]]:
         return self.stencil_fn(mesh, self.max_member)
-    
-    
+
+
 class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
     def __init__(
-        self, 
-        polynomial_order: int, 
+        self,
+        polynomial_order: int,
         tri_stencil_type: int = 1
     ):
         super().__init__(polynomial_order)
@@ -824,7 +824,7 @@ class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
                 self.max_member = 21
                 self.stencil_fn = calc_tri_4th_stencil_2
             else:
-                raise ValueError(f"Unsupported tri_stencil_type: {tri_stencil_type}") 
+                raise ValueError(f"Unsupported tri_stencil_type: {tri_stencil_type}")
 
     def calc_stencil(
         self,
@@ -832,7 +832,7 @@ class UpwindStencilInfoAtVtx(AbstractUpwindStencilInfo):
     ) -> Tuple[INT[Array, "nvtx"], INT[Array, "nvtx max_m"]]:
         return self.stencil_fn(mesh, self.max_member)
 
-    
+
 def calc_2nd_derivative_upwind(
     bkd: AbstractBackend,
     global_iv: INT[Array, "nEdge"],
@@ -1535,7 +1535,7 @@ def _calc_wgt_at_cell(
 def _calc_wgt_at_vtx(
     mesh: SCVTMesh,
     para: PlanetParameterSet,
-    recon_builder: UpwindStencilInfoAtVtx    
+    recon_builder: UpwindStencilInfoAtVtx
 ) -> Tuple[INT[Array, "nvtx max_m"], FLT[Array, "nedge 2 max_m"]]:
     bkd           = mesh.dev.backend
     radius        = para.radius.unwrap()

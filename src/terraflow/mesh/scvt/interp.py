@@ -6,14 +6,14 @@ from numba import njit, prange
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
-   
+
     FLT = typing.Float
     Array = typing.Array
-    
-    
+
+
 def scvt_interp_2d(
     mesh: SCVTMesh,
-    x: FLT[Array, "nlev npoint1"], 
+    x: FLT[Array, "nlev npoint1"],
     y: FLT[Array, "nlev npoint2"],
     x_loc: str,
     y_loc: str,
@@ -21,7 +21,7 @@ def scvt_interp_2d(
     extrap_type: int = 1,
     lagrange: bool = False,
     lagrange_order: int = 1
-) -> FLT[Array, "nlev npoint2"]: 
+) -> FLT[Array, "nlev npoint2"]:
     bkd = mesh.dev.backend
     loc_flag = x_loc + ">" + y_loc
     if loc_flag == "cell>edge":
@@ -29,7 +29,7 @@ def scvt_interp_2d(
         ids, ide = mesh.edge_ids, mesh.edge_ide
         v1 = mesh.cell_of_edge[ids:ide+1, 0]
         v2 = mesh.cell_of_edge[ids:ide+1, 1]
-        y = y.at[kds:kde+1, ids:ide+1].set(
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
             0.5 * (x[kds:kde+1, v1] + x[kds:kde+1, v2])
         )
     elif loc_flag == "cell>lev":
@@ -41,7 +41,7 @@ def scvt_interp_2d(
             pass
         else:
             # -------
-            #  
+            #
             # ===o=== k-1
             #
             # ---?--- k
@@ -51,7 +51,7 @@ def scvt_interp_2d(
             # -------
             a = mesh.full_dlev[kds:kde-1] / (2 * mesh.half_dlev[kds+1:kde])
             b = mesh.full_dlev[kds+1:kde] / (2 * mesh.half_dlev[kds+1:kde])
-            y = y.at[kds+1:kde, ids:ide+1].set(
+            y = bkd.slice_update(y, (slice(kds+1, kde), slice(ids, ide+1)),
                 a[:, None] * x[kds:kde-1, ids:ide+1] + b[:, None] * x[kds+1:kde, ids:ide+1]
             )
             if extrap:
@@ -60,39 +60,39 @@ def scvt_interp_2d(
                 x2 = mesh.full_lev[k+1] - mesh.half_lev[k]
                 a =  x2 / (x2 - x1)
                 b = -x1 / (x2 - x1)
-                y = y.at[k, ids:ide+1].set(a * x[k, ids:ide+1] + b * x[k+1, ids:ide+1])
+                y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k, ids:ide+1] + b * x[k+1, ids:ide+1])
                 k = mesh.half_kde
                 x1 = mesh.half_lev[k] - mesh.full_lev[k-1]
                 x2 = mesh.half_lev[k] - mesh.full_lev[k-2]
                 a =  x2 / (x2 - x1)
                 b = -x1 / (x2 - x1)
-                y = y.at[k, ids:ide+1].set(a * x[k-1, ids:ide+1] + b * x[k-2, ids:ide+1])
+                y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k-1, ids:ide+1] + b * x[k-2, ids:ide+1])
             else:
                 k = mesh.half_kds
-                y = y.at[k, :].set(x[k, :])
+                y = bkd.slice_update(y, (k, slice(None)), x[k, :])
                 k = mesh.half_kde
-                y = y.at[k, :].set(x[k-1, :])
+                y = bkd.slice_update(y, (k, slice(None)), x[k-1, :])
     elif loc_flag == "cell>vtx":
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.vtx_ids , mesh.vtx_ide
         v1            = mesh.cell_of_vtx  [ids:ide+1, :]
         kite_area_vtx = mesh.kite_area_vtx[ids:ide+1, :]
-        area_vtx      = mesh.area_vtx     [ids:ide+1   ] 
-        
+        area_vtx      = mesh.area_vtx     [ids:ide+1   ]
+
         def cell2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = bkd.where(v1 < 0, 0.0, x[v1])
             local_sum = bkd.sum(x_tile * kite_area_vtx, axis=-1)
             return local_sum / area_vtx
-        
+
         y_tmp = bkd.vmap(cell2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
-        
-        y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
+
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)), y_tmp)
     elif loc_flag == "vtx>edge":
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.edge_ids, mesh.edge_ide
         v1 = mesh.vtx_of_edge[ids:ide+1, 0]
         v2 = mesh.vtx_of_edge[ids:ide+1, 1]
-        y = y.at[kds:kde+1, ids:ide+1].set(
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
             0.5 * (x[kds:kde+1, v1] + x[kds:kde+1, v2])
         )
     elif loc_flag == "vtx>cell":
@@ -101,31 +101,31 @@ def scvt_interp_2d(
         v1             = mesh.vtx_of_cell   [ids:ide+1, :]
         kite_area_cell = mesh.kite_area_cell[ids:ide+1, :]
         area_cell      = mesh.area_cell     [ids:ide+1   ]
-        
+
         def vtx2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = bkd.where(v1 < 0, 0.0, x[v1])
             local_sum = bkd.sum(x_tile * kite_area_cell, axis=-1)
             return local_sum / area_cell
-        
+
         y_tmp = bkd.vmap(vtx2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
-        
-        y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
-    elif loc_flag == "edge>cell": 
+
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)), y_tmp)
+    elif loc_flag == "edge>cell":
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.cell_ids, mesh.cell_ide
         e_idx     = mesh.cell_ed  [ids:ide+1, :]
         area_cell = mesh.area_cell[ids:ide+1   ]
         le        = mesh.le       [e_idx]
         de        = mesh.de       [e_idx]
-        
+
         def edge2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
             local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_cell
-        
+
         y_tmp = bkd.vmap(edge2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
-        
-        y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
+
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)), y_tmp)
     elif loc_flag == "edge>vtx":
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.vtx_ids , mesh.vtx_ide
@@ -133,15 +133,15 @@ def scvt_interp_2d(
         area_vtx = mesh.area_vtx[ids:ide+1   ]
         le       = mesh.le       [e_idx]
         de       = mesh.de       [e_idx]
-        
+
         def edge2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
             x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
             local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
             return local_sum / area_vtx
-        
+
         y_tmp = bkd.vmap(edge2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
-        
-        y = y.at[kds:kde+1, ids:ide+1].set(y_tmp)
+
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)), y_tmp)
     elif loc_flag == "lev>cell":
         # =======
         #
@@ -154,12 +154,12 @@ def scvt_interp_2d(
         # =======
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.cell_ids, mesh.cell_ide
-        y = y.at[kds:kde+1, ids:ide+1].set(
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
             0.5 * (x[kds:kde+1, ids:ide+1] + x[kds+1:kde+2, ids:ide+1])
         )
     elif loc_flag == "edge>lev_edge":
         # -------
-        # 
+        #
         # ===o=== k-1
         #
         # ---?--- k
@@ -171,7 +171,7 @@ def scvt_interp_2d(
         ids, ide = mesh.edge_ids, mesh.edge_ide
         a = mesh.full_dlev[kds:kde-1] / (2 * mesh.half_dlev[kds+1:kde])
         b = mesh.full_dlev[kds+1:kde] / (2 * mesh.half_dlev[kds+1:kde])
-        y = y.at[kds+1:kde, ids:ide+1].set(
+        y = bkd.slice_update(y, (slice(kds+1, kde), slice(ids, ide+1)),
             a[:, None] * x[kds+1:kde, ids:ide+1] + b[:, None] * x[kds:kde-1, ids:ide+1]
         )
         if extrap_type == 1:
@@ -193,13 +193,15 @@ def scvt_interp_2d(
             # a =  x2 * x3 / (x1**2 - x1 * x2 - x1 * x3 + x2 * x3)
             # b =  x1 * x3 / (x2**2 - x2 * x1 - x2 * x3 + x1 * x3)
             # c =  x1 * x2 / (x3**2 - x3 * x1 - x3 * x2 + x1 * x2)
-            # y = y.at[k, ids:ide+1].set(
+            # y = bkd.slice_update(
+            #     y,
+            #     (k, slice(ids, ide+1)),
             #     a * x[k, ids:ide+1] + b * x[k+1, ids:ide+1] + c * x[k+2, ids:ide+1]
             # )
-            y = y.at[k, ids:ide+1].set(0.5 * x[k, ids:ide+1])
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)), 0.5 * x[k, ids:ide+1])
             k = mesh.half_kde
             # ===o=== NLEV - 2  x3
-            # 
+            #
             # -------
             #
             # ===o=== NLEV - 1  x2
@@ -215,14 +217,14 @@ def scvt_interp_2d(
             a =  x2 * x3 / (x1**2 - x1 * x2 - x1 * x3 + x2 * x3)
             b =  x1 * x3 / (x2**2 - x2 * x1 - x2 * x3 + x1 * x3)
             c =  x1 * x2 / (x3**2 - x3 * x1 - x3 * x2 + x1 * x2)
-            y = y.at[k, ids:ide+1].set(
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)),
                 a * x[k-1, ids:ide+1] + b * x[k-2, ids:ide+1] + c * x[k-3, ids:ide+1]
-            ) 
+            )
         elif extrap_type == 2:
             k = mesh.half_kds
-            y = y.at[k, ids:ide+1].set(0.5 * x[k, ids:ide+1])
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)), 0.5 * x[k, ids:ide+1])
             k = mesh.half_kde
-            y = y.at[k, ids:ide+1].set(0.5 * x[k-1, ids:ide+1])
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)), 0.5 * x[k-1, ids:ide+1])
         else:
             raise ValueError(f"scvt_interp_2d: unsupported extrap_type {extrap_type}!")
     elif loc_flag == "lev>lev_edge":
@@ -230,16 +232,16 @@ def scvt_interp_2d(
         ids, ide = mesh.edge_ids, mesh.edge_ide
         v1 = mesh.cell_of_edge[ids:ide+1, 0]
         v2 = mesh.cell_of_edge[ids:ide+1, 1]
-        y = y.at[kds:kde+1, ids:ide+1].set(
+        y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
             0.5 * (x[kds:kde+1, v1] + x[kds:kde+1, v2])
         )
     else:
         raise ValueError(f"scvt_interp_2d: unsupported location flag: {loc_flag}!")
     return y
-    
+
 def scvt_average_2d(
     mesh: SCVTMesh,
-    x: FLT[Array, "nlev npoint1"], 
+    x: FLT[Array, "nlev npoint1"],
     y: FLT[Array, "nlev npoint2"],
     x_loc: str,
     y_loc: str
@@ -251,13 +253,13 @@ def scvt_average_2d(
        ids, ide = mesh.edge_ids, mesh.edge_ide
        v1 = mesh.cell_of_edge[ids:ide+1, 0]
        v2 = mesh.cell_of_edge[ids:ide+1, 1]
-       y = y.at[kds:kde+1, ids:ide+1].set(
+       y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
            0.5 * (x[kds:kde+1, v1] + x[kds:kde+1, v2])
        )
     elif loc_flag == "lev>cell":
        kds, kde = mesh.full_kds, mesh.full_kde
        ids, ide = mesh.cell_ids, mesh.cell_ide
-       y = y.at[kds:kde+1, ids:ide+1].set(
+       y = bkd.slice_update(y, (slice(kds, kde+1), slice(ids, ide+1)),
            0.5 * (x[kds:kde+1, ids:ide+1] + x[kds+1:kde+2, ids:ide+1])
        )
     else:

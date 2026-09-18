@@ -19,7 +19,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
 if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.block import Block
-    
+
     INT = typing.Int
     FLT = typing.Float
     Array = typing.Array
@@ -47,12 +47,12 @@ def space_operators(
     new_idx: INT[Array, ""] | int,
     dt: float,
     pass_tag: str,
-    substep: int 
+    substep: int
 ) -> Block:
     mode  = block.mode
     bkd   = block.backend
     block = block.reset(pass_tag=pass_tag)
-    
+
     if pass_tag == "all_pass":
         block = operators_prepare_2(block, star_idx, dt, pass_tag, substep)
         if mode.is_baroclinic():
@@ -76,7 +76,7 @@ def space_operators(
             dmf   = block.aux.dmf.unwrap()
             g     = block.para.gravity.unwrap()
             dgzdt = block.tend.dgzdt  .unwrap()
-            dgzdt = dgzdt.at[kds:kde+1, ids:ide+1].set(
+            dgzdt = bkd.slice_update(dgzdt, (slice(kds, kde+1), slice(ids, ide+1)),
                 -dmf[kds:kde+1, ids:ide+1] * g
             )
             block = bkd.tree_at(
@@ -106,7 +106,7 @@ def space_operators(
             dmf   = block.aux.dmf.unwrap()
             g     = block.para.gravity.unwrap()
             dgzdt = block.tend.dgzdt  .unwrap()
-            dgzdt = dgzdt.at[kds:kde+1, ids:ide+1].set(
+            dgzdt = bkd.slice_update(dgzdt, (slice(kds, kde+1), slice(ids, ide+1)),
                 -dmf[kds:kde+1, ids:ide+1] * g
             )
             block = bkd.tree_at(
@@ -121,7 +121,7 @@ def space_operators(
             pass
         block = operators_prepare_2(block, new_idx, dt, pass_tag, substep)
         block = pgf_run            (block, new_idx)
-        
+
     return block
 
 
@@ -278,7 +278,7 @@ def diagnose(block: Block, itime_str: str) -> Block:
 
     def diagnose_global_sum(x: FLT[Array, ""]) -> FLT[Array, ""]:
         return global_sum(block.backend, block.dev.proc.comm_model, x)
-    
+
     def diagnose4barotropic(block: Block, itime_str: str) -> Block:
         # =======================================================
         # Diagnose u and v at primal cell
@@ -410,7 +410,7 @@ def diagnose(block: Block, itime_str: str) -> Block:
             raise ValueError(
                 f"Invalid equation mode for advection diagnosis. Invalid mode={block.mode}"
             )
-            
+
     if block.mode.is_barotropic():
         return diagnose4barotropic(block, itime_str)
     elif block.mode.is_baroclinic():

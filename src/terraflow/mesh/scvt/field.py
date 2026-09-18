@@ -305,7 +305,7 @@ class SCVTField(AbstractField[SCVTFieldMeta]):
                 other_d = other_d[at_tracer_idx     ] 
             if self.meta.is_expand_dim0 and self.meta.is_tracer:
                 if at_k is not None:
-                    self_d = self_d.at[at_expand_dim0_idx, at_tracer_idx, k_s:k_e+1]
+                    self_d = self_d[at_expand_dim0_idx, at_tracer_idx, k_s:k_e+1]
       
         if self.meta.at_sfc:
             i_s, i_e = self.get_index_range(with_lev_idx=False, with_halo=with_halo)

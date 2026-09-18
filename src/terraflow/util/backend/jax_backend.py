@@ -6,10 +6,10 @@ import os
 import jax
 import jax.experimental
 import jax.numpy as jnp
+from jax._src import config as jax_config
 import numpy as np
 import equinox as eqx
 import quadax
-import mpi4jax
 
 
 from terraflow.util.parallel_types import MPI, Proc
@@ -601,9 +601,19 @@ class JaxBackend(AbstractBackend):
             return jnp.broadcast_to(array, shape)
         return jnp.broadcast_to(array, shape, out_sharding=sharding)
     
-    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True) -> Callable[[Any], Any]:
+    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True, optimization_level = "O2") -> Callable[[Any], Any]:
         if with_jit:
-            return jax.jit(fun).lower(model).compile()
+            if isinstance(optimization_level, str):
+                try:
+                    optimization_level = jax_config.EffortLevel(optimization_level.upper()).value
+                except ValueError as exc:
+                    raise ValueError(
+                        "optimization_level must be one of 'UNKNOWN', 'O0', 'O1', 'O2', or 'O3'."
+                    ) from exc
+            return jax.jit(
+                fun, 
+                compiler_options={"optimization_level": optimization_level}
+            ).lower(model).compile()
         return fun
 
     def block_until_ready(self, value: Any) -> Any:
@@ -641,6 +651,8 @@ class JaxBackend(AbstractBackend):
         if comm is None or comm == MPI.COMM_NULL or comm.size == 1:
             return value
 
+        import mpi4jax
+
         return mpi4jax.allreduce(value, op=op, comm=comm)
 
     def sendrecv(
@@ -654,6 +666,11 @@ class JaxBackend(AbstractBackend):
         recvtag: int,
         comm: Any,
     ) -> Any:
+        if comm is None or comm == MPI.COMM_NULL or comm.size == 1:
+            return sendbuf
+
+        import mpi4jax
+
         return mpi4jax.sendrecv(
             sendbuf,
             recvbuf,

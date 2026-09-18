@@ -47,7 +47,7 @@ class MountainWaveTestCase(mz.MountainWaveTestCase):
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         tmp = bkd.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
-        un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -80,7 +80,7 @@ class MountainWaveTestCase(mz.MountainWaveTestCase):
         r = radius * bkd.acos(
             bkd.sin(latc) * sin_lat + bkd.cos(latc) * cos_lat * bkd.cos(cell_lon - lonc)
         )
-        gzs = gzs.at[ids:ide+1].set(g * h0 * bkd.exp(-(r / d)**2))
+        gzs = bkd.slice_update(gzs, slice(ids, ide+1), g * h0 * bkd.exp(-(r / d)**2))
         gzs = fill_field1d_array_halo(
             halo=mesh.halo,
             f=gzs,
@@ -112,7 +112,7 @@ class MountainWaveTestCase(mz.MountainWaveTestCase):
             -0.5 * radius * N**2 * u0 / g**2 / kap * (u0 / radius + 2.0 * omega) * 
                  (sin_lat**2 - 1.0) - N**2 / g**2 / kap * gzs[ids:ide+1]
         )
-        mgs = mgs.at[ids:ide+1].set(tmp)
+        mgs = bkd.slice_update(mgs, slice(ids, ide+1), tmp)
         mgs = fill_field1d_array_halo(
             halo=mesh.halo,
             f=mgs,
@@ -140,7 +140,7 @@ class MountainWaveTestCase(mz.MountainWaveTestCase):
             qv=0.0,
             para=block.para
         )
-        pt = pt.at[kds:kde+1, ids:ide+1].set(tmp)
+        pt = bkd.slice_update(pt, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         pt = fill_field2d_array_halo(
             halo=mesh.halo,
             f=pt,

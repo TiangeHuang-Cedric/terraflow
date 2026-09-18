@@ -77,7 +77,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
             h0 / 2.0 * (1 + bkd.cos(bkd.pi * r / r0)),
             0.0
         )
-        q = q.at[0,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (0, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -104,7 +104,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
                 qmin
             )
         )
-        q = q.at[1,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (1, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -117,7 +117,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         lon = mesh.cell_lon[ids:ide+1]
         r = great_circle(bkd, radius, lon0, lat0, lon, lat)
         tmp = bkd.exp(-5 * r**2 / radius**2)
-        q = q.at[2,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (2, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -126,7 +126,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
         )
         
         # Constant one
-        q = q.at[3,0,:].set(1)
+        q = bkd.slice_update(q, (3, 0, slice(None)), 1)
         # ==============================================
         return bkd.tree_at(
             where=lambda b: (b.state.dmg.d, b.tracers.q.d),
@@ -157,7 +157,7 @@ class SolidRotationTestCase(adv_sr.SolidRotationTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,

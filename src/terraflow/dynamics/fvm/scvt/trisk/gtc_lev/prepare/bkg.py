@@ -166,7 +166,7 @@ def regrid_phs(
     regridder: Regridder,
 ) -> Block:
     bkd = block.backend
-    if block.dev.is_root(): 
+    if block.dev.is_root():
         log.logger.info("Regrid surface hydrostatic pressure.")
     g = block.para.gravity.unwrap()
     mesh = block.mesh
@@ -185,7 +185,7 @@ def regrid_phs(
             allow_extrap=True
         )
         tmp = bkd.exp(tmp).squeeze()
-        phs = phs.at[ids:ide+1].set(tmp)
+        phs = bkd.slice_update(phs, slice(ids, ide+1), tmp)
     else:
         raise ValueError(
             f"Unsupported reader type for phs interpolation: {type(reader)}"
@@ -207,7 +207,7 @@ def regrid_phs(
 
 def bkg_calc_ph(block: Block) -> Block:
     bkd = block.backend
-    if block.dev.is_root(): 
+    if block.dev.is_root():
         log.logger.info("Calculate hydrostatic pressure on each level.")
     phs = block.state.phs.unwrap()[0, ...]
     mesh = block.mesh
@@ -217,14 +217,14 @@ def bkg_calc_ph(block: Block) -> Block:
     ph = block.state.ph.unwrap()[0, ...]
     ph_lev = block.state.ph_lev.unwrap()[0, ...]
     # =================================================================
-    ph = ph.at[full_kds:full_kde+1, ids:ide+1].set(
+    ph = bkd.slice_update(ph, (slice(full_kds, full_kde+1), slice(ids, ide+1)),
         block.vert_coord.calc_mg(
             mgs=phs[ids:ide+1],
             ks=full_kds,
             ke=full_kde,
         )
     )
-    ph_lev = ph_lev.at[half_kds:half_kde+1, ids:ide+1].set(
+    ph_lev = bkd.slice_update(ph_lev, (slice(half_kds, half_kde+1), slice(ids, ide+1)),
         block.vert_coord.calc_mg_lev(
             mgs=phs[ids:ide+1],
             ks=half_kds,
@@ -283,7 +283,7 @@ def calc_ph(block: Block) -> Block:
         dmg_ = dmg[kds:kde, ids:ide+1]
         qm_ = qm[kds:kde, ids:ide+1]
         moist_dmg = dmg_ * (1.0 + qm_)
-        ph_lev = ph_lev.at[kds:kde+1, ids:ide+1].set(
+        ph_lev = bkd.slice_update(ph_lev, (slice(kds, kde+1), slice(ids, ide+1)),
             mg_lev[kds, ids:ide+1] + bkd.cumulative_sum(
                 moist_dmg,
                 axis=0,
@@ -291,7 +291,7 @@ def calc_ph(block: Block) -> Block:
             )
         )
     else:
-        ph_lev = ph_lev.at[kds:kde+1, ids:ide+1].set(
+        ph_lev = bkd.slice_update(ph_lev, (slice(kds, kde+1), slice(ids, ide+1)),
             mg_lev[kds, ids:ide+1] + bkd.cumulative_sum(
                 dmg[kds:kde, ids:ide+1],
                 axis=0,
@@ -301,7 +301,7 @@ def calc_ph(block: Block) -> Block:
     # =======================================================
     # Calculate ph at full level
     kds, kde = full_kds, full_kde
-    ph = ph.at[kds:kde+1, ids:ide+1].set(
+    ph = bkd.slice_update(ph, (slice(kds, kde+1), slice(ids, ide+1)),
         0.5 * (
             ph_lev[kds:kde+1, ids:ide+1]
             + ph_lev[kds+1:kde+2, ids:ide+1]
@@ -310,7 +310,7 @@ def calc_ph(block: Block) -> Block:
     # =======================================================
     # Calculate phs
     kde = half_kde
-    phs = phs.at[ids:ide+1].set(ph_lev[kde, ids:ide+1])
+    phs = bkd.slice_update(phs, slice(ids, ide+1), ph_lev[kde, ids:ide+1])
     phs = fill_field1d_array_halo(
         halo=mesh.halo,
         f=phs,
@@ -375,9 +375,9 @@ def regrid_gz(
             x2=ph_lev[full_kds:full_kde+1, ids:ide + 1],
             allow_extrap=True
         )
-        gz_lev = gz_lev.at[full_kds:full_kde+1, ids:ide+1].set(tmp * g)
-        gz_lev = gz_lev.at[half_kde, ids:ide+1].set(gzs[ids:ide+1])
-        gz = gz.at[full_kds:full_kde+1, ids:ide+1].set(
+        gz_lev = bkd.slice_update(gz_lev, (slice(full_kds, full_kde+1), slice(ids, ide+1)), tmp * g)
+        gz_lev = bkd.slice_update(gz_lev, (half_kde, slice(ids, ide+1)), gzs[ids:ide+1])
+        gz = bkd.slice_update(gz, (slice(full_kds, full_kde+1), slice(ids, ide+1)),
             0.5 * (
                 gz_lev[full_kds:full_kde+1, ids:ide+1]
                 + gz_lev[full_kds+1:full_kde+2, ids:ide+1]
@@ -428,10 +428,10 @@ def bkg_calc_t(block: Block) -> Block:
     )
     tv = delta_gz / (rd * log_ratio)
     if idx_qv == -1:
-        t = t.at[kds:kde+1, ids:ide+1].set(tv)
+        t = bkd.slice_update(t, (slice(kds, kde+1), slice(ids, ide+1)), tv)
     else:
         q = block.tracers.q.unwrap()[0, idx_qv, :, :]
-        t = t.at[kds:kde+1, ids:ide+1].set(
+        t = bkd.slice_update(t, (slice(kds, kde+1), slice(ids, ide+1)),
             formula.temperature_from_virtual_temperature_and_dry_mixing_ratio(
                 tv,
                 q[kds:kde+1, ids:ide+1],
@@ -477,7 +477,7 @@ def regrid_t(
         raise ValueError(
             f"Unsupported reader type for t interpolation: {type(reader)}"
         )
-    t = t.at[kds:kde+1, ids:ide+1].set(tmp)
+    t = bkd.slice_update(t, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     t = fill_field2d_array_halo(
         halo=mesh.halo,
         f=t,
@@ -532,12 +532,12 @@ def regrid_un_from_uv(
     vec_xyz = sphere_geometry.vector_convert_lonlat2xyz(
         bkd=block.backend,
         R=radius,
-        u=u, 
-        v=v, 
+        u=u,
+        v=v,
         xyz=mesh.dual_edge_xyz[ids:ide+1, :]
     )
     un_ = bkd.sum(vec_xyz * mesh.edge_nr[ids:ide+1, :], axis=-1)
-    un = un.at[kds:kde+1, ids:ide+1].set(un_)
+    un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), un_)
     un = fill_field2d_array_halo(
         halo=mesh.halo,
         f=un,
@@ -578,7 +578,7 @@ def _regrid_u(
         cell_0 = mesh.cell_of_edge[ids:ide+1, 0]
         cell_1 = mesh.cell_of_edge[ids:ide+1, 1]
         x2 = block.state.un.unwrap()[0, :, :]
-        x2 = x2.at[:, ids:ide+1].set(
+        x2 = bkd.slice_update(x2, (slice(None), slice(ids, ide+1)),
             0.5 * (ph[:, cell_0] + ph[:, cell_1])
         )
         x2 = fill_field2d_array_halo(
@@ -601,7 +601,7 @@ def _regrid_u(
         raise ValueError(
             f"Unsupported reader type for u interpolation: {type(reader)}"
         )
-    u = u.at[kds:kde+1, ids:ide+1].set(tmp)
+    u = bkd.slice_update(u, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     u = fill_field2d_array_halo(
         halo=mesh.halo,
         f=u,
@@ -636,7 +636,7 @@ def _regrid_v(
         cell_0 = mesh.cell_of_edge[ids:ide+1, 0]
         cell_1 = mesh.cell_of_edge[ids:ide+1, 1]
         x2 = block.state.un.unwrap()[0, :, :]
-        x2 = x2.at[:, ids:ide+1].set(
+        x2 = bkd.slice_update(x2, (slice(None), slice(ids, ide+1)),
             0.5 * (ph[:, cell_0] + ph[:, cell_1])
         )
         x2 = fill_field2d_array_halo(
@@ -659,7 +659,7 @@ def _regrid_v(
         raise ValueError(
             f"Unsupported reader type for v interpolation: {type(reader)}"
         )
-    v = v.at[kds:kde+1, ids:ide+1].set(tmp)
+    v = bkd.slice_update(v, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     v = fill_field2d_array_halo(
         halo=mesh.halo,
         f=v,
@@ -681,7 +681,7 @@ def regrid_wet_qv(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid water vapor wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -703,7 +703,7 @@ def regrid_wet_qv(
             f"Unsupported reader type for qv interpolation: {type(reader)}"
         )
     tmp = bkd.where(tmp < 0.0, 0.0, tmp)
-    q = q.at[idx_qv, kds:kde+1, ids:ide+1].set(tmp)
+    q = bkd.slice_update(q, (idx_qv, slice(kds, kde+1), slice(ids, ide+1)), tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
         f=q,
@@ -732,7 +732,7 @@ def regrid_wet_qc(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid cloud liquid wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -754,7 +754,7 @@ def regrid_wet_qc(
             f"Unsupported reader type for qc interpolation: {type(reader)}"
         )
     tmp = bkd.where(tmp < 0.0, 0.0, tmp)
-    q = q.at[idx_qc, kds:kde+1, ids:ide+1].set(tmp)
+    q = bkd.slice_update(q, (idx_qc, slice(kds, kde+1), slice(ids, ide+1)), tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
         f=q,
@@ -783,7 +783,7 @@ def regrid_wet_qi(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid cloud ice wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -805,7 +805,7 @@ def regrid_wet_qi(
             f"Unsupported reader type for qi interpolation: {type(reader)}"
         )
     tmp = bkd.where(tmp < 0.0, 0.0, tmp)
-    q = q.at[idx_qi, kds:kde+1, ids:ide+1].set(tmp)
+    q = bkd.slice_update(q, (idx_qi, slice(kds, kde+1), slice(ids, ide+1)), tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
         f=q,
@@ -835,7 +835,7 @@ def regrid_wet_nc(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid cloud liquid number wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -848,7 +848,7 @@ def regrid_wet_nc(
     else:
         q_nc = q[idx_nc, kds:kde+1, ids:ide+1]
     q_nc = bkd.where(q_nc < 0.0, 0.0, q_nc)
-    q = q.at[idx_nc, kds:kde+1, ids:ide+1].set(q_nc)
+    q = bkd.slice_update(q, (idx_nc, slice(kds, kde+1), slice(ids, ide+1)), q_nc)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -878,9 +878,9 @@ def regrid_wet_ni(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid cloud ice number wet mixing ratio.")
-    # ================================================================= 
+    # =================================================================
     mesh = block.mesh
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -891,7 +891,7 @@ def regrid_wet_ni(
     else:
         q_ni = q[idx_ni, kds:kde+1, ids:ide+1]
     q_ni = bkd.where(q_ni < 0.0, 0.0, q_ni)
-    q = q.at[idx_ni, kds:kde+1, ids:ide+1].set(q_ni)
+    q = bkd.slice_update(q, (idx_ni, slice(kds, kde+1), slice(ids, ide+1)), q_ni)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -921,7 +921,7 @@ def regrid_wet_qr(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid rain water wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -943,7 +943,7 @@ def regrid_wet_qr(
             f"Unsupported reader type for qr interpolation: {type(reader)}"
         )
     tmp = bkd.where(tmp < 0.0, 0.0, tmp)
-    q = q.at[idx_qr, kds:kde+1, ids:ide+1].set(tmp)
+    q = bkd.slice_update(q, (idx_qr, slice(kds, kde+1), slice(ids, ide+1)), tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
         f=q,
@@ -973,7 +973,7 @@ def regrid_wet_qs(
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Regrid snow water wet mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -995,7 +995,7 @@ def regrid_wet_qs(
             f"Unsupported reader type for qs interpolation: {type(reader)}"
         )
     tmp = bkd.where(tmp < 0.0, 0.0, tmp)
-    q = q.at[idx_qs, kds:kde+1, ids:ide+1].set(tmp)
+    q = bkd.slice_update(q, (idx_qs, slice(kds, kde+1), slice(ids, ide+1)), tmp)
     q = fill_field3d_array_halo(
         halo=mesh.halo,
         f=q,
@@ -1019,7 +1019,7 @@ def bkg_calc_mgs(
 ) -> Block:
     bkd = block.backend
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate surface dry-air pressure.")
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
@@ -1034,7 +1034,7 @@ def bkg_calc_mgs(
         delta_ph * qm[kds:kde+1, ids:ide+1],
         axis=0
     )
-    mgs = mgs.at[ids:ide+1].set(tmp)
+    mgs = bkd.slice_update(mgs, slice(ids, ide+1), tmp)
     mgs = fill_field1d_array_halo(
         halo=mesh.halo,
         f=mgs,
@@ -1052,18 +1052,18 @@ def bkg_calc_mgs(
 
 def bkg_calc_mg(block: Block, mute: bool = False) -> Block:
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate dry-air pressure.")
     # =================================================================
     block = calc_mg (block, 0)
     block = calc_dmg(block, 0)
-    # ================================================================= 
+    # =================================================================
     return block
 
 
 def bkg_calc_tv(block: Block) -> Block:
     bkd = block.backend
-    if block.dev.is_root(): 
+    if block.dev.is_root():
         log.logger.info("Calculate virtual temperature.")
     # =================================================================
     mesh = block.mesh
@@ -1074,11 +1074,11 @@ def bkg_calc_tv(block: Block) -> Block:
     tv = block.aux.tv.unwrap()
     # =================================================================
     if idx_qv == -1:
-        tv = tv.at[kds:kde+1, ids:ide+1].set(t[kds:kde+1, ids:ide+1])
+        tv = bkd.slice_update(tv, (slice(kds, kde+1), slice(ids, ide+1)), t[kds:kde+1, ids:ide+1])
     else:
         qv = block.tracers.q .unwrap()[0, idx_qv, :, :]
         qm = block.tracers.qm.unwrap()[:, :]
-        tv = tv.at[kds:kde+1, ids:ide+1].set(
+        tv = bkd.slice_update(tv, (slice(kds, kde+1), slice(ids, ide+1)),
             formula.virtual_temperature_from_dry_mixing_ratio(
                 t=t[kds:kde+1, ids:ide+1],
                 qv=qv[kds:kde+1, ids:ide+1],
@@ -1100,7 +1100,7 @@ def bkg_calc_tv(block: Block) -> Block:
 
 def bkg_calc_pt(block: Block) -> Block:
     bkd = block.backend
-    if block.dev.is_root(): 
+    if block.dev.is_root():
         log.logger.info("Calculate modified potential temperature.")
     # =================================================================
     mesh   = block.mesh
@@ -1130,7 +1130,7 @@ def bkg_calc_pt(block: Block) -> Block:
             qv=q[idx_qv, kds:kde+1, ids:ide+1],
             para=block.para
         )
-    pt = pt.at[kds:kde+1, ids:ide+1].set(tmp)
+    pt = bkd.slice_update(pt, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     pt = fill_field2d_array_halo(
         halo=block.mesh.halo,
         f=pt,
@@ -1154,7 +1154,7 @@ def bkg_calc_dry_qv(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate water vapor dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1165,7 +1165,7 @@ def bkg_calc_dry_qv(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qv = q[idx_qv, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_qv, kds:kde+1, ids:ide+1].set(qv)
+    q = bkd.slice_update(q, (idx_qv, slice(kds, kde+1), slice(ids, ide+1)), qv)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1190,18 +1190,18 @@ def bkg_calc_dry_qc(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate cloud liquid dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
     kds, kde = mesh.full_kds, mesh.full_kde
-    ids, ide = mesh.cell_ids, mesh.cell_ide    
+    ids, ide = mesh.cell_ids, mesh.cell_ide
     q  = block.tracers.q .unwrap()[0, :, :, :]
     qm = block.tracers.qm.unwrap()[:, :]
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qc = q[idx_qc, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_qc, kds:kde+1, ids:ide+1].set(qc)
+    q = bkd.slice_update(q, (idx_qc, slice(kds, kde+1), slice(ids, ide+1)), qc)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1226,7 +1226,7 @@ def bkg_calc_dry_qi(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate cloud ice dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1237,7 +1237,7 @@ def bkg_calc_dry_qi(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qi = q[idx_qi, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_qi, kds:kde+1, ids:ide+1].set(qi)
+    q = bkd.slice_update(q, (idx_qi, slice(kds, kde+1), slice(ids, ide+1)), qi)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1262,7 +1262,7 @@ def bkg_calc_dry_nc(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate cloud liquid number dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1273,7 +1273,7 @@ def bkg_calc_dry_nc(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     nc = q[idx_nc, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_nc, kds:kde+1, ids:ide+1].set(nc)
+    q = bkd.slice_update(q, (idx_nc, slice(kds, kde+1), slice(ids, ide+1)), nc)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1298,7 +1298,7 @@ def bkg_calc_dry_ni(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate cloud ice number dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1309,7 +1309,7 @@ def bkg_calc_dry_ni(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     ni = q[idx_ni, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_ni, kds:kde+1, ids:ide+1].set(ni)
+    q = bkd.slice_update(q, (idx_ni, slice(kds, kde+1), slice(ids, ide+1)), ni)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1334,7 +1334,7 @@ def bkg_calc_dry_qr(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate rain water dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1345,7 +1345,7 @@ def bkg_calc_dry_qr(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qr = q[idx_qr, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_qr, kds:kde+1, ids:ide+1].set(qr)
+    q = bkd.slice_update(q, (idx_qr, slice(kds, kde+1), slice(ids, ide+1)), qr)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,
@@ -1370,7 +1370,7 @@ def bkg_calc_dry_qs(block: Block, mute: bool = False) -> Block:
         return block
 
     if not mute:
-        if block.dev.is_root(): 
+        if block.dev.is_root():
             log.logger.info("Calculate snow water dry mixing ratio.")
     # =================================================================
     mesh = block.mesh
@@ -1381,7 +1381,7 @@ def bkg_calc_dry_qs(block: Block, mute: bool = False) -> Block:
     # =================================================================
     # NOTE: qm is currently the total wet mixing ratio of water substances.
     qs = q[idx_qs, kds:kde+1, ids:ide+1] / (1 - qm[kds:kde+1, ids:ide+1])
-    q = q.at[idx_qs, kds:kde+1, ids:ide+1].set(qs)
+    q = bkd.slice_update(q, (idx_qs, slice(kds, kde+1), slice(ids, ide+1)), qs)
     q = fill_field3d_array_halo(
         halo=block.mesh.halo,
         f=q,

@@ -6,7 +6,7 @@ from typing import Any
 
 
 from terraflow.util.typing import FloatType, IntType, Array
-from terraflow.util.parallel_types import MPI, Proc
+from terraflow.util.parallel_types import MPI, MPIComm, Proc
 from terraflow.util.backend import AbstractBackend
 
 
@@ -109,13 +109,15 @@ class CPU(AbstractDevice):
         backend: str, 
         float_type: str = "r8", 
         int_type: str = "i4",
-        comm: MPI.Comm | None = None,
+        comm: MPIComm | None = None,
+        use_mpi: bool | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_backend_distributed: bool = False,
     ):  
         proc = Proc(
             comm=comm,
+            use_mpi=use_mpi,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
@@ -154,13 +156,15 @@ class GPU(AbstractDevice):
         backend: str,
         float_type: str = "r8", 
         int_type: str = "i4",
-        comm: MPI.Comm | None = None,
+        comm: MPIComm | None = None,
+        use_mpi: bool | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_backend_distributed: bool = False,
     ):
         proc = Proc(
             comm=comm,
+            use_mpi=use_mpi,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )
@@ -227,7 +231,8 @@ class TPU(AbstractDevice):
         self, 
         float_type: str = "r8", 
         int_type: str = "i4",
-        comm: MPI.Comm | None = None,
+        comm: MPIComm | None = None,
+        use_mpi: bool | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0
     ):
@@ -235,6 +240,7 @@ class TPU(AbstractDevice):
         from terraflow.util.backend.jax_backend import JaxBackend
         proc = Proc(
             comm=comm,
+            use_mpi=use_mpi,
             use_async_io=use_async_io,
             proc_io_stride=proc_io_stride
         )

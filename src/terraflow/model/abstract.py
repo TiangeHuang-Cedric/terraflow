@@ -46,7 +46,8 @@ if TYPE_CHECKING:
 def compile(
     model: MODEL,
     fun: Callable[[MODEL], MODEL],
-    with_jit: bool = True
+    with_jit: bool = True,
+    **kwargs
 ) -> Callable[[MODEL], MODEL]:
     ...
 
@@ -55,7 +56,8 @@ def compile(
 def compile(
     model: MODEL,
     fun: Callable[[MODEL], Tuple[MODEL, dict[str, Array]]],
-    with_jit: bool = True
+    with_jit: bool = True,
+    **kwargs
 ) -> Callable[[MODEL], Tuple[MODEL, dict[str, Array]]]:
     ...
 
@@ -63,10 +65,11 @@ def compile(
 def compile(
     model: MODEL,
     fun: Callable[[MODEL], Union[MODEL, Tuple[MODEL, dict[str, Array]]]],
-    with_jit: bool = True
+    with_jit: bool = True,
+    **kwargs
 ) -> Callable[[MODEL], Union[MODEL, Tuple[MODEL, dict[str, Array]]]]:
     backend = model.backend
-    return backend.compile(fun, model, with_jit=with_jit)
+    return backend.compile(fun, model, with_jit=with_jit, **kwargs)
 
 
 @dataclass
@@ -257,7 +260,8 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
         history: AbstractHistoryset,
         *,
         use_scan: bool = False,
-        with_jit: bool = True
+        with_jit: bool = True,
+        optimization_level = "O2"
     ) -> Callable[[Self], Self]:
         """Solve the ODE from start_time to end_time.
 
@@ -306,7 +310,12 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
                 outer_scan_fn=outer_scan_fn,
                 inner_scan_fn=inner_scan_fn,
             )
-            return compile(self, fun=return_fn, with_jit=with_jit)
+            return compile(
+                self, 
+                fun=return_fn, 
+                with_jit=with_jit, 
+                optimization_level=optimization_level
+            )
         else:
             log_every_time = self.time_manager.log_every
             log_steps      = int(log_every_time / dt_dyn)
@@ -320,7 +329,12 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
                 cond_fn=backend.cond,
                 while_loop_fn=backend.while_loop,
             )
-            return compile(self, fun=return_fn, with_jit=with_jit) 
+            return compile(
+                self, 
+                fun=return_fn, 
+                with_jit=with_jit,
+                optimization_level=optimization_level
+            ) 
 
     def trajectory(
         self,
@@ -329,7 +343,8 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
         post_process_fn: Callable = (
             lambda x: x.trajectory_post_process()
         ),
-        with_jit: bool = True
+        with_jit: bool = True,
+        optimization_level: str = "O2"
     ) -> Callable[[Self], tuple[Self, dict[str, Array]]]:
         """Solve the ODE from start_time to end_time.
 
@@ -366,9 +381,14 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
             outer_scan_fn=outer_scan_fn,
             inner_scan_fn=inner_scan_fn,
         )
-        return compile(self, fun=return_fn, with_jit=with_jit)
+        return compile(
+            self, 
+            fun=return_fn, 
+            with_jit=with_jit, 
+            optimization_level=optimization_level
+        )
 
-    def integrate(self, with_jit: bool = True) -> Callable[[Self], Self]:
+    def integrate(self, with_jit: bool = True, optimization_level: str = "O2") -> Callable[[Self], Self]:
         """Integrate the ODE from start_time to end_time.
 
         Args:
@@ -392,7 +412,12 @@ class AbstractModel(eqx.Module, ABC, Generic[BLOCK, FIELDS]):
             total_steps=total_steps,
             total_scan_fn=total_scan_fn,
         )
-        return compile(self, fun=return_fn, with_jit=with_jit)
+        return compile(
+            self, 
+            fun=return_fn, 
+            with_jit=with_jit, 
+            optimization_level=optimization_level
+        )
 
     def diagnose_precision(
         self,
@@ -470,7 +495,8 @@ def io_boundary_in_python_loop(
     inner_steps: int,
     log_steps: int,
     backend: AbstractBackend,
-    with_jit: bool
+    with_jit: bool,
+    **kwargs
 ) -> Callable[[MODEL], MODEL]:
     compiled_steps_fn: dict[int, Callable[[MODEL], MODEL]] = {}
 
@@ -508,6 +534,7 @@ def io_boundary_in_python_loop(
                     model=model,
                     fun=make_step_fn(steps),
                     with_jit=with_jit,
+                    **kwargs
                 )
             return compiled_steps_fn[steps](model)
 

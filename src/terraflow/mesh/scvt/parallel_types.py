@@ -1,9 +1,16 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from mpi4py import MPI
+from typing import Any
 import numpy as np
 
-from terraflow.util.typing import Array
-from terraflow.util.parallel_types import Proc
+from terraflow.util.parallel_types import (
+    MPI,
+    MPIComm,
+    MPIDistgraphComm,
+    MPIRequest,
+    Proc,
+)
 
 
 @dataclass
@@ -22,23 +29,23 @@ class CommonSite:
     n_cell        : int = 0
     n_vtx         : int = 0
     n_edge        : int = 0
-    req_n_cell    : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
-    req_n_vtx     : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
-    req_n_edge    : MPI.Request = field(default_factory=lambda: MPI.REQUEST_NULL)
-    cell_buf      : Array = field(default_factory=lambda: None)
-    vtx_buf       : Array = field(default_factory=lambda: None)
-    edge_buf      : Array = field(default_factory=lambda: None)
-    global_cell_id: Array = field(default_factory=lambda: None)
-    global_vtx_id : Array = field(default_factory=lambda: None)
-    global_edge_id: Array = field(default_factory=lambda: None)
-    local_cell_id : Array = field(default_factory=lambda: None)
-    local_vtx_id  : Array = field(default_factory=lambda: None)
-    local_edge_id : Array = field(default_factory=lambda: None)
+    req_n_cell    : MPIRequest = field(default_factory=lambda: MPI.REQUEST_NULL)
+    req_n_vtx     : MPIRequest = field(default_factory=lambda: MPI.REQUEST_NULL)
+    req_n_edge    : MPIRequest = field(default_factory=lambda: MPI.REQUEST_NULL)
+    cell_buf      : Any = field(default_factory=lambda: None)
+    vtx_buf       : Any = field(default_factory=lambda: None)
+    edge_buf      : Any = field(default_factory=lambda: None)
+    global_cell_id: Any = field(default_factory=lambda: None)
+    global_vtx_id : Any = field(default_factory=lambda: None)
+    global_edge_id: Any = field(default_factory=lambda: None)
+    local_cell_id : Any = field(default_factory=lambda: None)
+    local_vtx_id  : Any = field(default_factory=lambda: None)
+    local_edge_id : Any = field(default_factory=lambda: None)
 
 
 @dataclass
 class SCVTProc(Proc):
-    comm_graph     : MPI.Distgraphcomm = field(default_factory=lambda: MPI.Distgraphcomm())
+    comm_graph     : MPIDistgraphComm = field(default_factory=lambda: MPI.Distgraphcomm())
     indegree       : int               = 0
     outdegree      : int               = 0
     n_cell         : int               = 0
@@ -50,17 +57,17 @@ class SCVTProc(Proc):
     n_cell_cmpt    : int               = 0
     n_vtx_cmpt     : int               = 0
     n_edge_cmpt    : int               = 0
-    n_cell_bdry    : list              = field(default_factory=list)
-    n_vtx_bdry     : list              = field(default_factory=list)
-    n_edge_bdry    : list              = field(default_factory=list)
-    n_cell_halo    : list              = field(default_factory=list)
-    n_vtx_halo     : list              = field(default_factory=list)
-    n_edge_halo    : list              = field(default_factory=list)
+    n_cell_bdry    : list[int]         = field(default_factory=list)
+    n_vtx_bdry     : list[int]         = field(default_factory=list)
+    n_edge_bdry    : list[int]         = field(default_factory=list)
+    n_cell_halo    : list[int]         = field(default_factory=list)
+    n_vtx_halo     : list[int]         = field(default_factory=list)
+    n_edge_halo    : list[int]         = field(default_factory=list)
     hori_hw        : int               = 0
     nngb           : int               = 0
-    ngb            : list              = field(default_factory=list)
-    recv_nb        : list              = field(default_factory=list)
-    send_nb        : list              = field(default_factory=list)
+    ngb            : list[int]         = field(default_factory=list)
+    recv_nb        : list[int]         = field(default_factory=list)
+    send_nb        : list[int]         = field(default_factory=list)
     send           : list[CommonSite]  = field(default_factory=list)
     recv           : list[CommonSite]  = field(default_factory=list)
     cell_proc_idmap: np.ndarray        = field(default_factory=lambda: np.empty(0, dtype=np.int32))
@@ -78,13 +85,15 @@ class SCVTProc(Proc):
     def __init__(
         self,
         *,
-        proc: Proc = Proc(),
-        comm: MPI.Comm | None = None,
+        proc: Proc | None = None,
+        comm: MPIComm | None = None,
+        use_mpi: bool | None = None,
         hori_hw: int = 2,
     ):
         super().__init__(
             comm=comm,
             proc=proc,
+            use_mpi=use_mpi,
         )
         self.comm_graph = MPI.Distgraphcomm()
         self.hori_hw = hori_hw

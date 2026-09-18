@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
-    
+
     def set_ic(self, block: Block) -> Block:
         block = self.init_gzs(block)
         block = self.init_un (block)
@@ -40,12 +40,12 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         v = - radius * omg * a
         vec = vector_convert_lonlat2xyz(
             bkd=bkd,
-            R=radius, 
-            u=u, 
-            v=v, 
+            R=radius,
+            u=u,
+            v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        un  = un.at[0, ids:ide+1].set(
+        un  = bkd.slice_update(un, (0, slice(ids, ide+1)),
             bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         )
         un = fill_field2d_array_halo(
@@ -53,7 +53,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             f=un,
             meta=block.state.un.meta
         )
-        # ============================================== 
+        # ==============================================
         return bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
@@ -72,24 +72,24 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         R         = self.R
         omg       = self.omg
         gz0       = self.gz0
-        # ==============================================        
+        # ==============================================
         ids, ide = mesh.cell_ids, mesh.cell_ide
         cos_lat = mesh.cell_cos_lat[ids:ide+1]
         a = (
-            0.5 * omg * (2 * omega + omg) * cos_lat**2 + 
+            0.5 * omg * (2 * omega + omg) * cos_lat**2 +
             0.25 * omg**2 * (
-                (R + 1) * cos_lat**(2 * R + 2) + 
-                (2 * R**2 - R - 2) * cos_lat**(2 * R) - 
+                (R + 1) * cos_lat**(2 * R + 2) +
+                (2 * R**2 - R - 2) * cos_lat**(2 * R) -
                 2 * R**2 * cos_lat**(2 * R - 2)
             )
         )
         b = (
-            2 * (omega + omg) * omg * cos_lat**R * 
+            2 * (omega + omg) * omg * cos_lat**R *
             (R**2 + 2 * R + 2 - (R + 1)**2 * cos_lat**2) / (R + 1) / (R + 2)
         )
         c = 0.25 * omg**2 * cos_lat**(2 * R) * ((R + 1) * cos_lat**2 - R - 2)
         lon = mesh.cell_lon[ids:ide+1]
-        gz  = gz.at[0, ids:ide+1].set(
+        gz  = bkd.slice_update(gz, (0, slice(ids, ide+1)),
             gz0 + radius**2 * (a + b * bkd.cos(R * lon) + c * bkd.cos(2 * R * lon))
         )
         gz = fill_field2d_array_halo(
@@ -97,7 +97,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             f=gz,
             meta=block.state.gz.meta
         )
-        # ============================================== 
+        # ==============================================
         return bkd.tree_at(
             where=lambda b: b.state.gz.d,
             pytree=block,
@@ -105,12 +105,12 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             at_dims=0,
             at_idxes=0
         )
-        
+
     def init_gzs(self, block: Block) -> Block:
         bkd = block.backend
         gzs = block.static.gzs   .unwrap()
         gzs = bkd.zeros_like(gzs)
-        # ============================================== 
+        # ==============================================
         return bkd.tree_at(
             where=lambda b: b.static.gzs.d,
             pytree=block,

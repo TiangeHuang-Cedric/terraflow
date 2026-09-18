@@ -98,7 +98,7 @@ history = model.build_history(
     mode="scvt",
     case_name="terraflow.hdc" + ".g" + str(mesh.glevel),
     output_h1=False,
-    output_h2=True,
+    output_h2=False,
     h2_opt={
         "hori_regrid_method": "conserve_1st",
         "hori_regrid_backend": "esmf",

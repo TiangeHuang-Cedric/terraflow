@@ -34,7 +34,7 @@ def ref_calc_ps(block: Block) -> Block:
             -t0 / a
             + bkd.sqrt((t0 / a) ** 2 - 2 * gzs[ids:ide+1] / a / rd)
         )
-        ref_ps = ref_ps.at[ids:ide+1].set(tmp)
+        ref_ps = bkd.slice_update(ref_ps, slice(ids, ide+1), tmp)
         ref_ps = fill_field1d_array_halo(
             halo=mesh.halo,
             f=ref_ps,

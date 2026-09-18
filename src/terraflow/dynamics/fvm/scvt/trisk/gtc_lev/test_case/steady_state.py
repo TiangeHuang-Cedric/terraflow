@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     Array = typing.Array
 
 class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
-    
+
     def set_ic(self, block: Block) -> Block:
         block = self.init_mgs(block)
         block = calc_mg      (block, 0)
@@ -73,7 +73,7 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
             mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[None, ids:ide+1, :], axis=-1)
-        un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -127,10 +127,10 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
                 * radius * omega
             )
 
-        t = t.at[kds:kde+1, ids:ide+1].set(
+        t = bkd.slice_update(t, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.vmap(_wrap, in_axes=0, out_axes=0)(eta)
         )
-        pt = pt.at[kds:kde+1, ids:ide+1].set(
+        pt = bkd.slice_update(pt, (slice(kds, kde+1), slice(ids, ide+1)),
             formula.modified_potential_temperature(
                 t=t[kds:kde+1, ids:ide+1],
                 p=mg[kds:kde+1, ids:ide+1],
@@ -192,7 +192,7 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
             )
         kds, kde = mesh.half_kds, mesh.half_kde
         eta = mesh.half_lev[kds:kde+1]
-        gz_lev = gz_lev.at[kds:kde+1, ids:ide+1].set(
+        gz_lev = bkd.slice_update(gz_lev, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.vmap(_wrap, in_axes=0, out_axes=0)(eta)
         )
         gz_lev = fill_field2d_array_halo(
@@ -200,10 +200,10 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
             f=gz_lev,
             meta=block.state.gz_lev.meta
         )
-        
+
         kds, kde = mesh.full_kds, mesh.full_kde
         eta = mesh.full_lev[kds:kde+1]
-        gz = gz.at[kds:kde+1, ids:ide+1].set(
+        gz = bkd.slice_update(gz, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.vmap(_wrap, in_axes=0, out_axes=0)(eta)
         )
         gz = fill_field2d_array_halo(
@@ -219,7 +219,7 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
             at_dims=(0, 0),
             at_idxes=(0, 0)
         )
-        
+
 
     def init_gzs(self, block: Block) -> Block:
         bkd    = block.backend
@@ -240,7 +240,7 @@ class SCVTSteadyStateTestCase(ss.SteadyStateTestCase):
             + (8 / 5 * cos_lat ** 3 * (sin_lat ** 2 + 2 / 3) - bkd.pi / 4)
             * radius * omega
         )
-        gzs = gzs.at[ids:ide+1].set(tmp)
+        gzs = bkd.slice_update(gzs, slice(ids, ide+1), tmp)
         gzs = fill_field1d_array_halo(
             halo=mesh.halo,
             f=gzs,

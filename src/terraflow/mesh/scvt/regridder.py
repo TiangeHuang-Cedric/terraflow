@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, TypeVar, Any, Union
 import numpy as np
 
 from terraflow.mesh.scvt._native_regridder import NativeRegridder
-from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
 
 
 ESMF_CONSERVATIVE_METHODS = {"conserve", "conserve_1st", "conserve_2nd"}
@@ -15,6 +14,7 @@ if TYPE_CHECKING:
     from terraflow.util.planet import PlanetParameterSet
     from terraflow.vert_coord.abstract import AbstractVertCoordinate
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
+    from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
 
     Float = typing.Float
     Array = typing.Array
@@ -144,6 +144,8 @@ class Regridder:
                 backend=bkd,
             )
         elif self.backend == "esmf":
+            from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
+
             # ================================================================
             # src (latlon)
             if isinstance(src, LatlonRegridInfo):
@@ -212,6 +214,8 @@ class Regridder:
 
     @staticmethod
     def esmf_backend() -> type[ESMFRegridder]:
+        from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
+
         return ESMFRegridder
 
     @staticmethod

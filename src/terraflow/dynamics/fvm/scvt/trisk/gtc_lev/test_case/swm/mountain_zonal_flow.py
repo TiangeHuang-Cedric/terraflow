@@ -46,7 +46,7 @@ class MountainZonalFlowTestCase(swm_mz.MountainZonalFlowTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -77,7 +77,7 @@ class MountainZonalFlowTestCase(swm_mz.MountainZonalFlowTestCase):
             R, 
             bkd.sqrt(dlon**2 + (mesh.cell_lat[ids:ide+1] - lat0)**2)
         )
-        gzs = gzs.at[ids:ide+1].set(gzs0 * (1.0 - d / R))
+        gzs = bkd.slice_update(gzs, slice(ids, ide+1), gzs0 * (1.0 - d / R))
         gzs = fill_field1d_array_halo(
             halo=mesh.halo,
             f=gzs,
@@ -110,7 +110,7 @@ class MountainZonalFlowTestCase(swm_mz.MountainZonalFlowTestCase):
             (radius * omega * u0 + u0**2 * 0.5) 
             * (sin_lat * cos_alpha - cos_lon * cos_lat * sin_alpha)**2
         )
-        gz = gz.at[0, ids:ide+1].set(tmp)
+        gz = bkd.slice_update(gz, (0, slice(ids, ide+1)), tmp)
         gz = fill_field2d_array_halo(
             halo=mesh.halo,
             f=gz,

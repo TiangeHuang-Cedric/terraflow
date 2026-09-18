@@ -56,7 +56,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         tmp = bkd.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
-        un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -115,7 +115,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             + c_lat * bkd.cos(2 * n * lon)
         )
         tmp = pref * (1 + gamma / g / t0 * phi_p)**(g / gamma / rd)
-        mgs = mgs.at[ids:ide+1].set(tmp)
+        mgs = bkd.slice_update(mgs, slice(ids, ide+1), tmp)
         mgs = fill_field1d_array_halo(
             halo=mesh.halo,
             f=mgs,
@@ -150,7 +150,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
             p=mg_,
             para=self.para,
         )
-        pt = pt.at[kds:kde+1, ids:ide+1].set(tmp)
+        pt = bkd.slice_update(pt, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         pt = fill_field2d_array_halo(
             halo=mesh.halo,
             f=pt,
@@ -182,7 +182,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         ids, ide = mesh.cell_ids, mesh.cell_ide
         mg_ = mg[kds:kde+1, ids:ide+1]
         tmp = g * t0 / gamma * (1 - (mg_ / pref) ** (gamma * rd / g))
-        gz  = gz.at[kds:kde+1, ids:ide+1].set(tmp)
+        gz  = bkd.slice_update(gz, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         gz  = fill_field2d_array_halo(
             halo=mesh.halo,
             f=gz,
@@ -193,7 +193,7 @@ class RossbyHaurwitzWaveTestCase(rh.RossbyHaurwitzWaveTestCase):
         ids, ide = mesh.cell_ids, mesh.cell_ide
         mg_lev_  = mg_lev[kds:kde+1, ids:ide+1]
         tmp      = g * t0 / gamma * (1 - (mg_lev_ / pref) ** (gamma * rd / g))
-        gz_lev   = gz_lev.at[kds:kde+1, ids:ide+1].set(tmp)
+        gz_lev   = bkd.slice_update(gz_lev, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         gz_lev  = fill_field2d_array_halo(
             halo=mesh.halo,
             f=gz_lev,

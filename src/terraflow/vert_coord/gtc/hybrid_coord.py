@@ -69,15 +69,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         # =========================================
         # k = 1
         tmp = self.full_lev[0] - self.half_lev[0]
-        half_dlev = half_dlev.at[0].set(tmp)
+        half_dlev = bkd.slice_update(half_dlev, 0, tmp)
         # =========================================
         # k = 2, ..., nlev
         tmp = self.full_lev[1:]-self.full_lev[:-1]
-        half_dlev = half_dlev.at[1:-1].set(tmp)
+        half_dlev = bkd.slice_update(half_dlev, slice(1, -1), tmp)
         # =========================================
         # k = nlev + 1
         tmp = self.half_lev[-1] - self.full_lev[-1]
-        half_dlev = half_dlev.at[-1].set(tmp)
+        half_dlev = bkd.slice_update(half_dlev, -1, tmp)
         # =========================================================
         self.full_dlev = full_dlev
         self.half_dlev = half_dlev

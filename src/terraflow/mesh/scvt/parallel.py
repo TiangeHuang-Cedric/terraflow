@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from mpi4py import MPI
+
+from terraflow.util.parallel_types import MPI, MPIComm
 
 
 if TYPE_CHECKING:
@@ -16,21 +17,21 @@ if TYPE_CHECKING:
 TAGS = {"cell": 1, "vtx": 2, "edge": 3, "lev": 1, "lev_vtx": 2, "lev_edge": 3}
 
 
-def global_sum(bkd: AbstractBackend, comm: MPI.Comm, x: Array) -> Array:
+def global_sum(bkd: AbstractBackend, comm: MPIComm, x: Array) -> Array:
     if comm is None or comm == MPI.COMM_NULL or comm.size == 1:
         return x
 
     return bkd.allreduce(x, op=MPI.SUM, comm=comm)
 
 
-def global_max(bkd: AbstractBackend, comm: MPI.Comm, x: Array) -> Array:
+def global_max(bkd: AbstractBackend, comm: MPIComm, x: Array) -> Array:
     if comm is None or comm == MPI.COMM_NULL or comm.size == 1:
         return x
 
     return bkd.allreduce(x, op=MPI.MAX, comm=comm)
 
 
-def global_min(bkd: AbstractBackend, comm: MPI.Comm, x: Array) -> Array:
+def global_min(bkd: AbstractBackend, comm: MPIComm, x: Array) -> Array:
     if comm is None or comm == MPI.COMM_NULL or comm.size == 1:
         return x
 

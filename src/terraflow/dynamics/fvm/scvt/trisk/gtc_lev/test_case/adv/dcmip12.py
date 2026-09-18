@@ -91,7 +91,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
             0.5 * (1 + bkd.cos(2 * bkd.pi * (z - z0) / (z2 - z1))),
             0.0
         )
-        q = q.at[0, kds:kde+1, ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (0, slice(kds, kde+1), slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -163,7 +163,7 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
             out_axes=0
         )(mg[kds:kde+1, :], gz[kds:kde+1, :])
         
-        un = un.at[kds:kde+1, ids:ide+1].set(un_tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), un_tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -191,8 +191,8 @@ class DCMIP12TestCase(adv_dcmip12.DCMIP12TestCase):
             out_axes=(0, 0)
         )(dmg[kds+1:kde, ids:ide+1], gz_lev[kds+1:kde, ids:ide+1], mesh.half_dlev[kds+1:kde])
         
-        we  = we .at[kds+1:kde, ids:ide+1].set(we_tmp )
-        mfz = mfz.at[kds+1:kde, ids:ide+1].set(mfz_tmp)
+        we  = bkd.slice_update(we, (slice(kds+1, kde), slice(ids, ide+1)), we_tmp )
+        mfz = bkd.slice_update(mfz, (slice(kds+1, kde), slice(ids, ide+1)), mfz_tmp)
         # ==============================================
         return bkd.tree_at(
             where=lambda b: (b.state.un.d, b.aux.we_lev.d, b.aux.mfz_lev.d),

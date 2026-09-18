@@ -1,21 +1,104 @@
 from __future__ import annotations
-from typing import Optional
+from importlib import import_module
+import os
+from typing import Any, Optional, TypeAlias
 from dataclasses import dataclass, field
-from mpi4py import MPI
+
+
+from terraflow.util.serial_proc import MPI as SERIAL_MPI
+
+
+def is_env_gt_one(name: str) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return False
+    try:
+        return int(value) > 1
+    except ValueError:
+        return False
+
+
+def is_mpi_launcher() -> bool:
+    if any(
+        is_env_gt_one(name)
+        for name in (
+            "OMPI_COMM_WORLD_SIZE",
+            "PMI_SIZE",
+            "PMIX_SIZE",
+            "MV2_COMM_WORLD_SIZE",
+            "SLURM_NTASKS",
+        )
+    ):
+        return True
+    return any(
+        name in os.environ
+        for name in (
+            "OMPI_COMM_WORLD_RANK",
+            "PMI_RANK",
+            "PMIX_RANK",
+            "MV2_COMM_WORLD_RANK",
+            "SLURM_PROCID",
+        )
+    )
+
+
+class MPIProxy:
+    def __init__(self) -> None:
+        self._impl: Any = SERIAL_MPI
+        self._using_mpi4py = False
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._impl, name)
+
+    def use_mpi4py(self) -> Any:
+        if not self._using_mpi4py:
+            self._impl = import_module("mpi4py.MPI")
+            self._using_mpi4py = True
+        return self._impl
+
+    def use_serial(self) -> Any:
+        if not self._using_mpi4py:
+            self._impl = SERIAL_MPI
+        return self._impl
+
+    def is_mpi4py(self) -> bool:
+        return self._using_mpi4py
+
+
+MPI = MPIProxy()
+
+
+def configure_mpi(*, comm: Any | None, use_mpi: bool | None) -> None:
+    if use_mpi is True or comm is not None:
+        MPI.use_mpi4py()
+        return
+    if use_mpi is False:
+        MPI.use_serial()
+        return
+    if is_mpi_launcher():
+        MPI.use_mpi4py()
+    else:
+        MPI.use_serial()
+
+MPIComm         : TypeAlias = Any
+MPIGroup        : TypeAlias = Any
+MPIRequest      : TypeAlias = Any
+MPIDistgraphComm: TypeAlias = Any
+
 
 PROC_TYPE_MODEL = 1
-PROC_TYPE_IO = 2
+PROC_TYPE_IO    = 2
 
 
 @dataclass
 class Proc:
     # Top MPI communicator
-    comm      : MPI.Comm  = field(default_factory=lambda: MPI.COMM_NULL)
+    comm      : MPIComm  = field(default_factory=lambda: MPI.COMM_NULL)
     # MPI communicator for model computation
-    comm_model: MPI.Comm  = field(default_factory=lambda: MPI.COMM_NULL)
+    comm_model: MPIComm  = field(default_factory=lambda: MPI.COMM_NULL)
     # MPI communicator for IO
-    comm_io   : MPI.Comm  = field(default_factory=lambda: MPI.COMM_NULL)
-    group     : MPI.Group = field(default_factory=lambda: MPI.GROUP_NULL)
+    comm_io   : MPIComm  = field(default_factory=lambda: MPI.COMM_NULL)
+    group     : MPIGroup = field(default_factory=lambda: MPI.GROUP_NULL)
     # MPI process ID for model computation
     id_model  : int       = MPI.PROC_NULL
     # MPI process ID for IO
@@ -34,7 +117,8 @@ class Proc:
         self,
         *,
         proc: Optional["Proc"] = None,
-        comm: MPI.Comm | None = None,
+        comm: MPIComm | None = None,
+        use_mpi: bool | None = None,
         use_async_io: bool = False,
         proc_io_stride: int = 0,
     ):
@@ -51,6 +135,7 @@ class Proc:
             self.idom       = proc.idom
             self.hostname   = proc.hostname
         else:
+            configure_mpi(comm=comm, use_mpi=use_mpi)
             if comm is not None:
                 self.comm = comm
             else:

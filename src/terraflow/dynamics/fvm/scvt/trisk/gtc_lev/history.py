@@ -12,10 +12,10 @@ from abc import abstractmethod
 import time
 import netCDF4 as nc4
 import numpy as np
-from mpi4py import MPI
 
 
 from terraflow.util import log
+from terraflow.util.parallel_types import MPI, MPIComm
 from terraflow.util.device import AbstractDevice
 from terraflow.util.datetime import DateTimeManager
 from terraflow.util.history.abstract import (
@@ -26,7 +26,6 @@ from terraflow.util.history.setup.base import GlobalAttributesSetup, TimeSetup
 from terraflow.util.history.setup.mesh import AbstractMeshHistorySetup
 from terraflow.util.history.setup.vert import AbstractVertHistorySetup
 from terraflow.util.field import ScalarField, ScalarFieldMeta
-from terraflow.mesh.scvt.regridder import ESMFRegridder
 from terraflow.mesh.scvt.interp import interp_plev
 from terraflow.mesh.scvt.field import (
     SCVTFields, 
@@ -40,6 +39,7 @@ if TYPE_CHECKING:
     from terraflow.util import typing
     from terraflow.util.parallel_types import Proc
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
+    from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.swm import ShallowWaterModel
     from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.adv import (
         Adv2DModel,
@@ -691,7 +691,7 @@ class AbstractBaseHistory(AbstractHistory):
     proc         : Proc
     local_mesh   : SCVTMesh
     global_mesh  : SCVTMesh
-    comm_io      : MPI.Comm
+    comm_io      : MPIComm
     io_rank      : int
     io_nproc     : int
     output_ngroups: int
@@ -1642,6 +1642,8 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         meta: SCVTFieldMeta,
         ndbound: Optional[int],
     ) -> ESMFRegridder:
+        from terraflow.mesh.scvt._esmf_regridder import ESMFRegridder
+
         loc = meta.loc
         key = (loc, ndbound)
         if key not in self._regridders:

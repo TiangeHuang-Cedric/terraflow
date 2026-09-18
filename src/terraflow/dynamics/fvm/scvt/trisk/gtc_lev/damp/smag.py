@@ -38,13 +38,13 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             vec_at_cell=np.array([]),
             vec_at_vtx=np.array([])
         )
-    
+
     @classmethod
     def initialize(
         cls,
         cfg: UserConfig,
-        para: PlanetParameterSet, 
-        mesh: SCVTMesh, 
+        para: PlanetParameterSet,
+        mesh: SCVTMesh,
         dev: AbstractDevice
     ) -> Self:
         if cfg.use_smag_damp:
@@ -54,9 +54,9 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
 
     @classmethod
     def from_coord(
-        cls, 
-        para: PlanetParameterSet, 
-        mesh: SCVTMesh, 
+        cls,
+        para: PlanetParameterSet,
+        mesh: SCVTMesh,
         dev: AbstractDevice
     ) -> Self:
         radius        = para.radius.unwrap()
@@ -68,14 +68,14 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         bkd           = dev.backend
         # =====================================================
         perot_wgt_at_cell = bkd.zeros(
-            (mesh.cell_ime-mesh.cell_ims+1, mesh.maxnnb_cell, 3), 
-            device=dev(), 
+            (mesh.cell_ime-mesh.cell_ims+1, mesh.maxnnb_cell, 3),
+            device=dev(),
             dtype=float_type
         )
         perot_wgt_at_vtx  = bkd.zeros(
-            (mesh.vtx_ime -mesh.vtx_ims +1, mesh.maxnnb_vtx , 3), 
-            device=dev(), 
-            dtype=float_type            
+            (mesh.vtx_ime -mesh.vtx_ims +1, mesh.maxnnb_vtx , 3),
+            device=dev(),
+            dtype=float_type
         )
         vec_at_cell = bkd.zeros(
             (mesh.full_nlev, mesh.cell_ime-mesh.cell_ims+1, 3),
@@ -87,14 +87,14 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             device=dev(),
             dtype=float_type
         )
-        # ===================================================== 
+        # =====================================================
         # ------ Calculate Perot weights at cell ------
         ids, ihe          = mesh.cell_ids, mesh.cell_ihe[1]
         cell_ed           = mesh.cell_ed  [ids:ihe+1, :]
         cell_xyz          = mesh.cell_xyz [ids:ihe+1, :] / radius
         area_cell         = mesh.area_cell[ids:ihe+1   ]
         is_valid_cell_nnb = cell_ed >= 0
-        
+
         # (ncell, maxnnb, 3)
         local_basis = project_sphere2plane(
             bkd=bkd,
@@ -116,7 +116,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             tmp,
             0.0
         )
-        perot_wgt_at_cell = perot_wgt_at_cell.at[ids:ihe+1, :, :].set(tmp)
+        perot_wgt_at_cell = bkd.slice_update(perot_wgt_at_cell, (slice(ids, ihe+1), slice(None), slice(None)), tmp)
 
         # ------ Calculate Perot weights at vtx ------
         ids, ihe          = mesh.vtx_ids, mesh.vtx_ihe[0]
@@ -124,7 +124,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         area_vtx          = mesh.area_vtx[ids:ihe+1   ]
         vtx_xyz           = mesh.vtx_xyz [ids:ihe+1, :] / radius
         is_valid_vtx_nnb  = vtx_ed >= 0
-        
+
         # (nvtx, maxnnb_dual, 3)
         local_basis = project_sphere2plane(
             bkd=bkd,
@@ -132,7 +132,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             op0=vtx_xyz,
             op1=dual_edge_xyz[vtx_ed, :] / radius,
         )
-        
+
         # (nvtx, maxnnb_dual, 3)
         cross_product = bkd.cross(dual_edge_xyz[vtx_ed, :], local_basis, axis=-1)
         # (nvtx, maxnnb_dual)
@@ -152,7 +152,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             tmp,
             0.0
         )
-        perot_wgt_at_vtx = perot_wgt_at_vtx.at[ids:ihe+1, :, :].set(tmp)
+        perot_wgt_at_vtx = bkd.slice_update(perot_wgt_at_vtx, (slice(ids, ihe+1), slice(None), slice(None)), tmp)
         # =====================================================
         return cls(
             initialized=True,
@@ -161,7 +161,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             vec_at_cell=vec_at_cell,
             vec_at_vtx=vec_at_vtx
         )
-        
+
 def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> Block:
     bkd               = block.backend
     mesh              = block.mesh
@@ -194,18 +194,18 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     # (nlev, ncell, 3)
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[1]
-    vec_at_cell = vec_at_cell.at[kds:kde+1, ids:ihe+1, :].set(
+    vec_at_cell = bkd.slice_update(vec_at_cell, (slice(kds, kde+1), slice(ids, ihe+1), slice(None)),
         bkd.sum(
-            un[kds:kde+1, cell_ed[ids:ihe+1, :], None] * perot_wgt_at_cell[None, ids:ihe+1, :, :], 
+            un[kds:kde+1, cell_ed[ids:ihe+1, :], None] * perot_wgt_at_cell[None, ids:ihe+1, :, :],
             axis=-2
         )
     )
     # (nlev, nvtx, 3)
-    kds, kde = mesh.full_kds, mesh.full_kde 
+    kds, kde = mesh.full_kds, mesh.full_kde
     ids, ihe = mesh.vtx_ids , mesh.vtx_ihe[0]
-    vec_at_vtx = vec_at_vtx.at[kds:kde+1, ids:ihe+1, :].set(
+    vec_at_vtx = bkd.slice_update(vec_at_vtx, (slice(kds, kde+1), slice(ids, ihe+1), slice(None)),
         bkd.sum(
-            un[kds:kde+1, vtx_ed [ids:ihe+1, :], None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :], 
+            un[kds:kde+1, vtx_ed [ids:ihe+1, :], None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :],
             axis=-2
         )
     )
@@ -264,35 +264,35 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     smag_s = (un_dc1dc2 + ut_pc1pc2)
 
     ls2 = de_ * le_
-    smag_coef = smag_coef.at[kds:kde+1, ids:ihe+1].set(
+    smag_coef = bkd.slice_update(smag_coef, (slice(kds, kde+1), slice(ids, ihe+1)),
         block.cfg.smag_damp_coef * ls2 * bkd.sqrt(smag_t**2 + smag_s**2)
     )
     tmp = (un_pc1 + un_pc2 - 2 * un[kds:kde+1, ids:ihe+1]) / de_**2
-    lap_un = lap_un.at[kds:kde+1, ids:ihe+1].set(
+    lap_un = bkd.slice_update(lap_un, (slice(kds, kde+1), slice(ids, ihe+1)),
         tmp + (un_dc1 + un_dc2 - 2 * un[kds:kde+1, ids:ihe+1]) / le_**2
-    )    
+    )
     # -----------------------------------------------------
     # Calculate smag lev for non-hydrostatic model
     if block.mode.is_nonhydrostatic():
         kds, kde = mesh.half_kds, mesh.half_kde
         ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
         tmp = 0.5 * (
-            mesh.full_dlev[kds:kde    ] / mesh.half_dlev[kds+1:kde+1] * smag_coef[kds+1:kde+1, ids:ihe+1] + 
+            mesh.full_dlev[kds:kde    ] / mesh.half_dlev[kds+1:kde+1] * smag_coef[kds+1:kde+1, ids:ihe+1] +
             mesh.full_dlev[kds+1:kde+1] / mesh.half_dlev[kds+1:kde+1] * smag_coef[kds:kde    , ids:ihe+1]
         )
-        smag_coef_lev = smag_coef_lev.at[kds+1:kde+1, ids:ihe+1].set(tmp)
+        smag_coef_lev = bkd.slice_update(smag_coef_lev, (slice(kds+1, kde+1), slice(ids, ihe+1)), tmp)
     # =====================================================
     # Normal wind
     # math: ((upc1-un)/(0.5*edd_leng)-(un-upc2)/(0.5*edd_leng))/(0.5*edd_leng)
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ide = mesh.edge_ids, mesh.edge_ide
-    dundt_damp = dundt_damp.at[kds:kde+1, ids:ide+1].set(
+    dundt_damp = bkd.slice_update(dundt_damp, (slice(kds, kde+1), slice(ids, ide+1)),
         4 * smag_coef[kds:kde+1, ids:ide+1] * lap_un[kds:kde+1, ids:ide+1]
     )
     # -----------------------------------------------------
     # Potential temperature
     kds, kde = mesh.full_kds, mesh.full_kde
-    ids, ide = mesh.cell_ids, mesh.cell_ide    
+    ids, ide = mesh.cell_ids, mesh.cell_ide
     grad_pt = mesh_ops.grad_operator_2d(
         mesh=mesh,
         f=pt,
@@ -306,7 +306,7 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
         div=dptdt_damp,
         div_loc=block.aux.dptdt_damp.meta.loc,
     )
-    dptdt_damp = dptdt_damp.at[kds:kde+1, ids:ide+1].set(
+    dptdt_damp = bkd.slice_update(dptdt_damp, (slice(kds, kde+1), slice(ids, ide+1)),
         dptdt_damp[kds:kde+1, ids:ide+1] * dmg[kds:kde+1, ids:ide+1]
     )
     # =====================================================

@@ -7,9 +7,9 @@ from terraflow.util.device import AbstractDevice
 from terraflow.util import equinox as eqx
 from terraflow.model.abstract import ModelMode
 from terraflow.mesh.scvt.field import (
-    SCVTFieldLike, 
-    SCVTField4D, 
-    SCVTField2D, 
+    SCVTFieldLike,
+    SCVTField4D,
+    SCVTField2D,
     SCVTFields
 )
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
@@ -192,7 +192,7 @@ class Tracer(SCVTFields):
             mesh=mesh,
             dev=dev,
             output="",
-        )    
+        )
         if mode.is_nonhydrostatic():
             fields["qm_lev"] = SCVTField2D.from_mesh(
                 name="qm_lev",
@@ -286,7 +286,7 @@ def tracer_calc_qm(block: Block, itime_str) -> Block:
         q = block.tracers.q.unwrap()[itime, :, :, :]
         idxs_water_tracers = block.tracers.idxs_water_tracers
         qm = bkd.zeros_like(block.tracers.qm.unwrap())
-        qm = qm.at[:, ids:ide+1].set(
+        qm = bkd.slice_update(qm, (slice(None), slice(ids, ide+1)),
             bkd.sum(q[idxs_water_tracers, :, ids:ide+1], axis=0),
         )
         qm = fill_field2d_array_halo(

@@ -192,6 +192,8 @@ class Block(
     
     def from_parent_after_ic(self) -> "Block":
         # =========================================================
+        bkd = self.backend
+        # =========================================================
         # Ensure bottom gz_lev is the same as gzs
         if self.mode.is_baroclinic():
             # -----------------------------------------------------
@@ -200,7 +202,7 @@ class Block(
             k        = self.mesh.half_kde
             ids, ide = self.mesh.cell_ids, self.mesh.cell_ide
             # -----------------------------------------------------
-            gz_lev   = gz_lev.at[k, ids:ide+1].set(gzs[ids:ide+1])
+            gz_lev   = bkd.slice_update(gz_lev, (k, slice(ids, ide+1)), gzs[ids:ide+1])
             gz_lev   = fill_field2d_array_halo(
                 halo=self.mesh.halo, 
                 f=gz_lev,
@@ -238,7 +240,7 @@ class Block(
             ref_ps   = self.static.ref_ps.unwrap()
             mgs      = self.state .mgs   .unwrap()[0]
             ims, ime = self.mesh.cell_ims, self.mesh.cell_ime
-            ref_ps   = ref_ps.at[ims:ime+1].set(mgs[ims:ime+1])
+            ref_ps   = bkd.slice_update(ref_ps, slice(ims, ime+1), mgs[ims:ime+1])
             self = self.backend.tree_at(
                 where=lambda b: b.static.ref_ps.d,
                 pytree=self,

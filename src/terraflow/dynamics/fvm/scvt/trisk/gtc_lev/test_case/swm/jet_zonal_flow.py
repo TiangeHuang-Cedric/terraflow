@@ -18,7 +18,7 @@ Array = typing.Array
 
 
 class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
-    
+
     def set_ic(self, block: Block) -> Block:
         block = self.init_gzs(block)
         block = self.init_un (block)
@@ -32,7 +32,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
         # ==============================================
         def u_function(lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
             return self.u_function(bkd, lat)
-        
+
         ids, ide = mesh.edge_ids, mesh.edge_ide
         u = u_function(mesh.dual_edge_lat[ids:ide+1])
         v = bkd.zeros_like(u)
@@ -43,7 +43,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
             v=v,
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
-        un = un.at[0, ids:ide+1].set(
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)),
             bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
         )
         un = fill_field2d_array_halo(
@@ -51,7 +51,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
             f=un,
             meta=block.state.un.meta
         )
-        # ==============================================   
+        # ==============================================
         return bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
@@ -64,31 +64,31 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
         bkd   = block.backend
         mesh  = block.mesh
         gz    = block.state.gz.unwrap()[0, :, :]
-        lat2  = self.lat2 
+        lat2  = self.lat2
         alpha = self.alpha
         beta  = self.beta
         gh0   = self.gh0
         ghd   = self.ghd
         # ==============================================
         ids, ide = mesh.cell_ids, mesh.cell_ide
-        
+
         def gh_integrand(lat: Float[Array, "nlat"]) -> Float[Array, "nlat"]:
             return self.gh_integrand(bkd, lat)
-        
+
         def gh_integral(lat: Float[Array, ""]) -> Float[Array, ""]:
             val, _ = bkd.quadgk(
                 gh_integrand,
                 bkd.stack([bkd.zeros_like(lat) - bkd.pi / 2, lat]),
-                epsabs=1.0e-12, 
+                epsabs=1.0e-12,
                 epsrel=1.0e-3
             )
             return bkd.where(bkd.isclose(lat, -bkd.pi / 2), 0.0, val)
 
         gz_ = bkd.vmap(gh_integral)(mesh.cell_lat[ids:ide+1])
-        gz = gz.at[0, ids:ide+1].set(gh0 - gz_)
-        gz = gz.at[0, ids:ide+1].set(
-            gz[0, ids:ide+1] + ghd * 
-            bkd.cos(mesh.cell_lat[ids:ide+1]) * 
+        gz = bkd.slice_update(gz, (0, slice(ids, ide+1)), gh0 - gz_)
+        gz = bkd.slice_update(gz, (0, slice(ids, ide+1)),
+            gz[0, ids:ide+1] + ghd *
+            bkd.cos(mesh.cell_lat[ids:ide+1]) *
             bkd.exp(
                 -(
                     bkd.where(
@@ -97,7 +97,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
                         mesh.cell_lon[ids:ide+1]
                     ) / alpha
                 )**2
-            ) * 
+            ) *
             bkd.exp(
                 -((lat2 - mesh.cell_lat[ids:ide+1]) / beta)**2
             )
@@ -115,7 +115,7 @@ class JetZonalFlowTestCase(swm_jz.JetZonalFlowTestCase):
             at_dims=0,
             at_idxes=0
         )
-        
+
     def init_gzs(self, block: Block) -> Block:
         bkd = block.backend
         gzs = block.static.gzs.unwrap()

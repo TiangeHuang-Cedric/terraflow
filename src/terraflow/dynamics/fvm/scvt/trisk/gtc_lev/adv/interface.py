@@ -14,7 +14,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import batch
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.batch import scvt_adv_fill_vhalo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv import upwind
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.limiter import (
-    limiter_hflx, 
+    limiter_hflx,
     limiter_vflx
 )
 
@@ -40,10 +40,10 @@ class AdvectionAuxiliaryDataset(AbstractEquationAuxiliaryDataset):
             initialized=False,
             upwind=upwind.UpwindStencilDataset.empty()
         )
-        
+
     @classmethod
     def initialize(
-        cls, 
+        cls,
         cfg: UserConfig,
         para: PlanetParameterSet,
         mesh: SCVTMesh,
@@ -62,10 +62,10 @@ class AdvectionAuxiliaryDataset(AbstractEquationAuxiliaryDataset):
 
 
 def calc_mass_hflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    m: FLT[Array, "nlev npoint"], 
-    mfn: FLT[Array, "nlev nedge"], 
+    m: FLT[Array, "nlev npoint"],
+    mfn: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     if batch.scheme_h == "upwind":
@@ -75,10 +75,10 @@ def calc_mass_hflx(
 
 
 def calc_mass_vflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    m: FLT[Array, "nlev npoint"], 
-    mfz: FLT[Array, "nlev nedge"], 
+    m: FLT[Array, "nlev npoint"],
+    mfz: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     if batch.scheme_v == "upwind":
@@ -88,24 +88,24 @@ def calc_mass_vflx(
 
 
 def calc_tracer_hflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    q: FLT[Array, "nlev npoint"], 
-    qmfn: FLT[Array, "nlev nedge"], 
+    q: FLT[Array, "nlev npoint"],
+    qmfn: FLT[Array, "nlev nedge"],
     dt: float
 ) -> FLT[Array, "nlev nedge"]:
     if batch.scheme_h == "upwind":
         return upwind.upwind_calc_tracer_hflx(batch, block, q, qmfn, dt)
     else:
         raise ValueError(f"calc_tracer_hflx: unsupported scheme_h {batch.scheme_h} for batch {batch.name}!")
-    
-    
+
+
 def calc_tracer_vflx(
-    batch: batch.AdvBatchType, 
+    batch: batch.AdvBatchType,
     block: Block,
-    q: FLT[Array, "nlev npoint"], 
-    qmfz: FLT[Array, "nlev nedge"], 
-    dt: float    
+    q: FLT[Array, "nlev npoint"],
+    qmfz: FLT[Array, "nlev nedge"],
+    dt: float
 ) -> FLT[Array, "nlev nedge"]:
     if batch.scheme_v == "upwind":
         return upwind.upwind_calc_tracer_vflx(batch, block, q, qmfz, dt)
@@ -127,12 +127,12 @@ def adv_prepare(block: Block, itime: int) -> Block:
 
 
 def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -> Block:
-    
+
     dt_opt = block.adv_batch_bg.dt if dt is None else dt
     bkd = block.backend
-    
+
     block = set_wind(block, old)
-    
+
     mesh  = block.mesh
     m_old = block.state       .dmg.unwrap()[old, :, :]
     m_new = block.state       .dmg.unwrap()[new, :, :]
@@ -150,11 +150,11 @@ def adv_run_mass(block: Block, old: int, new: int, dt: Optional[float] = None) -
         div=dmdt,
         div_loc=block.adv_batch_bg.m.meta.loc
     )
-    m_new = m_new.at[kds:kde+1, ids:ide+1].set(
+    m_new = bkd.slice_update(m_new, (slice(kds, kde+1), slice(ids, ide+1)),
         m_old[kds:kde+1, ids:ide+1] - dt_opt * dmdt[kds:kde+1, ids:ide+1]
     )
     mfz = calc_mass_vflx(batch, block, m_new, mfz, dt_opt)
-    m_new = m_new.at[kds:kde+1, ids:ide+1].set(
+    m_new = bkd.slice_update(m_new, (slice(kds, kde+1), slice(ids, ide+1)),
         m_new[kds:kde+1, ids:ide+1] - dt_opt * (
             mfz[kds+1:kde+2, ids:ide+1] - mfz[kds:kde+1, ids:ide+1]
         )
@@ -194,15 +194,15 @@ def adv_run_tracers_fn(
 ) -> Callable[[Block, int, int], Block]:
     adv_hori_run_tracers_fn = adv_time_integrator(adv_hori_run_tracers)
     adv_vert_run_tracers_fn = adv_time_integrator(adv_vert_run_tracers)
-    
+
     def return_fn(block: Block, old_idx: int, new_idx: int) -> Block:
         if len(block.adv_batches.keys()) == 0:
             return block
-        
+
         block = accum_wind(block, old_idx)
-        
+
         block = adv_set_new_mass(block, new_idx)
-        
+
         if block.cfg.adv_hvsplit_type == 1:
             block = adv_hori_run_tracers_fn(block)
             if block.mesh.full_nlev > 1:
@@ -215,7 +215,7 @@ def adv_run_tracers_fn(
             raise ValueError(f"adv_run_tracers: unsupported adv_hvsplit_type {block.cfg.adv_hvsplit_type}!")
         block = tracer_calc_qm(block, "old")
         block = block.update_batches_istep()
-        return block        
+        return block
 
     return return_fn
 
@@ -223,17 +223,17 @@ def adv_run_tracers_fn(
 def adv_set_new_mass(block: Block, new_idx: int) -> Block:
     bkd = block.backend
     for batch_name, batch in block.adv_batches.items():
-        
+
         def do_nothing(
-            batch: batch.AdvBatchType, 
-            block: Block, 
+            batch: batch.AdvBatchType,
+            block: Block,
             new_idx: int
         ) -> Block:
             return block
-        
+
         def set_new_mass(
-            batch: batch.AdvBatchType, 
-            block: Block, 
+            batch: batch.AdvBatchType,
+            block: Block,
             new_idx: int
         ) -> Block:
             if batch.loc == "cell":
@@ -256,13 +256,13 @@ def adv_set_new_mass(block: Block, new_idx: int) -> Block:
                     replace=batch_m
                 )
             return block
-        
+
         block = block.backend.cond(
             batch.is_run_tracer_istep(),
             set_new_mass,
             do_nothing,
-            batch, 
-            block, 
+            batch,
+            block,
             new_idx
         )
     return block
@@ -275,9 +275,9 @@ def adv_hori_run_tracers(
     star_idx: INT[Array, ""] | int,
     new_idx: INT[Array, ""] | int,
     dt: float,
-    substep: int 
+    substep: int
 ) -> tuple[batch.AdvBatchType, Block]:
-    
+
     def do_nothing(
         batch: batch.AdvBatchType,
         block: Block,
@@ -285,10 +285,10 @@ def adv_hori_run_tracers(
         star_idx: INT[Array, ""] | int,
         new_idx: INT[Array, ""] | int,
         dt: float,
-        substep: int 
+        substep: int
     ) -> tuple[batch.AdvBatchType, Block]:
         return batch, block
-    
+
     def hori_run_tracers(
         batch: batch.AdvBatchType,
         block: Block,
@@ -299,6 +299,7 @@ def adv_hori_run_tracers(
         substep: int
     ) -> tuple[batch.AdvBatchType, Block]:
         # ==========================================
+        bkd      = block.backend
         mesh     = block.mesh
         ids, ide = mesh.cell_ids, mesh.cell_ide
         kds, kde = mesh.full_kds, mesh.full_kde
@@ -325,7 +326,7 @@ def adv_hori_run_tracers(
         def run_single_tracer(
             q_star: FLT[Array, "nlev npoints"],
             q_old: FLT[Array, "nlev npoints"],
-            q_new: FLT[Array, "nlev npoints"], 
+            q_new: FLT[Array, "nlev npoints"],
             batch: batch.AdvBatchType,
             block: Block,
             dt: float,
@@ -338,9 +339,9 @@ def adv_hori_run_tracers(
             qmfn  = limiter_hflx    (batch, block, q_star, q_old, qmfn, dt, substep)
             dqdt  = div_operator_2d(mesh, qmfn, q_new, block.tracers.q.meta.loc)
             tmp   = m_old[kds:kde+1, ids:ide+1] * q_old[kds:kde+1, ids:ide+1] - dt * dqdt[kds:kde+1, ids:ide+1]
-            q_new = q_new.at[kds:kde+1, ids:ide+1].set(tmp / m_new[kds:kde+1, ids:ide+1])
+            q_new = bkd.slice_update(q_new, (slice(kds, kde+1), slice(ids, ide+1)), tmp / m_new[kds:kde+1, ids:ide+1])
             return q_new, batch
-        
+
         def run_tracers(
             q: FLT[Array, "ntracers nlev ncell"],
             q_old: FLT[Array, "ntracers nlev ncell"],
@@ -348,7 +349,7 @@ def adv_hori_run_tracers(
             batch: batch.AdvBatchType,
             block: Block,
             dt: float,
-            substep: int        
+            substep: int
         ) -> tuple[FLT[Array, "ntracers nlev nedges"], batch.AdvBatchType]:
             def body_fn(
                 carry_batch: batch.AdvBatchType,
@@ -376,9 +377,9 @@ def adv_hori_run_tracers(
                 xs=(q, q_old, q_new)
             )
             return q_new, batch
-        
+
         q_new, batch = run_tracers(q_star, q_old, q_new, batch, block, dt, substep)
-        q_new_ = q_new_.at[idx, :, :].set(q_new)
+        q_new_ = bkd.slice_update(q_new_, (idx, slice(None), slice(None)), q_new)
         for iq in idx:
             q_new_ = fill_field3d_array_halo(
                 halo=mesh.halo,
@@ -394,15 +395,15 @@ def adv_hori_run_tracers(
             at_dims=0,
             at_idxes=new_idx
         )
-        
+
         def substep_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             batch = batch.copy_m_old(batch.m_new.unwrap(), block.mesh)
             batch = batch.swap_time_indices()
             return batch
-        
+
         def substep_not_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return batch
-        
+
         batch = block.backend.cond(
            substep == block.const.adv_total_substeps - 1,
            substep_at_end,
@@ -411,7 +412,7 @@ def adv_hori_run_tracers(
         )
 
         return batch, block
-    
+
     return block.backend.cond(
         batch.is_run_tracer_istep(),
         hori_run_tracers,
@@ -422,9 +423,9 @@ def adv_hori_run_tracers(
         star_idx,
         new_idx,
         dt,
-        substep    
+        substep
     )
-    
+
 
 def adv_vert_run_tracers(
     batch: batch.AdvBatchType,
@@ -433,7 +434,7 @@ def adv_vert_run_tracers(
     star_idx: INT[Array, ""] | int,
     new_idx: INT[Array, ""] | int,
     dt: float,
-    substep: int 
+    substep: int
 ) -> tuple[batch.AdvBatchType, Block]:
 
     def do_nothing(
@@ -443,10 +444,10 @@ def adv_vert_run_tracers(
         star_idx: INT[Array, ""] | int,
         new_idx: INT[Array, ""] | int,
         dt: float,
-        substep: int 
+        substep: int
     ) -> tuple[batch.AdvBatchType, Block]:
         return batch, block
-    
+
     def vert_run_tracers(
         batch: batch.AdvBatchType,
         block: Block,
@@ -455,8 +456,9 @@ def adv_vert_run_tracers(
         new_idx: INT[Array, ""] | int,
         dt: float,
         substep: int
-    ) -> tuple[batch.AdvBatchType, Block]:    
+    ) -> tuple[batch.AdvBatchType, Block]:
         # ==========================================
+        bkd      = block.backend
         mesh     = block.mesh
         ids, ide = mesh.cell_ids, mesh.cell_ide
         kds, kde = mesh.full_kds, mesh.full_kde
@@ -483,7 +485,7 @@ def adv_vert_run_tracers(
         def run_single_tracer(
             q_star: FLT[Array, "nlev npoints"],
             q_old: FLT[Array, "nlev npoints"],
-            q_new: FLT[Array, "nlev npoints"], 
+            q_new: FLT[Array, "nlev npoints"],
             batch: batch.AdvBatchType,
             block: Block,
             dt: float,
@@ -496,9 +498,9 @@ def adv_vert_run_tracers(
             qmfz  = limiter_vflx    (batch, block, q_star, q_old, qmfz, dt, substep)
             dqdt  = qmfz[kds+1:kde+2, ids:ide+1] - qmfz[kds:kde+1, ids:ide+1]
             tmp   = m_old[kds:kde+1, ids:ide+1] * q_old[kds:kde+1, ids:ide+1] - dt * dqdt
-            q_new = q_new.at[kds:kde+1, ids:ide+1].set(tmp / m_new[kds:kde+1, ids:ide+1])
+            q_new = bkd.slice_update(q_new, (slice(kds, kde+1), slice(ids, ide+1)), tmp / m_new[kds:kde+1, ids:ide+1])
             return q_new, batch
-        
+
         def run_tracers(
             q: FLT[Array, "ntracers nlev ncell"],
             q_old: FLT[Array, "ntracers nlev ncell"],
@@ -506,7 +508,7 @@ def adv_vert_run_tracers(
             batch: batch.AdvBatchType,
             block: Block,
             dt: float,
-            substep: int        
+            substep: int
         ) -> tuple[FLT[Array, "ntracers nlev nedges"], batch.AdvBatchType]:
             def body_fn(
                 carry_batch: batch.AdvBatchType,
@@ -534,9 +536,9 @@ def adv_vert_run_tracers(
                 xs=(q, q_old, q_new)
             )
             return q_new, batch
-        
+
         q_new, batch = run_tracers(q_star, q_old, q_new, batch, block, dt, substep)
-        q_new_ = q_new_.at[idx, :, :].set(q_new)
+        q_new_ = bkd.slice_update(q_new_, (idx, slice(None), slice(None)), q_new)
         for iq in idx:
             q_new_ = fill_field3d_array_halo(
                 halo=mesh.halo,
@@ -556,10 +558,10 @@ def adv_vert_run_tracers(
             batch = batch.copy_m_old(batch.m_new.unwrap(), block.mesh)
             batch = batch.swap_time_indices()
             return batch
-        
+
         def substep_not_at_end(batch: batch.AdvBatchType) -> batch.AdvBatchType:
             return batch
-        
+
         batch = block.backend.cond(
            substep == block.const.adv_total_substeps - 1,
            substep_at_end,
@@ -568,7 +570,7 @@ def adv_vert_run_tracers(
         )
 
         return batch, block
-    
+
     return block.backend.cond(
         batch.is_run_tracer_istep(),
         vert_run_tracers,
@@ -579,7 +581,7 @@ def adv_vert_run_tracers(
         star_idx,
         new_idx,
         dt,
-        substep    
+        substep
     )
 
 
@@ -597,7 +599,7 @@ def set_wind(block: Block, itime: int) -> Block:
         replace=batch
     )
 
-        
+
 def accum_wind(block: Block, old: int) -> Block:
     if block.mode.is_3d_model():
         mfn = block.aux.mfn.unwrap()

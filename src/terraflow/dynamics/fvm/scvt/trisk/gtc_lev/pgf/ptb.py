@@ -47,7 +47,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             mpt=SCVTField2D.empty(),
             dmgdn=SCVTField2D.empty(),
         )
-        
+
     @classmethod
     def initialize(
         cls,
@@ -104,7 +104,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             ks=half_kds,
             ke=half_kde
         ) / 100.0
-        gz_lev = gz_lev.at[half_kds:half_kde+1, ids:ide+1].set(
+        gz_lev = bkd.slice_update(gz_lev, (slice(half_kds, half_kde+1), slice(ids, ide+1)),
             -rd * (
                 a * (p_lev - ps0)
                 + b / (1.0 + c) * (p_lev**(1.0 + c) - ps0**(1.0 + c))
@@ -123,17 +123,17 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             ke=full_kde
         ) / 100.0
         t = p * (a + b * p**c)
-        mg = mg.at[full_kds:full_kde+1, ids:ihe+1].set(p * 100.0)
-        gz = gz.at[full_kds:full_kde+1, ids:ihe+1].set(
+        mg = bkd.slice_update(mg, (slice(full_kds, full_kde+1), slice(ids, ihe+1)), p * 100.0)
+        gz = bkd.slice_update(gz, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             -rd * (
                 a * (p - ps0)
                 + b / (1.0 + c) * (p**(1.0 + c) - ps0**(1.0 + c))
             )
         )
-        ad = ad.at[full_kds:full_kde+1, ids:ihe+1].set(
+        ad = bkd.slice_update(ad, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             rd * (a + b * p**c) / 100.0
         )
-        mpt = mpt.at[full_kds:full_kde+1, ids:ihe+1].set(
+        mpt = bkd.slice_update(mpt, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             formula.dry_potential_temperature(
                 t=t,
                 p=p * 100.0,
@@ -144,7 +144,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
         v2 = mesh.cell_of_edge[e_ids:e_ide+1, 1]
         mg1 = mg[full_kds:full_kde+1, v1]
         mg2 = mg[full_kds:full_kde+1, v2]
-        dmgdn = dmgdn.at[full_kds:full_kde+1, e_ids:e_ide+1].set(
+        dmgdn = bkd.slice_update(dmgdn, (slice(full_kds, full_kde+1), slice(e_ids, e_ide+1)),
             (mg2 - mg1) * mesh.edpnr_eddtg[e_ids:e_ide+1] / mesh.de[e_ids:e_ide+1]
         )
         # ==========================================================
@@ -198,7 +198,7 @@ class RefProfileData(AbstractEquationAuxiliaryData):
             units="K",
             loc="lev",
             mesh=mesh,
-            dev=dev            
+            dev=dev
         )
         fields["dmgdn"] = SCVTField2D.from_mesh(
             name="dmgdn",
@@ -294,29 +294,29 @@ def pgf_ptb_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
         1 / rhod[kds:kde+1, v1] + 1 / rhod[kds:kde+1, v2]
     )
     tmp2 = (
-        tmp2 * (p_ptb[kds:kde+1, v2] - p_ptb[kds:kde+1, v1]) 
+        tmp2 * (p_ptb[kds:kde+1, v2] - p_ptb[kds:kde+1, v1])
         * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
     )
     tmp3 = (
-        (gz_ptb[kds:kde+1, v2] - gz_ptb[kds:kde+1, v1]) 
+        (gz_ptb[kds:kde+1, v2] - gz_ptb[kds:kde+1, v1])
         * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
     )
     tmp4 = 0.5 * (
-        dp_ptb[kds:kde+1, v1] / dmg[kds:kde+1, v1] + 
+        dp_ptb[kds:kde+1, v1] / dmg[kds:kde+1, v1] +
         dp_ptb[kds:kde+1, v2] / dmg[kds:kde+1, v2]
     )
     tmp4 = (
-        tmp4 * (gz[kds:kde+1, v2] - gz[kds:kde+1, v1]) 
+        tmp4 * (gz[kds:kde+1, v2] - gz[kds:kde+1, v1])
         * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
     )
     tmp = -(tmp1 + tmp2 + tmp3 + tmp4) / L
-    dundt     = dundt    .at[kds:kde+1, ids:ide+1].set(
+    dundt     = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)),
         dundt[kds:kde+1, ids:ide+1] + tmp
     )
-    dundt_pgf = dundt_pgf.at[kds:kde+1, ids:ide+1].set(tmp)
+    dundt_pgf = bkd.slice_update(dundt_pgf, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     # ==========================================================
     return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_pgf.d),
         pytree=block,
         replace=(dundt, dundt_pgf)
-    )    
+    )

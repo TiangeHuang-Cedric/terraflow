@@ -86,7 +86,7 @@ class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):
                 qmin
             )
         )
-        q = q.at[0,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (0, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -129,7 +129,7 @@ class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):
                 )
             )
         )
-        q = q.at[1,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (1, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -146,7 +146,7 @@ class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):
             bkd.exp(-c * bkd.sum((x - x1)**2, axis=-1))
             + bkd.exp(-c * bkd.sum((x - x2)**2, axis=-1))
         )
-        q = q.at[2,0,ids:ide+1].set(tmp)
+        q = bkd.slice_update(q, (2, 0, slice(ids, ide+1)), tmp)
         q = fill_field3d_array_halo(
             halo=mesh.halo,
             f=q,
@@ -155,7 +155,7 @@ class DeformationalFlowTestCase(adv_dc.DeformationalFlowTestCase):
         )
         
         # Uniform one
-        q = q.at[3,0,:].set(1)
+        q = bkd.slice_update(q, (3, 0, slice(None)), 1)
         # ==============================================
         return bkd.tree_at(
             where=lambda b: (b.state.dmg.d, b.tracers.q.d),
@@ -194,7 +194,7 @@ class DeformationalFlowCase1(DeformationalFlowTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -238,7 +238,7 @@ class DeformationalFlowCase2(DeformationalFlowTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -282,7 +282,7 @@ class DeformationalFlowCase3(DeformationalFlowTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -328,7 +328,7 @@ class DeformationalFlowCase4(DeformationalFlowTestCase):
             xyz=mesh.dual_edge_xyz[ids:ide+1, :]
         )
         tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-        un = un.at[0, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (0, slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,

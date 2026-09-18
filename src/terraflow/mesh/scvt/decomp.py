@@ -2,10 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 import numpy as np
 import pymetis
-from mpi4py import MPI
 from numba import njit
 
 from terraflow.util import log
+from terraflow.util.parallel_types import MPIComm
 from terraflow.mesh.scvt.parallel_types import (
     CommonSite,
     Domain,
@@ -399,7 +399,7 @@ def set_sendrecv_sites(
     n_vtx           = int(mesh.n_vtx)
     n_edge          = int(mesh.n_edge)
 
-    comm  = cast(MPI.Intracomm, proc.comm_model)
+    comm  = cast(MPIComm, proc.comm_model)
     empty = np.empty(0, dtype=np.int32)
 
     # ----------Set neighboring processes for communication----------

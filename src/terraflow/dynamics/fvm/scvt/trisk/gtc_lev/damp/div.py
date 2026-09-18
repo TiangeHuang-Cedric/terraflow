@@ -75,12 +75,12 @@ class DivDampdata(AbstractEquationAuxiliaryData):
             k              = bkd.arange(kds, kde+1, 1)
             c1 = exp_two_values(dev.backend, div_damp_top, one, one, div_damp_k0, k)
             tmp = c1[:, None] * div_damp_coef2 * mesh.area_edge[None, ids:ide+1] / cfg.dt_dyn_seconds
-            cn = cn.at[kds:kde+1, ids:ide+1].set(tmp)
+            cn = bkd.slice_update(cn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         elif cfg.div_damp_order == 4:
             div_damp_coef4 = bkd.asarray(cfg.div_damp_coef4, dtype=dev.float_type)
             tmp = div_damp_coef4 * mesh.area_edge[ids:ide+1]**2 / cfg.dt_dyn_seconds
             tmp = bkd.broadcast_to(tmp, (kde-kds+1, ide-ids+1))
-            cn = cn.at[kds:kde+1, ids:ide+1].set(tmp)
+            cn = bkd.slice_update(cn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         else:
             raise ValueError(f"Unsupported div_damp_order {cfg.div_damp_order}!")
         
@@ -110,7 +110,7 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
             (div[kds:kde+1, v2] - div[kds:kde+1, v1]) 
             * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
         )
-        un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,
@@ -126,7 +126,7 @@ def div_damp_run(block: Block, itime: int, dt: float) -> Block:
             (div2[kds:kde+1, v2] - div2[kds:kde+1, v1]) 
             * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
         )
-        un = un.at[kds:kde+1, ids:ide+1].set(tmp)
+        un = bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         un = fill_field2d_array_halo(
             halo=mesh.halo,
             f=un,

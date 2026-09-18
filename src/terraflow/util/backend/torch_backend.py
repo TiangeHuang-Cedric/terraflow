@@ -212,15 +212,22 @@ def isclose_operands(a: Any, b: Any, *, device: torch.device) -> tuple[torch.Ten
     b_tensor = b if isinstance(b, torch.Tensor) else None
 
     if a_tensor is None and b_tensor is None:
-        a_tensor = torch.as_tensor(a, device=device)
-        b_tensor = torch.as_tensor(b, device=device)
-    elif a_tensor is None:
-        a_tensor = torch.as_tensor(a, device=b_tensor.device)
-    elif b_tensor is None:
-        b_tensor = torch.as_tensor(b, device=a_tensor.device)
+        a_tensor_opt = torch.as_tensor(a, device=device)
+        b_tensor_opt = torch.as_tensor(b, device=device)
+    elif a_tensor is None and b_tensor is not None:
+        a_tensor_opt = torch.as_tensor(a, device=b_tensor.device)
+        b_tensor_opt = b_tensor
+    elif b_tensor is None and a_tensor is not None:
+        a_tensor_opt = a_tensor
+        b_tensor_opt = torch.as_tensor(b, device=a_tensor.device)
+    elif a_tensor is not None and b_tensor is not None:
+        a_tensor_opt = a_tensor
+        b_tensor_opt = b_tensor
+    else:
+        raise ValueError("Unsupported a_tensor and b_tensor!")
 
-    dtype = torch.promote_types(a_tensor.dtype, b_tensor.dtype)
-    return a_tensor.to(dtype=dtype), b_tensor.to(dtype=dtype)
+    dtype = torch.promote_types(a_tensor_opt.dtype, b_tensor_opt.dtype)
+    return a_tensor_opt.to(dtype=dtype), b_tensor_opt.to(dtype=dtype)
 
 
 class TorchQuadratureInfo(NamedTuple):
@@ -228,45 +235,6 @@ class TorchQuadratureInfo(NamedTuple):
     neval: Any
     status: Any
     info: Any
-
-
-class TorchAtSelection:
-    """Immutable-style indexed update for ``tensor.at[index].set(value)``."""
-
-    __slots__ = ("_tensor", "_index")
-
-    def __init__(self, tensor: torch.Tensor, index: Any):
-        self._tensor = tensor
-        self._index = index
-
-    def set(self, replacement: Any) -> torch.Tensor:
-        replacement_tensor = torch.as_tensor(
-            replacement,
-            dtype=self._tensor.dtype,
-            device=self._tensor.device,
-        )
-        try:
-            index = normalize_index(self._index, self._tensor.ndim)
-            return index_set(self._tensor, index, replacement_tensor, dim=0)
-        except (TypeError, ValueError):
-            # Last-resort compatibility path for unusual Python indexing forms.
-            # Common integer, slice, tensor/list, and boolean indexing stays on
-            # functional scatter/scatter-like operators above.
-            result = self._tensor.clone()
-            result[self._index] = replacement_tensor
-            return result
-
-
-class TorchAtIndexer:
-    """JAX-like ``.at`` accessor for PyTorch tensors."""
-
-    __slots__ = ("_tensor",)
-
-    def __init__(self, tensor: torch.Tensor):
-        self._tensor = tensor
-
-    def __getitem__(self, index: Any) -> TorchAtSelection:
-        return TorchAtSelection(self._tensor, index)
 
 
 class _LeafWrapper:
@@ -287,22 +255,6 @@ class TreeAtPlan:
     @property
     def num_targets(self) -> int:
         return len(self.paths)
-
-
-_TORCH_HAS_AT = "_has_at_method"
-
-
-def install_torch_at() -> None:
-    if getattr(torch.Tensor, _TORCH_HAS_AT, False):
-        return
-    if getattr(torch.Tensor, "at", None) is not None:
-        raise RuntimeError("torch.Tensor.at already exists and cannot be patched by TerraFlow.")
-
-    def at(tensor: torch.Tensor) -> TorchAtIndexer:
-        return TorchAtIndexer(tensor)
-
-    setattr(torch.Tensor, "at", property(at))
-    setattr(torch.Tensor, _TORCH_HAS_AT, True)
 
 
 def normalize_index(index: Any, ndim: int) -> tuple[Any, ...]:
@@ -696,13 +648,16 @@ def callable_cache_value(fn: Callable[[Any], Any] | None) -> Any:
     return (code, closure_key, global_key)
 
 
+def is_numpy_leaf(value: Any) -> bool:
+    return isinstance(value, (np.ndarray, np.generic))
+
+
 class TorchBackend(AbstractBackend):
     """PyTorch eager backend implementation."""
 
     name = "torch"
 
     def __init__(self, device_string: str, ref: torch.device | None = None, float_type: str = "r8", int_type: str = "i4"):
-        install_torch_at()
         self.float_type = _TYPE_REMAPPING[float_type]
         self.int_type   = _TYPE_REMAPPING[int_type  ]
         self.device_string = device_string
@@ -1435,7 +1390,7 @@ class TorchBackend(AbstractBackend):
             backend="inductor",
             mode="default",
             fullgraph=False,
-            dynamic=True,
+            dynamic=False,
         )
 
     def block_until_ready(self, value: Any) -> Any:
@@ -1585,7 +1540,7 @@ class TorchBackend(AbstractBackend):
             return self.asarray(recv_array, dtype=recvbuf.dtype, device=recvbuf.device)
         return self.asarray(recv_array)
 
-    @torch.compiler.disable(recursive=False)
+    @torch.compiler.disable(recursive=True)
     def tree_at(
         self,
         where: Callable[[Any], Any],
@@ -1604,14 +1559,14 @@ class TorchBackend(AbstractBackend):
             at_idxes=at_idxes,
         )
 
-    @torch.compiler.disable(recursive=False)
+    @torch.compiler.disable(recursive=True)
     def prepare_tree_at(
         self,
         where: Callable[[Any], Any],
         pytree: Any,
         is_leaf: Callable[[Any], bool] | None = None,
     ) -> TreeAtPlan:
-        cache_key = _tree_at_cache_key(pytree, where, is_leaf)
+        cache_key = None if torch.compiler.is_compiling() else _tree_at_cache_key(pytree, where, is_leaf)
         if cache_key is not None:
             plan = self._tree_at_plan_cache.get(cache_key)
             if plan is not None:
@@ -1640,7 +1595,7 @@ class TorchBackend(AbstractBackend):
             self._tree_at_plan_cache[cache_key] = plan
         return plan
 
-    @torch.compiler.disable(recursive=False)
+    @torch.compiler.disable(recursive=True)
     def apply_tree_at(
         self,
         plan: TreeAtPlan,
@@ -1659,7 +1614,7 @@ class TorchBackend(AbstractBackend):
         )
         return self._replace_paths(pytree, tuple(zip(plan.paths, final_replacements)))
 
-    @torch.compiler.disable(recursive=False)
+    @torch.compiler.disable(recursive=True)
     def tree_at_many(
         self,
         pytree: Any,
@@ -1676,11 +1631,11 @@ class TorchBackend(AbstractBackend):
         self._validate_unique_paths(tuple(path for path, _ in path_updates))
         return self._replace_paths(pytree, tuple(path_updates))
 
-    @torch.compiler.disable(recursive=False)
+    @torch.compiler.disable(recursive=True)
     def tree_replace(self, pytree: Any, **updates: Any) -> Any:
         if not is_dataclass(pytree) or isinstance(pytree, type):
             raise TypeError("tree_replace expects a dataclass or Module instance.")
-        return module_replace(pytree, **updates)
+        return self._replace_dataclass(pytree, updates)
 
     def tree_at_cache_info(self) -> dict[str, int]:
         return {
@@ -1714,12 +1669,6 @@ class TorchBackend(AbstractBackend):
         msg: str
     ) -> Any:
         if torch.compiler.is_compiling():
-            if isinstance(pred, torch.Tensor):
-                if pred.ndim != 0:
-                    raise ValueError("TorchBackend.error_if expects a scalar predicate.")
-                torch._assert(torch.logical_not(pred), msg)
-                return x
-            torch._assert(logical_not(pred, device=self.ref), msg)
             return x
 
         if not as_bool(pred):
@@ -1736,7 +1685,7 @@ class TorchBackend(AbstractBackend):
             raise ValueError("at_dims and at_idxes must both be None or both be provided.")
         indexer: list[Any] = [slice(None)] * value.ndim
         indexer[at_dim] = at_idx
-        return value.at[tuple(indexer)].set(replacement)
+        return self.slice_update(value, tuple(indexer), replacement)
 
     def _normalize_tree_at_targets(self, targets: Any) -> tuple[Any, ...]:
         if isinstance(targets, (tuple, list)):
@@ -1796,15 +1745,15 @@ class TorchBackend(AbstractBackend):
     def _wrap_tree_leaves(self, value: Any, *, is_leaf: Callable[[Any], bool] | None = None) -> Any:
         if is_leaf is not None and is_leaf(value):
             return _LeafWrapper(value)
-        if self.is_array(value):
+        if self.is_array(value) or is_numpy_leaf(value):
             return _LeafWrapper(value)
         if is_dataclass(value) and not isinstance(value, type):
-            return module_replace(
+            return self._replace_dataclass(
                 value,
-                **{
+                {
                     item.name: self._wrap_tree_leaves(getattr(value, item.name), is_leaf=is_leaf)
                     for item in fields(value)
-                }
+                },
             )
         if isinstance(value, tuple):
             return tuple(self._wrap_tree_leaves(item, is_leaf=is_leaf) for item in value)
@@ -1828,16 +1777,25 @@ class TorchBackend(AbstractBackend):
     ) -> dict[int, list[tuple[Any, ...]]]:
         if out is None:
             out = {target_id: [] for target_id in target_ids}
-        value_id = id(value)
-        if value_id in target_ids:
-            out[value_id].append(path)
         if isinstance(value, _LeafWrapper):
+            value_id = id(value)
+            if value_id in target_ids:
+                out[value_id].append(path)
             return out
         if is_leaf is not None and is_leaf(value):
+            value_id = id(value)
+            if value_id in target_ids:
+                out[value_id].append(path)
             return out
-        if self.is_array(value):
+        if self.is_array(value) or is_numpy_leaf(value):
+            value_id = id(value)
+            if value_id in target_ids:
+                out[value_id].append(path)
             return out
         if is_dataclass(value) and not isinstance(value, type):
+            value_id = id(value)
+            if value_id in target_ids:
+                out[value_id].append(path)
             for item in fields(value):
                 self._collect_paths_by_id(
                     getattr(value, item.name),
@@ -1884,7 +1842,7 @@ class TorchBackend(AbstractBackend):
             return [path]
         if isinstance(value, _LeafWrapper):
             return []
-        if self.is_array(value):
+        if self.is_array(value) or is_numpy_leaf(value):
             return []
         if is_dataclass(value) and not isinstance(value, type):
             paths: list[tuple[Any, ...]] = []
@@ -1933,7 +1891,7 @@ class TorchBackend(AbstractBackend):
         remaining = path[1:]
         if is_dataclass(value) and not isinstance(value, type):
             child = getattr(value, key)
-            return module_replace(value, **{key: self._replace_path(child, remaining, replacement)})
+            return self._replace_dataclass(value, {key: self._replace_path(child, remaining, replacement)})
         if isinstance(value, tuple):
             items = list(value)
             items[key] = self._replace_path(items[key], remaining, replacement)
@@ -1968,7 +1926,7 @@ class TorchBackend(AbstractBackend):
                 key: self._replace_paths(getattr(value, key), tuple(child_updates))
                 for key, child_updates in grouped.items()
             }
-            return module_replace(value, **replacements)
+            return self._replace_dataclass(value, replacements)
         if isinstance(value, tuple):
             items = list(value)
             for key, child_updates in grouped.items():
@@ -1985,6 +1943,17 @@ class TorchBackend(AbstractBackend):
                 items[key] = self._replace_paths(items[key], tuple(child_updates))
             return items
         raise ValueError("TorchBackend.tree_at can only replace inside dataclass, tuple, list, or dict containers.")
+
+    @torch.compiler.disable(recursive=True)
+    def _replace_dataclass(self, value: Any, replacements: dict[str, Any]) -> Any:
+        if not torch.compiler.is_compiling():
+            return module_replace(value, **replacements)
+
+        new_value = object.__new__(type(value))
+        for item in fields(value):
+            replacement = replacements.get(item.name, getattr(value, item.name))
+            object.__setattr__(new_value, item.name, replacement)
+        return new_value
 
 
 def _tree_at_cache_key(

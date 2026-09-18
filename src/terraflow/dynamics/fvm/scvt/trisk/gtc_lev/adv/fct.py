@@ -40,9 +40,9 @@ def fct_calc_hflx(
     # ==========================================================
     # Calculate low-order and anti- diffusive fluxes
     ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
-    # ------ Calculate low-order fluxes ------ 
+    # ------ Calculate low-order fluxes ------
     wind = mfn[kds:kde+1, ids:ihe+1] * mesh.edpnr_eddtg[ids:ihe+1]
-    qmfn_lo = qmfn_lo.at[kds:kde+1, ids:ihe+1].set(
+    qmfn_lo = bkd.slice_update(qmfn_lo, (slice(kds, kde+1), slice(ids, ihe+1)),
         upwind1_hori(
             bkd,
             q=q_old,
@@ -57,14 +57,14 @@ def fct_calc_hflx(
         meta=batch.qmfn_lo.meta
     )
     # ------ Calculate anti-diffusive fluxes ------
-    afn = afn.at[kds:kde+1, ids:ihe+1].set(
+    afn = bkd.slice_update(afn, (slice(kds, kde+1), slice(ids, ihe+1)),
         (qmfn[kds:kde+1, ids:ihe+1] - qmfn_lo[kds:kde+1, ids:ihe+1]) * mesh.le[ids:ihe+1]
     )
     # ========================================================
     # Calculate the updated low order solution
     ids, ihe  = mesh.cell_ids, mesh.cell_ihe[1]
     q_        = q      [kds:kde+1, ids:ihe+1]
-    q_old_    = q_old  [kds:kde+1, ids:ihe+1] 
+    q_old_    = q_old  [kds:kde+1, ids:ihe+1]
     dmg_old_  = dmg_old[kds:kde+1, ids:ihe+1]
     dmg_new_  = dmg_new[kds:kde+1, ids:ihe+1]
     cell_ed   = mesh.cell_ed  [ids:ihe+1, :]  # (ncell, maxnnb)
@@ -86,13 +86,13 @@ def fct_calc_hflx(
         in_axes=0,
         out_axes=0
     )(qmfn_lo[kds:kde+1, :])
-    q_td = q_td.at[kds:kde+1, ids:ihe+1].set((q_old_ * dmg_old_ - div * dt) / dmg_new_)
+    q_td = bkd.slice_update(q_td, (slice(kds, kde+1), slice(ids, ihe+1)), (q_old_ * dmg_old_ - div * dt) / dmg_new_)
     # ========================================================
     # Calculate limiter R values (nlev, ncell)
     ids, ihe  = mesh.cell_ids, mesh.cell_ihe[0]
     q_        = q      [kds:kde+1, ids:ihe+1]
     q_td_     = q_td   [kds:kde+1, ids:ihe+1]
-    dmg_new_  = dmg_new[kds:kde+1, ids:ihe+1]    
+    dmg_new_  = dmg_new[kds:kde+1, ids:ihe+1]
     cell_ed   = mesh.cell_ed  [ids:ihe+1, :]
     cell_nb   = mesh.cell_nb  [ids:ihe+1, :]
     cell_nr   = mesh.cell_nr  [ids:ihe+1, :]
@@ -167,7 +167,7 @@ def fct_calc_hflx(
     maf_out = dmg_new_ * (q_td_ - qmin) * area_cell / dt
     # Calculate limiter R values (nlev, ncell)
     if block.cfg.fct_regression_h:
-        r_in = r_in.at[kds:kde+1, ids:ihe+1].set(
+        r_in = bkd.slice_update(r_in, (slice(kds, kde+1), slice(ids, ihe+1)),
             bkd.where(
                 p_in < 0,
                 bkd.minimum(
@@ -177,7 +177,7 @@ def fct_calc_hflx(
                 0.0
             )
         )
-        r_out = r_out.at[kds:kde+1, ids:ihe+1].set(
+        r_out = bkd.slice_update(r_out, (slice(kds, kde+1), slice(ids, ihe+1)),
             bkd.where(
                 p_out > 0,
                 bkd.minimum(
@@ -194,13 +194,13 @@ def fct_calc_hflx(
             kesi = 1.e-80
         else:
             raise ValueError("Unsupported data type for q.")
-        r_in = r_in.at[kds:kde+1, ids:ihe+1].set(
+        r_in = bkd.slice_update(r_in, (slice(kds, kde+1), slice(ids, ihe+1)),
             bkd.minimum(
                 bkd.array(1.0, dtype=q.dtype),
                 maf_in / (bkd.abs(p_in) + kesi)
             )
         )
-        r_out = r_out.at[kds:kde+1, ids:ihe+1].set(
+        r_out = bkd.slice_update(r_out, (slice(kds, kde+1), slice(ids, ihe+1)),
             bkd.minimum(
                 bkd.array(1.0, dtype=q.dtype),
                 maf_out / (bkd.abs(p_out) + kesi)
@@ -214,12 +214,12 @@ def fct_calc_hflx(
     v0v1 = mesh.cell_xyz[v1, :] - mesh.cell_xyz[v0, :]
     flag = bkd.sign(
         bkd.sum(
-            v0v1 * mesh.edge_nr[ids:ide+1, :], 
+            v0v1 * mesh.edge_nr[ids:ide+1, :],
             axis=-1
         )
     )  # 0 or 1
     mark = bkd.astype(
-        bkd.rint(-0.5 * bkd.sign(flag * afn[kds:kde+1, ids:ide+1]) + 0.5), 
+        bkd.rint(-0.5 * bkd.sign(flag * afn[kds:kde+1, ids:ide+1]) + 0.5),
         bkd.int32
     )  # (nlev, nedge)
     v_upwind = mesh.cell_of_edge[bkd.arange(ids, ide+1, 1),   mark]  # (nlev, nedge,)
@@ -230,13 +230,13 @@ def fct_calc_hflx(
         r_out[bkd.arange(kds, kde+1, 1)[:, None], v_upwind]
     )
     tmp = (
-        qmfn_lo[kds:kde+1, ids:ide+1] + 
+        qmfn_lo[kds:kde+1, ids:ide+1] +
         coef * (
             qmfn[kds:kde+1, ids:ide+1] - qmfn_lo[kds:kde+1, ids:ide+1]
         )
     ) # (nlev, nedge)
     # ========================================================
-    qmfn = qmfn.at[kds:kde+1, ids:ide+1].set(tmp)
+    qmfn = bkd.slice_update(qmfn, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     return fill_field2d_array_halo(
         halo=mesh.halo,
         f=qmfn,
@@ -251,7 +251,7 @@ def fct_calc_vflx(
     q: FLT[Array, "nlev npoint"],
     q_old: FLT[Array, "nlev npoint"],
     qmfz: FLT[Array, "nlev npoint"],
-    dt: float  
+    dt: float
 ) -> FLT[Array, "nlev+1 npoint"]:
     bkd          = block.backend
     mesh         = block.mesh
@@ -264,16 +264,16 @@ def fct_calc_vflx(
     q_td         = batch.td     .unwrap()
     r_in         = batch.r_in   .unwrap()
     r_out        = batch.r_out  .unwrap()
-    # ========================================================== 
+    # ==========================================================
     # Calculate low-order and anti- diffusive fluxes
     kds, kde  = mesh.half_kds, mesh.half_kde
-    # ------ Calculate low-order fluxes ------ 
+    # ------ Calculate low-order fluxes ------
     # from half_kds + 1 to half_kde -1
     mid_mfz   = mfz[kds+1:kde, ids:ide+1]
     direction = bkd.sign(mid_mfz)
     q_0       = q[kds:kde-1, ids:ide+1]
     q_plus_1  = q[kds+1:kde, ids:ide+1]
-    qmfz_lo = qmfz_lo.at[kds+1:kde, ids:ide+1].set(
+    qmfz_lo = bkd.slice_update(qmfz_lo, (slice(kds+1, kde), slice(ids, ide+1)),
         upwind1_vert(
             direction=direction,
             wgt=block.cfg.upwind_wgt,
@@ -283,7 +283,7 @@ def fct_calc_vflx(
     )
     # ------ Calculate anti-diffusive fluxes ------
     # ad_flux is at half level (half_kds to half_kde, ids to ide)
-    afz = afz.at[kds+1:kde, ids:ide+1].set(
+    afz = bkd.slice_update(afz, (slice(kds+1, kde), slice(ids, ide+1)),
         qmfz[kds+1:kde, ids:ide+1] - qmfz_lo[kds+1:kde, ids:ide+1]
     )
     # ========================================================
@@ -294,7 +294,7 @@ def fct_calc_vflx(
     dmg_old_ = dmg_old[kds:kde+1, ids:ide+1]
     dmg_new_ = dmg_new[kds:kde+1, ids:ide+1]
     tmp = qmfz_lo[kds+1:kde+2, ids:ide+1] - qmfz_lo[kds:kde+1, ids:ide+1]
-    q_td = q_td.at[kds:kde+1, ids:ide+1].set(
+    q_td = bkd.slice_update(q_td, (slice(kds, kde+1), slice(ids, ide+1)),
         (q_old_ * dmg_old_ - dt * tmp) / dmg_new_  # (nlev, ncell)
     )
     # ========================================================
@@ -369,14 +369,14 @@ def fct_calc_vflx(
     # =============================================
     ones = bkd.array(1.0, dtype=q.dtype)
     if block.cfg.fct_regression_v:
-        r_in = r_in.at[kds:kde+1, ids:ide+1].set(
+        r_in = bkd.slice_update(r_in, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.where(
                 p_in > 0,
                 bkd.minimum(ones, m_in / p_in),
                 zeros
             )  # (nlev, ncell)
         )
-        r_out = r_out.at[kds:kde+1, ids:ide+1].set(
+        r_out = bkd.slice_update(r_out, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.where(
                 p_out > 0,
                 bkd.minimum(ones, m_out / p_out),
@@ -390,10 +390,10 @@ def fct_calc_vflx(
             kesi = 1.e-80
         else:
             raise ValueError("Unsupported data type for q.")
-        r_in = r_in.at[kds:kde+1, ids:ide+1].set(
+        r_in = bkd.slice_update(r_in, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.minimum(ones, m_in / (p_in + kesi))
         ) # (nlev, ncell)
-        r_out = r_out.at[kds:kde+1, ids:ide+1].set(
+        r_out = bkd.slice_update(r_out, (slice(kds, kde+1), slice(ids, ide+1)),
             bkd.minimum(ones, m_out / (p_out + kesi))
         ) # (nlev, ncell)
     # ========================================================
@@ -401,7 +401,7 @@ def fct_calc_vflx(
     kds, kde = mesh.half_kds, mesh.half_kde
     cell_range = bkd.arange(ids, ide+1)
     mark = bkd.astype(
-        bkd.rint(-0.5 * bkd.sign(afz[kds+1:kde, ids:ide+1]) + 0.5), 
+        bkd.rint(-0.5 * bkd.sign(afz[kds+1:kde, ids:ide+1]) + 0.5),
         bkd.int32
     ).squeeze()  # 0 or 1 (nlev, ncell)
     ilev = bkd.arange(kds+1, kde)[:, None]
@@ -414,7 +414,7 @@ def fct_calc_vflx(
     qmfz_lo_ = qmfz_lo[kds+1:kde, ids:ide+1]
     qmfz_    = qmfz   [kds+1:kde, ids:ide+1]
     tmp = qmfz_lo_ + coef * (qmfz_ - qmfz_lo_)
-    qmfz = qmfz.at[kds+1:kde, ids:ide+1].set(tmp)
+    qmfz = bkd.slice_update(qmfz, (slice(kds+1, kde), slice(ids, ide+1)), tmp)
     return fill_field2d_array_halo(
         halo=mesh.halo,
         f=qmfz,

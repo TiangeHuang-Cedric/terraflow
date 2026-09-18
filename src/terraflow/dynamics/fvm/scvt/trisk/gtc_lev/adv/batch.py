@@ -8,7 +8,7 @@ from terraflow.util.device import AbstractDevice
 from terraflow.mesh.scvt.field import (
     SCVTFieldLike,
     SCVTFieldMeta,
-    SCVTField2D,  
+    SCVTField2D,
     SCVTFields
 )
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
@@ -17,7 +17,7 @@ from terraflow.model.abstract import ModelMode
 
 if TYPE_CHECKING:
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
-    
+
 
 INT   = typing.Int
 FLT   = typing.Float
@@ -59,8 +59,8 @@ class AdvBatchType(SCVTFields):
     afz        : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     td         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     r_in       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
-    r_out      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D()) 
-    
+    r_out      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+
     @classmethod
     def from_mesh(
         cls,
@@ -265,7 +265,7 @@ class AdvBatchType(SCVTFields):
             passive=passive,
             semilag=semilag
         )
-        
+
     def copy_m_old(self, m: FLT[Array, "nlev ncell"], mesh: SCVTMesh) -> Self:
         m = scvt_adv_fill_vhalo(
             f=m,
@@ -327,7 +327,7 @@ class AdvBatchType(SCVTFields):
                 where=lambda b: b.m_new.d,
                 pytree=self,
                 replace=m_new
-            ) 
+            )
         return self
 
     def accum_wind(
@@ -415,7 +415,7 @@ class AdvBatchType(SCVTFields):
         )
 
         return self
-    
+
     def swap_time_indices(self) -> Self:
         return self.backend.tree_at(
             lambda b: (b.old, b.new),
@@ -481,11 +481,11 @@ def scvt_adv_fill_vhalo(
 
     ids, ide = mesh.cell_ids, mesh.cell_ide
     for k in range(kds - 1, kms - 1, -1):
-        f = f.at[k, ids:ide+1].set(
+        f = bkd.slice_update(f, (k, slice(ids, ide+1)),
             3 * f[k+1, ids:ide+1] - 3 * f[k+2, ids:ide+1] + f[k+3, ids:ide+1]
         )
     for k in range(kde + 1, kme + 1):
-        f = f.at[k, ids:ide+1].set(
+        f = bkd.slice_update(f, (k, slice(ids, ide+1)),
             3 * f[k-1, ids:ide+1] - 3 * f[k-2, ids:ide+1] + f[k-3, ids:ide+1]
         )
 
@@ -494,11 +494,11 @@ def scvt_adv_fill_vhalo(
             top = f[kms:kds, ids:ide+1]
             top_fill = bkd.broadcast_to(f[kds, ids:ide+1], top.shape)
             top = bkd.where(top < 0, top_fill, top)
-            f = f.at[kms:kds, ids:ide+1].set(top)
+            f = bkd.slice_update(f, (slice(kms, kds), slice(ids, ide+1)), top)
         if kde < kme:
             bottom = f[kde+1:kme+1, ids:ide+1]
             bottom_fill = bkd.broadcast_to(f[kde, ids:ide+1], bottom.shape)
             bottom = bkd.where(bottom < 0, bottom_fill, bottom)
-            f = f.at[kde+1:kme+1, ids:ide+1].set(bottom)
+            f = bkd.slice_update(f, (slice(kde+1, kme+1), slice(ids, ide+1)), bottom)
 
     return f

@@ -9,10 +9,10 @@ if TYPE_CHECKING:
     from terraflow.util.device import AbstractDevice
     from terraflow.util.planet import PlanetParameterSet
     from terraflow.mesh.scvt.mesh_type import SCVTMesh
-    
+
     FloatType = typing.FloatType
     Array = typing.Array
-    
+
 
 def calc_kite_area(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -> SCVTMesh:
     kite_area_cell = calc_kite_area_cell(para, mesh, dev)
@@ -41,8 +41,8 @@ def correct_normal_vectors(para: PlanetParameterSet, mesh: SCVTMesh, dev: Abstra
 
 
 def check_kite_area_cell(
-    radius: FloatType, 
-    kite_area: Array, 
+    radius: FloatType,
+    kite_area: Array,
     area: Array,
     dev: AbstractDevice
 ) -> Array:
@@ -61,9 +61,9 @@ def check_kite_area_cell(
 
 
 def check_kite_area_vtx(
-    radius: FloatType, 
-    kite_area: Array, 
-    area: Array, 
+    radius: FloatType,
+    kite_area: Array,
+    area: Array,
     dev: AbstractDevice
 ) -> Array:
     """Check if the sum of vtx kite areas matches the vtx area."""
@@ -125,11 +125,11 @@ def calc_kite_area_cell(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractD
     area2 = bkd.where(det < 0, -area2, area2)
     kite_area = area1 + area2  # (n_cell, maxnnb)
     kite_area = bkd.where(mask, kite_area, 0.0)
-    kite_area_cell = kite_area_cell.at[ids:ide+1, :].set(kite_area)
-    kite_area_cell = kite_area_cell.at[ids:ide+1, :].set(
+    kite_area_cell = bkd.slice_update(kite_area_cell, (slice(ids, ide+1), slice(None)), kite_area)
+    kite_area_cell = bkd.slice_update(kite_area_cell, (slice(ids, ide+1), slice(None)),
         check_kite_area_cell(
-            radius=radius, 
-            kite_area=kite_area_cell[ids:ide+1,:], 
+            radius=radius,
+            kite_area=kite_area_cell[ids:ide+1,:],
             area=area_cell[ids:ide+1],
             dev=dev
         )
@@ -178,11 +178,11 @@ def calc_kite_area_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDe
     area2 = bkd.where(det < 0, -area2, area2)
     kite_area = area1 + area2  # (n_vtx, maxnnb)
     kite_area = bkd.where(mask, kite_area, 0.0)
-    kite_area_vtx = kite_area_vtx.at[ids:ide+1, :].set(kite_area)
-    kite_area_vtx = kite_area_vtx.at[ids:ide+1, :].set(
+    kite_area_vtx = bkd.slice_update(kite_area_vtx, (slice(ids, ide+1), slice(None)), kite_area)
+    kite_area_vtx = bkd.slice_update(kite_area_vtx, (slice(ids, ide+1), slice(None)),
         check_kite_area_vtx(
-            radius=radius, 
-            kite_area=kite_area_vtx[ids:ide+1, :], 
+            radius=radius,
+            kite_area=kite_area_vtx[ids:ide+1, :],
             area=area_vtx[ids:ide+1],
             dev=dev
         )
@@ -216,8 +216,8 @@ def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) 
     )  # (n_cell, maxnnb, 3)
     global_idx_plgnb = mesh.cell_nb[ids:ide+1, :]  # (n_cell, maxnnb)
     p1_tile = bkd.take(
-        mesh.cell_xyz, 
-        indices=global_idx_plgnb, 
+        mesh.cell_xyz,
+        indices=global_idx_plgnb,
         axis=0
     ) / radius  # (n_cell, maxnnb, 3)
     global_idx_plged = mesh.cell_ed[ids:ide+1, :]  # (n_cell, maxnnb)
@@ -256,9 +256,9 @@ def calc_nr_cell(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) 
         pred=bkd.sum(bkd.abs(bkd.where(mask == False, nr, 0))) > 0,
         msg="There are non-zeros in padding values of calculated cell nr.",
     )
-    
+
     nr = bkd.astype(bkd.where(mask, nr, 0), mesh.vtx_of_cell.dtype)
-    cell_nr = cell_nr.at[ids:ide+1, :].set(nr)
+    cell_nr = bkd.slice_update(cell_nr, (slice(ids, ide+1), slice(None)), nr)
     # =============================================
     return fill_halo(mesh.halo, cell_nr, "cell")
 
@@ -289,8 +289,8 @@ def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -
     )  # (n_vtx, maxnnb, 3)
     global_idx_plgnb = mesh.vtx_nb[ids:ide+1, :]  # (n_vtx, maxnnb)
     p1_tile = bkd.take(
-        mesh.vtx_xyz, 
-        indices=global_idx_plgnb, 
+        mesh.vtx_xyz,
+        indices=global_idx_plgnb,
         axis=0
     ) / radius # (n_vtx, maxnnb, 3)
     global_idx_plged = mesh.vtx_ed[ids:ide+1, :]  # (n_vtx, maxnnb)
@@ -304,7 +304,7 @@ def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -
         axis=-1
     )  # (n_vtx, maxnnb)
     product = bkd.where(mask, product, 0.0)
-    
+
     product = bkd.error_if(
         x=product,
         pred=bkd.any((product > bkd.eps(p0.dtype) * 10) == True),
@@ -323,15 +323,15 @@ def calc_nr_vtx(para: PlanetParameterSet, mesh: SCVTMesh, dev: AbstractDevice) -
         0
     )  # (n_cell, maxnnb)
     nr = bkd.where(tmp < -bkd.eps(p0.dtype) * 100, -1, nr)
-    
+
     nr = bkd.error_if(
         x=nr,
         pred=bkd.sum(bkd.abs(bkd.where(mask == False, nr, 0))) > 0,
         msg="There are non-zeros in padding values of calculated vtx nr.",
     )
-    
+
     nr = bkd.astype(bkd.where(mask, nr, 0), mesh.cell_of_vtx.dtype)
-    vtx_nr = vtx_nr.at[ids:ide+1, :].set(nr)
+    vtx_nr = bkd.slice_update(vtx_nr, (slice(ids, ide+1), slice(None)), nr)
     # =============================================
     return fill_halo(mesh.halo, vtx_nr, "vtx")
 
@@ -347,7 +347,7 @@ def calc_edptg_eddnr(mesh: SCVTMesh) -> Array:
     edp_tg = mesh.edge_tg     [ids:ide+1,:]
     edd_nr = mesh.dual_edge_nr[ids:ide+1,:]
     tmp = bkd.astype(bkd.sign(bkd.sum(edp_tg * edd_nr, axis=-1)), edptg_eddnr.dtype)
-    edptg_eddnr = edptg_eddnr.at[ids:ide+1].set(tmp)
+    edptg_eddnr = bkd.slice_update(edptg_eddnr, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edptg_eddnr, "edge")
 
 
@@ -363,7 +363,7 @@ def calc_edpnr_eddtg(mesh: SCVTMesh) -> Array:
     edp_nr = mesh.edge_nr     [ids:ide+1,:]
     edd_tg = mesh.dual_edge_tg[ids:ide+1,:]
     tmp = bkd.astype(bkd.sign(bkd.sum(edp_nr * edd_tg, axis=-1)), edpnr_eddtg.dtype)
-    edpnr_eddtg = edpnr_eddtg.at[ids:ide+1].set(tmp)
+    edpnr_eddtg = bkd.slice_update(edpnr_eddtg, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edpnr_eddtg, "edge")
 
 
@@ -381,7 +381,7 @@ def calc_edp12_edptg(mesh: SCVTMesh) -> Array:
     edp12 = mesh.vtx_xyz[edp2, :] - mesh.vtx_xyz[edp1, :]  # (n_edge, 3)
     edp_tg = mesh.edge_tg[ids:ide+1, :]
     tmp = bkd.astype(bkd.sign(bkd.sum(edp12 * edp_tg, axis=-1)), edp12_edptg.dtype)
-    edp12_edptg = edp12_edptg.at[ids:ide+1].set(tmp)
+    edp12_edptg = bkd.slice_update(edp12_edptg, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edp12_edptg, "edge")
 
 
@@ -399,5 +399,5 @@ def calc_edp12_eddnr(mesh: SCVTMesh) -> Array:
     edp12 = mesh.vtx_xyz[edp2, :] - mesh.vtx_xyz[edp1, :]  # (n_edge, 3)
     edd_nr = mesh.dual_edge_nr[ids:ide+1]
     tmp = bkd.astype(bkd.sign(bkd.sum(edp12 * edd_nr, axis=-1)), edp12_eddnr.dtype)
-    edp12_eddnr = edp12_eddnr.at[ids:ide+1].set(tmp)
+    edp12_eddnr = bkd.slice_update(edp12_eddnr, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edp12_eddnr, "edge")

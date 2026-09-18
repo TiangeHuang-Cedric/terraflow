@@ -143,7 +143,7 @@ def rk2(space_operators: Callable, forward_backward: bool = True) -> Callable[[B
             substep=1,
         )
         return block
-    
+
     return rk2_fn
 
 
@@ -179,7 +179,7 @@ def pc2(space_operators: Callable, forward_backward: bool = True) -> Callable[[B
             substep=2,
         )
         return block
-    
+
     return pc2_fn
 
 
@@ -215,13 +215,13 @@ def wrfrk3(space_operators: Callable, forward_backward: bool = True) -> Callable
             substep=2,
         )
         return block
-    
+
     return wrfrk3_fn
 
 
 def euler(space_operators: Callable, dt: float, forward_backward: bool = True) -> Callable[[Block, int, int, float], Block]:
     substep = step_forward_backward if forward_backward else step_all
-    
+
     def euler_fn(block: Block, old: int, new: int, dt: float) -> Block:
         block = substep(
             space_operators=space_operators,
@@ -233,16 +233,16 @@ def euler(space_operators: Callable, dt: float, forward_backward: bool = True) -
             substep=0,
         )
         return block
-    
+
     return euler_fn
 
 
 def update_mgs(
-    block: Block, 
-    old_idx: int, 
-    new_idx: int, 
-    dt: float, 
-    pass_tag: str, 
+    block: Block,
+    old_idx: int,
+    new_idx: int,
+    dt: float,
+    pass_tag: str,
     substep: int
 ) -> Block:
     mode = block.mode
@@ -255,9 +255,9 @@ def update_mgs(
             old_mgs = block.state.mgs   .unwrap()[old_idx, :]
             new_mgs = block.state.mgs   .unwrap()[new_idx, :]
             dmgsdt  = block.tend .dmgsdt.unwrap()
-            
+
             ids, ide = mesh.cell_ids, mesh.cell_ide
-            new_mgs = new_mgs.at[ids:ide+1].set(
+            new_mgs = bkd.slice_update(new_mgs, slice(ids, ide+1),
                 old_mgs[ids:ide+1] + dt * dmgsdt[ids:ide+1]
             )
             new_mgs = fill_field1d_array_halo(
@@ -280,11 +280,11 @@ def update_mgs(
 
 
 def update_pt(
-    block: Block, 
-    old_idx: int, 
-    new_idx: int, 
-    dt: float, 
-    pass_tag: str, 
+    block: Block,
+    old_idx: int,
+    new_idx: int,
+    dt: float,
+    pass_tag: str,
     substep: int
 ) -> Block:
     mode = block.mode
@@ -298,21 +298,21 @@ def update_pt(
             new_dmg    = block.state.dmg       .unwrap()[new_idx, :, :]
             dptdt      = block.tend .dptdt     .unwrap()
             dptdt_damp = block.aux  .dundt_damp.unwrap()
-        
+
             old_pt  = block.state.pt    .unwrap()[old_idx, :, :]
             new_pt  = block.state.pt    .unwrap()[new_idx, :, :]
-            
+
             kds, kde = mesh.full_kds, mesh.full_kde
             ids, ide = mesh.cell_ids, mesh.cell_ide
-            new_pt = new_pt.at[kds:kde+1, ids:ide+1].set(
-                old_pt[kds:kde+1, ids:ide+1] * old_dmg[kds:kde+1, ids:ide+1] 
+            new_pt = bkd.slice_update(new_pt, (slice(kds, kde+1), slice(ids, ide+1)),
+                old_pt[kds:kde+1, ids:ide+1] * old_dmg[kds:kde+1, ids:ide+1]
                 + dt * dptdt[kds:kde+1, ids:ide+1]
             )
             if block.cfg.use_smag_damp:
-                new_pt = new_pt.at[kds:kde+1, ids:ide+1].set(
+                new_pt = bkd.slice_update(new_pt, (slice(kds, kde+1), slice(ids, ide+1)),
                     new_pt[kds:kde+1, ids:ide+1] + dt * dptdt_damp[kds:kde+1, ids:ide+1]
                 )
-            new_pt = new_pt.at[kds:kde+1, ids:ide+1].set(
+            new_pt = bkd.slice_update(new_pt, (slice(kds, kde+1), slice(ids, ide+1)),
                 new_pt[kds:kde+1, ids:ide+1] / new_dmg[kds:kde+1, ids:ide+1]
             )
             new_pt = fill_field2d_array_halo(
@@ -333,11 +333,11 @@ def update_pt(
 
 
 def update_gz(
-    block: Block, 
-    old_idx: int, 
-    new_idx: int, 
-    dt: float, 
-    pass_tag: str, 
+    block: Block,
+    old_idx: int,
+    new_idx: int,
+    dt: float,
+    pass_tag: str,
     substep: int
 ) -> Block:
     mode = block.mode
@@ -349,10 +349,10 @@ def update_gz(
             old_gz  = block.state.gz   .unwrap()[old_idx, :, :]
             new_gz  = block.state.gz   .unwrap()[new_idx, :, :]
             dgzdt   = block.tend .dgzdt.unwrap()
-            
+
             kds, kde = mesh.full_kds, mesh.full_kde
             ids, ide = mesh.cell_ids, mesh.cell_ide
-            new_gz = new_gz.at[kds:kde+1, ids:ide+1].set(
+            new_gz = bkd.slice_update(new_gz, (slice(kds, kde+1), slice(ids, ide+1)),
                 old_gz[kds:kde+1, ids:ide+1] + dt * dgzdt[kds:kde+1, ids:ide+1]
             )
             new_gz = fill_field2d_array_halo(
@@ -373,11 +373,11 @@ def update_gz(
 
 
 def update_un(
-    block: Block, 
-    old_idx: int, 
-    new_idx: int, 
-    dt: float, 
-    pass_tag: str, 
+    block: Block,
+    old_idx: int,
+    new_idx: int,
+    dt: float,
+    pass_tag: str,
     substep: int
 ) -> Block:
     mesh = block.mesh
@@ -385,17 +385,17 @@ def update_un(
     # =================================================
     if pass_tag == all_pass or pass_tag == backward_pass:
         old_un     = block.state.un       .unwrap()[old_idx, :, :]
-        new_un     = block.state.un       .unwrap()[new_idx, :, :] 
+        new_un     = block.state.un       .unwrap()[new_idx, :, :]
         dundt      = block.tend.dundt     .unwrap()
         dundt_damp = block.aux .dundt_damp.unwrap()
-        
+
         kds, kde = mesh.full_kds, mesh.full_kde
-        ids, ide = mesh.edge_ids, mesh.edge_ide    
-        new_un = new_un.at[kds:kde+1, ids:ide+1].set(
+        ids, ide = mesh.edge_ids, mesh.edge_ide
+        new_un = bkd.slice_update(new_un, (slice(kds, kde+1), slice(ids, ide+1)),
             old_un[kds:kde+1, ids:ide+1] + dt * dundt[kds:kde+1, ids:ide+1]
         )
         if block.cfg.use_smag_damp:
-            new_un = new_un.at[kds:kde+1, ids:ide+1].set(
+            new_un = bkd.slice_update(new_un, (slice(kds, kde+1), slice(ids, ide+1)),
                 new_un[kds:kde+1, ids:ide+1] + dt * dundt_damp[kds:kde+1, ids:ide+1]
             )
         new_un = fill_field2d_array_halo(
@@ -403,7 +403,7 @@ def update_un(
             f=new_un,
             meta=block.state.un.meta
         )
-        # ================================================= 
+        # =================================================
         block = bkd.tree_at(
             where=lambda b: b.state.un.d,
             pytree=block,
@@ -412,14 +412,14 @@ def update_un(
             at_idxes=new_idx
         )
     return block
-    
-    
+
+
 def update_state(
-    block: Block, 
-    old_idx: int, 
-    new_idx: int, 
-    dt: float, 
-    pass_tag: str, 
+    block: Block,
+    old_idx: int,
+    new_idx: int,
+    dt: float,
+    pass_tag: str,
     substep: int
 ) -> Block:
     block = update_mgs(block, old_idx, new_idx, dt, pass_tag, substep)

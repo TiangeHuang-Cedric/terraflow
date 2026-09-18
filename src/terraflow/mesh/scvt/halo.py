@@ -1,9 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
-from mpi4py import MPI
 
 
 from terraflow.util import typing
+from terraflow.util.parallel_types import MPIDistgraphComm
 import terraflow.util.equinox as eqx
 from terraflow.mesh.abstract import AbstractHalo
 
@@ -21,8 +21,8 @@ Array   = typing.Array
 
 
 class SCVTHalo(AbstractHalo):
-    backend         : AbstractBackend       = eqx.field(static=True)
-    comm            : MPI.Distgraphcomm = eqx.field(static=True)
+    backend         : AbstractBackend  = eqx.field(static=True)
+    comm            : MPIDistgraphComm = eqx.field(static=True)
     ngb             : list[IntType] = eqx.field(static=True) 
     nngb            : IntType       = eqx.field(static=True)
     full_nlev       : IntType       = eqx.field(static=True) 
@@ -119,27 +119,27 @@ class SCVTHalo(AbstractHalo):
             send = proc.send[nb]
             recv = proc.recv[nb]
             
-            send_n_cell = send_n_cell.at[nb].set(send.n_cell)
-            send_n_vtx  = send_n_vtx .at[nb].set(send.n_vtx )
-            send_n_edge = send_n_edge.at[nb].set(send.n_edge)
+            send_n_cell = bkd.slice_update(send_n_cell, nb, send.n_cell)
+            send_n_vtx  = bkd.slice_update(send_n_vtx, nb, send.n_vtx )
+            send_n_edge = bkd.slice_update(send_n_edge, nb, send.n_edge)
             
-            recv_n_cell = recv_n_cell.at[nb].set(recv.n_cell)
-            recv_n_vtx  = recv_n_vtx .at[nb].set(recv.n_vtx )
-            recv_n_edge = recv_n_edge.at[nb].set(recv.n_edge)
+            recv_n_cell = bkd.slice_update(recv_n_cell, nb, recv.n_cell)
+            recv_n_vtx  = bkd.slice_update(recv_n_vtx, nb, recv.n_vtx )
+            recv_n_edge = bkd.slice_update(recv_n_edge, nb, recv.n_edge)
             
             n_cell = send_n_cell[nb]
             n_vtx  = send_n_vtx [nb]
             n_edge = send_n_edge[nb]
-            send_cell_id = send_cell_id.at[nb,:n_cell].set(send.local_cell_id)
-            send_vtx_id  = send_vtx_id .at[nb,:n_vtx ].set(send.local_vtx_id )
-            send_edge_id = send_edge_id.at[nb,:n_edge].set(send.local_edge_id)
+            send_cell_id = bkd.slice_update(send_cell_id, (nb, slice(None, n_cell)), send.local_cell_id)
+            send_vtx_id  = bkd.slice_update(send_vtx_id, (nb, slice(None, n_vtx)), send.local_vtx_id )
+            send_edge_id = bkd.slice_update(send_edge_id, (nb, slice(None, n_edge)), send.local_edge_id)
             
             n_cell = recv_n_cell[nb]
             n_vtx  = recv_n_vtx [nb]
             n_edge = recv_n_edge[nb]
-            recv_cell_id = recv_cell_id.at[nb,:n_cell].set(recv.local_cell_id)
-            recv_vtx_id  = recv_vtx_id .at[nb,:n_vtx ].set(recv.local_vtx_id )
-            recv_edge_id = recv_edge_id.at[nb,:n_edge].set(recv.local_edge_id)
+            recv_cell_id = bkd.slice_update(recv_cell_id, (nb, slice(None, n_cell)), recv.local_cell_id)
+            recv_vtx_id  = bkd.slice_update(recv_vtx_id, (nb, slice(None, n_vtx)), recv.local_vtx_id )
+            recv_edge_id = bkd.slice_update(recv_edge_id, (nb, slice(None, n_edge)), recv.local_edge_id)
             
         self.send_n_cell  = send_n_cell.tolist()
         self.send_n_vtx   = send_n_vtx .tolist()

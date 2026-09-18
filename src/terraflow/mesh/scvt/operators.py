@@ -46,7 +46,7 @@ def div_operator_1d(
         # ==========================================================
     else:
         raise ValueError(f"div_operator_1d: unsupported location {div_loc}!")
-    return div.at[i_s:i_e+1].set(res)
+    return bkd.slice_update(div, slice(i_s, i_e+1), res)
 
 
 def div_operator_2d(
@@ -86,7 +86,7 @@ def div_operator_2d(
     else:
         raise ValueError(f"div_operator_2d: unsupported location {div_loc}!")
     # ==========================================================
-    return div.at[k_s:k_e+1, i_s:i_e+1].set(res)
+    return bkd.slice_update(div, (slice(k_s, k_e+1), slice(i_s, i_e+1)), res)
 
 
 def curl_operator_1d(
@@ -119,7 +119,7 @@ def curl_operator_1d(
     else:
         raise ValueError(f"curl_operator_1d: unsupported location {curl_loc}!")
     # ==========================================================
-    return curl.at[i_s:i_e+1].set(res)
+    return bkd.slice_update(curl, slice(i_s, i_e+1), res)
 
 
 def curl_operator_2d(
@@ -162,7 +162,7 @@ def curl_operator_2d(
     else:
         raise ValueError(f"curl_operator_2d: unsupported location {curl_loc}!")
     # ==========================================================
-    return curl.at[k_s:k_e+1, i_s:i_e+1].set(res)
+    return bkd.slice_update(curl, (slice(k_s, k_e+1), slice(i_s, i_e+1)), res)
 
 
 def grad_operator_1d(
@@ -187,7 +187,7 @@ def grad_operator_1d(
     else:
         raise ValueError(f"grad_operator_1d: unsupported location {f_loc}!")
     # ==========================================================
-    return grad.at[i_s:i_e+1].set(res)
+    return bkd.slice_update(grad, slice(i_s, i_e+1), res)
     
 
 def grad_operator_2d(
@@ -221,7 +221,7 @@ def grad_operator_2d(
     else:
         raise ValueError(f"grad_operator_2d: unsupported location {f_loc} !")
     # ==========================================================
-    return grad.at[k_s:k_e+1, i_s:i_e+1].set(res)
+    return bkd.slice_update(grad, (slice(k_s, k_e+1), slice(i_s, i_e+1)), res)
 
 
 def wind_c2a_operator(
@@ -299,8 +299,8 @@ def wind_c2a_operator(
         out_axes=0
     )(un[kds:kde+1, :])
     
-    u = u.at[kds:kde+1, ids:ide+1].set(res["u"])
-    v = v.at[kds:kde+1, ids:ide+1].set(res["v"])
+    u = bkd.slice_update(u, (slice(kds, kde+1), slice(ids, ide+1)), res["u"])
+    v = bkd.slice_update(v, (slice(kds, kde+1), slice(ids, ide+1)), res["v"])
     
     return u, v
 
@@ -321,4 +321,4 @@ def wind_a2c_operator(
     v_tmp = 0.5 * (v[kds:kde+1, v1] + v[kds:kde+1, v2])
     vec = vector_convert_lonlat2xyz(bkd, R, u_tmp, v_tmp, mesh.dual_edge_xyz[ids:ide+1, :])
     tmp = bkd.sum(vec * mesh.edge_nr[ids:ide+1, :], axis=-1)
-    return un.at[kds:kde+1, ids:ide+1].set(tmp)
+    return bkd.slice_update(un, (slice(kds, kde+1), slice(ids, ide+1)), tmp)

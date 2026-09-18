@@ -21,8 +21,8 @@ if TYPE_CHECKING:
     INT = typing.Int
     FLT = typing.Float
     Array = typing.Array
-    
-    
+
+
 def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) -> Block:
     mode  = block.mode
     const = block.const
@@ -37,7 +37,7 @@ def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) ->
         if (block.backend.sum(block.state.p.d[itime, :, :]) == 0):
             # Set pressure to hydrostatic pressure in the initial condition.
             ph     = block.state.ph    .d[itime, :, :]
-            ph_lev = block.state.ph_lev.d[itime, :, :] 
+            ph_lev = block.state.ph_lev.d[itime, :, :]
             block = block.backend.tree_at(
                 where=lambda b: (b.state.p, b.state.ph),
                 pytree=block,
@@ -60,15 +60,15 @@ def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) ->
 
 
 def operators_prepare_2(
-    block: Block, 
-    itime: INT[Array, ""] | int, 
+    block: Block,
+    itime: INT[Array, ""] | int,
     dt: float,
-    pass_tag: str, 
+    pass_tag: str,
     substep: int
 ) -> Block:
     mode = block.mode
     if pass_tag == "all_pass":
-        if mode.is_baroclinic(): 
+        if mode.is_baroclinic():
             block = calc_t   (block, itime)
         block = calc_mf      (block, itime, dt)
         block = calc_ke      (block, itime,     substep)
@@ -80,7 +80,7 @@ def operators_prepare_2(
         if mode.is_baroclinic():
             block = calc_rhod(block, itime)
     elif pass_tag == "forward_pass":
-        if mode.is_baroclinic(): 
+        if mode.is_baroclinic():
             block = calc_t   (block, itime)
         block = calc_mf      (block, itime, dt)
         block = calc_ke      (block, itime,     substep)
@@ -88,7 +88,7 @@ def operators_prepare_2(
         block = calc_pv      (block, itime,     substep)
         block = interp_pv    (block, itime, dt, substep)
     elif pass_tag == "backward_pass":
-        if mode.is_hydrostatic(): 
+        if mode.is_hydrostatic():
             block = calc_gz  (block, itime)
         if mode.is_baroclinic():
             block = calc_rhod(block, itime)
@@ -109,7 +109,7 @@ def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     mg     = block.state.mg    .unwrap()[star_idx, :, :]
     # ==========================================================
     kds, kde = half_kds, half_kde
-    mg_lev = mg_lev.at[kds:kde+1, ids:ihe+1].set(
+    mg_lev = bkd.slice_update(mg_lev, (slice(kds, kde+1), slice(ids, ihe+1)),
         block.vert_coord.calc_mg_lev(
             mgs[ids:ihe+1],
             ks=kds,
@@ -117,7 +117,7 @@ def calc_mg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         )
     )
     kds, kde = full_kds, full_kde
-    mg = mg.at[kds:kde+1, ids:ihe+1].set(
+    mg = bkd.slice_update(mg, (slice(kds, kde+1), slice(ids, ihe+1)),
         0.5 * (
             mg_lev[kds:kde+1, ids:ihe+1]
             + mg_lev[kds+1:kde+2, ids:ihe+1]
@@ -152,7 +152,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     dmg_ = dmg[kds:kde, ids:ihe+1]
     qm_ = qm[kds:kde, ids:ihe+1]
     moist_dmg = dmg_ * (1.0 + qm_)
-    ph_lev = ph_lev.at[kds:kde+1, ids:ihe+1].set(
+    ph_lev = bkd.slice_update(ph_lev, (slice(kds, kde+1), slice(ids, ihe+1)),
         mg_lev[kds, ids:ihe+1] + bkd.cumulative_sum(
             moist_dmg,
             axis=0,
@@ -162,7 +162,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     # =======================================================
     # Calculate ph at full level
     kds, kde = full_kds, full_kde
-    ph = ph.at[kds:kde+1, ids:ihe+1].set(
+    ph = bkd.slice_update(ph, (slice(kds, kde+1), slice(ids, ihe+1)),
         0.5 * (
             ph_lev[kds:kde+1, ids:ihe+1]
             + ph_lev[kds+1:kde+2, ids:ihe+1]
@@ -171,12 +171,12 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     # =======================================================
     # Calculate phs
     kde = half_kde
-    phs = phs.at[ids:ihe+1].set(ph_lev[kde, ids:ihe+1])
+    phs = bkd.slice_update(phs, slice(ids, ihe+1), ph_lev[kde, ids:ihe+1])
     # =======================================================
     if block.mode.is_hydrostatic():
         return bkd.tree_at(
             where=lambda b: (
-                b.state.phs.d, b.state.ph.d, b.state.ph_lev.d, 
+                b.state.phs.d, b.state.ph.d, b.state.ph_lev.d,
                 b.state.ps.d, b.state.p.d, b.state.p_lev.d
             ),
             pytree=block,
@@ -192,7 +192,7 @@ def calc_ph(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             at_dims=(0, 0, 0),
             at_idxes=(star_idx, star_idx, star_idx)
         )
-    
+
 
 @profile_scope("calc_t")
 def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -210,7 +210,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         old_idx = block.adv_batches["moist"].get_time_idx(itime_str="old")
         q = block.tracers.q.unwrap()[old_idx, idx_qv, :, :]
         rd_o_cpd = block.para.rd_o_cpd.unwrap()
-        t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
+        t = bkd.slice_update(t, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             formula.temperature(
                 pt=pt[full_kds:full_kde+1, ids:ihe+1],
                 p=p[full_kds:full_kde+1, ids:ihe+1],
@@ -218,7 +218,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
                 para=block.para
             )
         )
-        tv = tv.at[full_kds:full_kde+1, ids:ihe+1].set(
+        tv = bkd.slice_update(tv, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             formula.virtual_temperature_from_modified_potential_temperature(
                 pt=pt[full_kds:full_kde+1, ids:ihe+1],
                 pk=p[full_kds:full_kde+1, ids:ihe+1]**rd_o_cpd,
@@ -227,7 +227,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             )
         )
     else:
-        t = t.at[full_kds:full_kde+1, ids:ihe+1].set(
+        t = bkd.slice_update(t, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             formula.temperature(
                 pt=pt[full_kds:full_kde+1, ids:ihe+1],
                 p=p[full_kds:full_kde+1, ids:ihe+1],
@@ -235,7 +235,7 @@ def calc_t(block: Block, star_idx: INT[Array, ""] | int) -> Block:
                 para=block.para
             )
         )
-        tv = tv.at[full_kds:full_kde+1, ids:ihe+1].set(
+        tv = bkd.slice_update(tv, (slice(full_kds, full_kde+1), slice(ids, ihe+1)),
             t[full_kds:full_kde+1, ids:ihe+1]
         )
     # ==========================================================
@@ -257,7 +257,7 @@ def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     rhod   = block.aux  .rhod  .unwrap()
     # ==========================================================
     dgz = gz_lev[kds:kde+1, ids:ihe+1] - gz_lev[kds+1:kde+2, ids:ihe+1]
-    rhod = rhod.at[kds:kde+1, ids:ihe+1].set(
+    rhod = bkd.slice_update(rhod, (slice(kds, kde+1), slice(ids, ihe+1)),
         dmg[kds:kde+1, ids:ihe+1] / dgz
     )
     # ==========================================================
@@ -266,7 +266,7 @@ def calc_rhod(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         pytree=block,
         replace=rhod
     )
-    
+
 
 @profile_scope("calc_mfz")
 def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -285,7 +285,7 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         ks=half_kds + 1,
         ke=half_kde - 1
     )
-    mfz_lev = mfz_lev.at[half_kds+1:half_kde, polg_ids:polg_ide+1].set(
+    mfz_lev = bkd.slice_update(mfz_lev, (slice(half_kds+1, half_kde), slice(polg_ids, polg_ide+1)),
         - dmgdt_lev - bkd.cumsum(
             dmf[:half_kde-1, polg_ids:polg_ide+1],
             axis=0
@@ -302,7 +302,7 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         pytree=block,
         replace=mfz_lev,
     )
-    
+
 
 @profile_scope("calc_ke")
 def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
@@ -320,27 +320,27 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
     area_cell      = mesh.area_cell     [cell_ids:cell_ihe+1   ] # (ncell,)
     area_vtx       = mesh.area_vtx      [vtx_ids :vtx_ihe +1   ] # (nvtx,)
     vtx_of_cell    = mesh.vtx_of_cell   [cell_ids:cell_ihe+1, :] # (ncell, maxnnb_cell)
-    kite_area_cell = mesh.kite_area_cell[cell_ids:cell_ihe+1, :] # (ncell, maxnnb_cell) 
+    kite_area_cell = mesh.kite_area_cell[cell_ids:cell_ihe+1, :] # (ncell, maxnnb_cell)
     le = mesh.le
     de = mesh.de
-    
+
     def edge2cell(un: FLT[Array, "nedge"]) -> FLT[Array, "ncell"]:
         ed_idx = cell_ed
         Ae = le[ed_idx] * de[ed_idx] / 4.0 # (ncell,)
         local_sum = bkd.sum(
-            bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2), 
+            bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2),
             axis=-1
         )
         return local_sum / area_cell  # (ncell,)
-    
-    ke = ke.at[kds:kde+1, cell_ids:cell_ihe+1].set(
+
+    ke = bkd.slice_update(ke, (slice(kds, kde+1), slice(cell_ids, cell_ihe+1)),
         bkd.vmap(
             edge2cell,
             in_axes=0,
             out_axes=0
         )(un[kds:kde+1, :])
     )
-    
+
     if block.cfg.ke_scheme == 2:
         ke_cell = ke[kds:kde+1, cell_ids:cell_ihe+1]
         ke_cell_wgt = block.cfg.ke_cell_wgt
@@ -352,7 +352,7 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
                 axis=-1
             )
             return local_sum / area_vtx # (nvtx,)
-        
+
         def vtx2cell(ke_vtx: FLT[Array, "nvtx"]) -> FLT[Array, "ncell"]:
             v_idx = vtx_of_cell
             Ae = kite_area_cell
@@ -361,18 +361,18 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
                 axis=-1
             )
             return local_sum / area_cell # (ncell,)
-        
-        ke_vtx = ke_vtx.at[kds:kde+1, vtx_ids:vtx_ihe+1].set(
+
+        ke_vtx = bkd.slice_update(ke_vtx, (slice(kds, kde+1), slice(vtx_ids, vtx_ihe+1)),
             bkd.vmap(
-                edge2vtx, 
-                in_axes=0, 
+                edge2vtx,
+                in_axes=0,
                 out_axes=0
             )(un[kds:kde+1, :])
         )
-        
+
         ke_vtx_cell = bkd.vmap(vtx2cell, in_axes=0, out_axes=0)(ke_vtx[kds:kde+1,:])
-        
-        ke = ke.at[kds:kde+1, cell_ids:cell_ihe+1].set(
+
+        ke = bkd.slice_update(ke, (slice(kds, kde+1), slice(cell_ids, cell_ihe+1)),
             ke_cell_wgt * ke_cell + (1.0 - ke_cell_wgt) * ke_vtx_cell
         )
     # ==========================================================
@@ -381,7 +381,7 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         pytree=block,
         replace=(ke, ke_vtx),
     )
-    
+
 
 @profile_scope("calc_div")
 def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -400,13 +400,13 @@ def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     if block.cfg.div_damp_order == 4:
         divn = block.aux.fn_2d.unwrap()
         div2 = block.aux.div2 .unwrap()
-        
+
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
         v1 = mesh.cell_of_edge[ids:ihe+1, 0]
         v2 = mesh.cell_of_edge[ids:ihe+1, 1]
         divn = (
-            (div[kds:kde+1, v2] - div[kds:kde+1, v1]) 
+            (div[kds:kde+1, v2] - div[kds:kde+1, v1])
             * mesh.edpnr_eddtg[ids:ihe+1] / mesh.de[ids:ihe+1]
         )
         div2 = op.div_operator_2d(
@@ -427,7 +427,7 @@ def calc_div(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         pytree=block,
         replace=(div, div2),
     )
-    
+
 
 @profile_scope("calc_gz")
 def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -461,11 +461,11 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     _gz_lev = bkd.flip(_gz_lev, axis=0)
     # =======================================
     # Wrap Back
-    gz_lev = gz_lev.at[kds:kde+1, ids:ihe+1].set(_gz_lev)
+    gz_lev = bkd.slice_update(gz_lev, (slice(kds, kde+1), slice(ids, ihe+1)), _gz_lev)
     # ===================================================
     kds, kde = full_kds, full_kde
     # Calculate gz
-    gz = gz.at[kds:kde+1, ids:ihe+1].set(
+    gz = bkd.slice_update(gz, (slice(kds, kde+1), slice(ids, ihe+1)),
         0.5 * (
             gz_lev[kds:kde+1, ids:ihe+1]
             + gz_lev[kds+1:kde+2, ids:ihe+1]
@@ -479,7 +479,7 @@ def calc_gz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         at_dims=(0, 0),
         at_idxes=(star_idx, star_idx)
     )
-    
+
 
 @profile_scope("calc_dmg")
 def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -499,7 +499,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         dmg_lev = block.state.dmg_lev.unwrap()[star_idx, :, :]
         # ======================================================
         kds, kde = full_kds, full_kde
-        dmg = dmg.at[kds:kde+1, ids:ihe+1].set(
+        dmg = bkd.slice_update(dmg, (slice(kds, kde+1), slice(ids, ihe+1)),
             mg_lev[kds+1:kde+2, ids:ihe+1] - mg_lev[kds:kde+1  , ids:ihe+1]
         )
         dmg_valid = dmg[kds:kde+1, ids:ihe+1]
@@ -516,17 +516,17 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         # ======================================================
         # half_kds + 1 <= k <= half_kde - 1
         kds, kde = half_kds, half_kde
-        dmg_lev = dmg_lev.at[kds+1:kde, ids:ihe+1].set(
+        dmg_lev = bkd.slice_update(dmg_lev, (slice(kds+1, kde), slice(ids, ihe+1)),
             mg[kds+1:kde, ids:ihe+1] - mg[kds:kde-1, ids:ihe+1]
         )
         # Top boundary
         k = half_kds
-        dmg_lev = dmg_lev.at[k, ids:ihe+1].set(
+        dmg_lev = bkd.slice_update(dmg_lev, (k, slice(ids, ihe+1)),
             mg[k, ids:ihe+1] - mg_lev[k, ids:ihe+1]
         )
         # Bottom boundary
         k = half_kde
-        dmg_lev = dmg_lev.at[k, ids:ihe+1].set(
+        dmg_lev = bkd.slice_update(dmg_lev, (k, slice(ids, ihe+1)),
             mg_lev[k, ids:ihe+1] - mg[k-1, ids:ihe+1]
         )
         dmg_lev = fill_field2d_array_halo(
@@ -568,7 +568,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
         gzs = block.static.gzs.unwrap()
         gz  = block.state .gz .unwrap()[star_idx, :, :]
         # ======================================================
-        dmg = dmg.at[0, ids:ihe+1].set(
+        dmg = bkd.slice_update(dmg, (0, slice(ids, ihe+1)),
             (gz[0, ids:ihe+1] - gzs[ids:ihe+1]) / g
         )
         dmg_edge = interp.scvt_average_2d(
@@ -590,7 +590,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             x_loc=block.state.dmg    .meta.loc,
             y_loc=block.aux  .dmg_vtx.meta.loc
         )
-        # ====================================================== 
+        # ======================================================
         return bkd.tree_at(
             where=lambda b: (
                 b.state.dmg.d,
@@ -601,7 +601,7 @@ def calc_dmg(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             at_dims=(0, None, None),
             at_idxes=(star_idx, None, None)
         )
-    
+
 
 @profile_scope("calc_mf")
 def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
@@ -613,7 +613,7 @@ def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
     dmg_edge = block.aux  .dmg_edge.unwrap()[          :, :]
     mfn      = block.aux  .mfn     .unwrap()
     # ==========================================================
-    mfn = mfn.at[kds:kde+1, ids:ihe+1].set(
+    mfn = bkd.slice_update(mfn, (slice(kds, kde+1), slice(ids, ihe+1)),
         un[kds:kde+1, ids:ihe+1] * dmg_edge[kds:kde+1, ids:ihe+1]
     )
     # ==========================================================
@@ -622,7 +622,7 @@ def calc_mf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Block:
         pytree=block,
         replace=mfn
     )
-    
+
 
 @profile_scope("calc_ut")
 def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
@@ -647,7 +647,7 @@ def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
             axis=-1
         ) / de[ids:ide+1]
 
-    ut = ut.at[kds:kde+1, ids:ide+1].set(
+    ut = bkd.slice_update(ut, (slice(kds, kde+1), slice(ids, ide+1)),
         bkd.vmap(
             _wrap,
             in_axes=0,
@@ -681,7 +681,7 @@ def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = Fal
         pytree=block,
         replace=vor,
     )
-    
+
 
 @profile_scope("calc_pv")
 def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
@@ -695,7 +695,7 @@ def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
     # ==========================================================
     block = calc_vor(block, star_idx, with_halo=True)
     vor = block.aux.vor.unwrap()[kds:kde+1, ids:ihe+1]
-    pv = pv.at[kds:kde+1, ids:ihe+1].set(
+    pv = bkd.slice_update(pv, (slice(kds, kde+1), slice(ids, ihe+1)),
         (vor + f_vtx[ids:ihe+1]) / dmg_vtx[kds:kde+1, ids:ihe+1]
     )
     pv = fill_field2d_array_halo(
@@ -713,9 +713,9 @@ def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
 
 @profile_scope("interp_pv_midpoint")
 def interp_pv_midpoint(
-    block: Block, 
-    star_idx: INT[Array, ""] | int, 
-    dt: float, 
+    block: Block,
+    star_idx: INT[Array, ""] | int,
+    dt: float,
     substep: int
 ) -> Block:
     bkd = block.backend
@@ -727,7 +727,7 @@ def interp_pv_midpoint(
     # ==========================================================
     v1 = mesh.vtx_of_edge[ids:ide+1, 0]
     v2 = mesh.vtx_of_edge[ids:ide+1, 1]
-    pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
+    pv_edge = bkd.slice_update(pv_edge, (slice(kds, kde+1), slice(ids, ide+1)),
         0.5 * (pv[kds:kde+1, v1] + pv[kds:kde+1, v2])
     )
     pv_edge = fill_field2d_array_halo(
@@ -744,10 +744,10 @@ def interp_pv_midpoint(
 
 @profile_scope("interp_pv_upwind")
 def interp_pv_upwind(
-    block: Block, 
-    star_idx: INT[Array, ""] | int, 
-    dt: float, 
-    substep: int    
+    block: Block,
+    star_idx: INT[Array, ""] | int,
+    dt: float,
+    substep: int
 ) -> Block:
     bkd         = block.backend
     mesh        = block.mesh
@@ -782,7 +782,7 @@ def interp_pv_upwind(
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
         )
-        pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
+        pv_edge = bkd.slice_update(pv_edge, (slice(kds, kde+1), slice(ids, ide+1)),
             b * flux2 + (1 - b) * flux1
         )
     elif upwind_order_pv == 3:
@@ -798,7 +798,7 @@ def interp_pv_upwind(
             stencil_2nd_wgt=stencil_2nd.wgt[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
         )
-        pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
+        pv_edge = bkd.slice_update(pv_edge, (slice(kds, kde+1), slice(ids, ide+1)),
             b * flux2 + (1 - b) * flux1
         )
     elif upwind_order_pv == 5:
@@ -816,7 +816,7 @@ def interp_pv_upwind(
             stencil_4th_wgt=stencil_4th.wgt[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
         )
-        pv_edge = pv_edge.at[kds:kde+1, ids:ide+1].set(
+        pv_edge = bkd.slice_update(pv_edge, (slice(kds, kde+1), slice(ids, ide+1)),
             b * flux2 + (1 - b) * flux1
         )
     else:
@@ -834,10 +834,10 @@ def interp_pv_upwind(
 
 
 def interp_pv(
-    block: Block, 
-    star_idx: INT[Array, ""] | int, 
-    dt: float, 
-    substep: int   
+    block: Block,
+    star_idx: INT[Array, ""] | int,
+    dt: float,
+    substep: int
 ) -> Block:
     if block.cfg.pv_adv_scheme == "midpoint":
         return interp_pv_midpoint(block, star_idx, dt, substep)
@@ -884,15 +884,15 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
         ) / de
 
     tmp = - bkd.vmap(
-        _wrap, 
-        in_axes=(0, 0), 
+        _wrap,
+        in_axes=(0, 0),
         out_axes=0
     )(mfn[kds:kde+1, :], pv_edge[kds:kde+1, :])
-    
-    dundt = dundt.at[kds:kde+1, ids:ide+1].set(
+
+    dundt = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)),
         dundt[kds:kde+1, ids:ide+1] + tmp
     )
-    dundt_coriolis = dundt_coriolis.at[kds:kde+1, ids:ide+1].set(tmp)
+    dundt_coriolis = bkd.slice_update(dundt_coriolis, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     # ==========================================================
     return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_coriolis.d),
@@ -916,10 +916,10 @@ def calc_grad_ke(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Blo
     v1 = mesh.cell_of_edge[ids:ide+1, 0]
     v2 = mesh.cell_of_edge[ids:ide+1, 1]
     tmp = -(ke[kds:kde+1, v2] - ke[kds:kde+1, v1]) * edpnr_eddtg / de
-    dundt = dundt.at[kds:kde+1, ids:ide+1].set(
+    dundt = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)),
         dundt[kds:kde+1, ids:ide+1] + tmp
     )
-    dundt_grad_ke = dundt_grad_ke.at[kds:kde+1, ids:ide+1].set(tmp)
+    dundt_grad_ke = bkd.slice_update(dundt_grad_ke, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
     # ==========================================================
     return bkd.tree_at(
         where=lambda b: (b.tend.dundt.d, b.tend.dundt_grad_ke.d),
@@ -954,7 +954,7 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
     mesh = block.mesh
     ids, ide = mesh.cell_ids, mesh.cell_ide
     kds, kde = mesh.full_kds, mesh.full_kde
-    pt      = block.state.pt     .unwrap()[star_idx, :, :] 
+    pt      = block.state.pt     .unwrap()[star_idx, :, :]
     un      = block.state.un     .unwrap()[star_idx, :, :]
     dmg     = block.state.dmg    .unwrap()[star_idx, :, :]
     mfn     = block.aux  .mfn    .unwrap()
@@ -977,9 +977,9 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         dt=dt
     )
     dptdt = op.div_operator_2d(
-        mesh=mesh, 
-        f=ptfn, 
-        div=dptdt, 
+        mesh=mesh,
+        f=ptfn,
+        div=dptdt,
         div_loc=block.tend.dptdt.meta.loc
     )
     pt = scvt_adv_fill_vhalo(
@@ -995,11 +995,11 @@ def calc_grad_ptf(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> Bl
         qmfz=batch.qmfz.unwrap(),
         dt=dt
     )
-    dptdt = dptdt.at[kds:kde+1, ids:ide+1].set(
-        -dptdt[kds:kde+1, ids:ide+1] - 
+    dptdt = bkd.slice_update(dptdt, (slice(kds, kde+1), slice(ids, ide+1)),
+        -dptdt[kds:kde+1, ids:ide+1] -
         (ptfz[kds+1:kde+2, ids:ide+1] - ptfz[kds:kde+1, ids:ide+1])
     )
-    
+
     return bkd.tree_at(
         where=lambda b: (b.adv_batch_pt.qmfn.d, b.adv_batch_pt.qmfz.d, b.tend.dptdt.d),
         pytree=block,
@@ -1017,7 +1017,7 @@ def calc_dmgsdt(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     dmgsdt = block.tend.dmgsdt.unwrap()
     # ==========================================================
     dmgsdt = bkd.zeros_like(dmgsdt)
-    dmgsdt = dmgsdt.at[ids:ide+1].set(
+    dmgsdt = bkd.slice_update(dmgsdt, slice(ids, ide+1),
         - bkd.sum(dmf[kds:kde+1, ids:ide+1], axis=0)
     )
     # ==========================================================
@@ -1061,27 +1061,27 @@ def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> B
         tmp = -(
             mfz_lev_edge[kds+1:kde+2, ids:ide+1] * (
                 un_lev[kds+1:kde+2, ids:ide+1] - un    [kds:kde+1, ids:ide+1]
-            ) + 
+            ) +
             mfz_lev_edge[kds:kde+1  , ids:ide+1] * (
                 un    [kds:kde+1  , ids:ide+1] - un_lev[kds:kde+1, ids:ide+1]
             )
         ) / dmg_edge[kds:kde+1, ids:ide+1]
-        dundt_wedundeta = dundt_wedundeta.at[kds:kde+1, ids:ide+1].set(tmp)
-        dundt = dundt.at[kds:kde+1, ids:ide+1].set(dundt[kds:kde+1, ids:ide+1] + tmp)
+        dundt_wedundeta = bkd.slice_update(dundt_wedundeta, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
+        dundt = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)), dundt[kds:kde+1, ids:ide+1] + tmp)
     elif block.cfg.uv_vert_adv_type == 2:
         mfz_lev_edge = interp.scvt_interp_2d(
-            mesh=mesh, 
-            x=mfz_lev, 
-            y=mfz_lev_edge, 
+            mesh=mesh,
+            x=mfz_lev,
+            y=mfz_lev_edge,
             x_loc=block.aux.mfz_lev.meta.loc,
             y_loc=block.aux.mfz_lev_edge.meta.loc
         )
         tmp = - (
-            mfz_lev_edge[kds+1:kde+2, ids:ide+1] * (un[kds+1:kde+2, ids:ide+1] - un[kds:kde+1, ids:ide+1]) - 
+            mfz_lev_edge[kds+1:kde+2, ids:ide+1] * (un[kds+1:kde+2, ids:ide+1] - un[kds:kde+1, ids:ide+1]) -
             mfz_lev_edge[kds:kde+1  , ids:ide+1] * (un[kds-1:kde  , ids:ide+1] - un[kds:kde+1, ids:ide+1])
         ) / dmg_edge[kds:kde+1, ids:ide+1] / 2
-        dundt_wedundeta = dundt_wedundeta.at[kds:kde+1, ids:ide+1].set(tmp)
-        dundt = dundt.at[kds:kde+1, ids:ide+1].set(dundt[kds:kde+1, ids:ide+1] + tmp)
+        dundt_wedundeta = bkd.slice_update(dundt_wedundeta, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
+        dundt = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)), dundt[kds:kde+1, ids:ide+1] + tmp)
     else:
         raise ValueError(f"calc_wedundlev: unsupported uv_vert_adv_type {block.cfg.uv_vert_adv_type}!")
     # ==========================================================
