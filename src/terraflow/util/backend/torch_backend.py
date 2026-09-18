@@ -1369,7 +1369,7 @@ class TorchBackend(AbstractBackend):
             raise NotImplementedError("sharding is not supported by torch.broadcast_to.")
         return torch.broadcast_to(array, shape)
     
-    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True) -> Callable[[Any], Any]:
+    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True, **kwargs) -> Callable[[Any], Any]:
         if not with_jit:
             return fun
         if not hasattr(torch, "compile"):

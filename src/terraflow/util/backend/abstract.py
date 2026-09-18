@@ -472,7 +472,7 @@ class AbstractBackend(ABC):
     def to_numpy(self, value: Any) -> np.ndarray:
         return np.asarray(value)
     
-    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True) -> Callable[[Any], Any]:
+    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True, **kwargs) -> Callable[[Any], Any]:
         return fun
 
     def block_until_ready(self, value: Any) -> Any:
