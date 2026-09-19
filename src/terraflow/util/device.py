@@ -114,6 +114,7 @@ class CPU(AbstractDevice):
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_backend_distributed: bool = False,
+        functional_updates: bool = False,
     ):  
         proc = Proc(
             comm=comm,
@@ -139,7 +140,12 @@ class CPU(AbstractDevice):
                 use_backend_distributed=use_backend_distributed,
                 backend="gloo",
             )
-            backend_impl = TorchBackend("cpu", float_type=float_type, int_type=int_type)
+            backend_impl = TorchBackend(
+                "cpu",
+                float_type=float_type,
+                int_type=int_type,
+                functional_updates=functional_updates,
+            )
         else:
             raise ValueError(f"Unsupported backend {backend}!") 
         super().__init__(
@@ -161,6 +167,7 @@ class GPU(AbstractDevice):
         use_async_io: bool = False,
         proc_io_stride: int = 0,
         use_backend_distributed: bool = False,
+        functional_updates: bool = False,
     ):
         proc = Proc(
             comm=comm,
@@ -215,7 +222,13 @@ class GPU(AbstractDevice):
                 device_string = "cuda"
             else:
                 raise RuntimeError("No PyTorch GPU backend is available.")
-            backend_impl = TorchBackend(device_string, ref, float_type=float_type, int_type=int_type)
+            backend_impl = TorchBackend(
+                device_string,
+                ref,
+                float_type=float_type,
+                int_type=int_type,
+                functional_updates=functional_updates,
+            )
         else:
             raise ValueError(f"Unsupported backend {backend}!")
         super().__init__(

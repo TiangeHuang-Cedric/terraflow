@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from terraflow.util import easygems as easygems
     from terraflow.util import log as log
     from terraflow.util import post_process as post_process
+    from terraflow.util import profile as profile
     from terraflow.util import uxarray as uxarray
 
 
@@ -17,6 +18,7 @@ _LAZY_SUBMODULES = {
     "device": "terraflow.util.device",
     "easygems": "terraflow.util.easygems",
     "post_process": "terraflow.util.post_process",
+    "profile": "terraflow.util.profile",
     "uxarray": "terraflow.util.uxarray",
     "log": "terraflow.util.log",
 }
@@ -27,6 +29,7 @@ __all__ = [
     "device",
     "easygems",
     "post_process",
+    "profile",
     "uxarray",
     "log",
 ]

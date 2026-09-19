@@ -137,6 +137,15 @@ def use_torch_distributed_gloo_cpu(sendbuf: Any, recvbuf: Any) -> bool:
     return "gloo" in backend
 
 
+def use_torch_distributed_gloo_tensor(value: Any) -> bool:
+    if not isinstance(value, torch.Tensor) or value.device.type != "cpu":
+        return False
+    if not torch.distributed.is_available() or not torch.distributed.is_initialized():
+        return False
+    backend = str(torch.distributed.get_backend()).lower()
+    return "gloo" in backend
+
+
 def is_symbolic_bool(value: Any) -> bool:
     sym_bool_type = getattr(torch, "SymBool", None)
     return sym_bool_type is not None and isinstance(value, sym_bool_type)
@@ -372,6 +381,24 @@ def as_take_index(index: torch.Tensor, *, value: torch.Tensor, dim: int) -> torc
 def as_update_index(index: torch.Tensor, *, value: torch.Tensor, dim: int) -> torch.Tensor:
     index = index.to(device=value.device, dtype=torch.int64).reshape(-1)
     return torch.where(index < 0, index + value.shape[dim], index)
+
+
+def is_full_slice(index: Any) -> bool:
+    return (
+        isinstance(index, slice)
+        and index.start is None
+        and index.stop is None
+        and index.step is None
+    )
+
+
+def slice_stop(index: Any, size: int) -> int | None:
+    if not isinstance(index, slice):
+        return None
+    start, stop, step = positive_slice_indices(index, size)
+    if start != 0 or step != 1:
+        return None
+    return stop
 
 
 def halo_update_axis0_impl(
@@ -657,11 +684,19 @@ class TorchBackend(AbstractBackend):
 
     name = "torch"
 
-    def __init__(self, device_string: str, ref: torch.device | None = None, float_type: str = "r8", int_type: str = "i4"):
+    def __init__(
+        self,
+        device_string: str,
+        ref: torch.device | None = None,
+        float_type: str = "r8",
+        int_type: str = "i4",
+        functional_updates: bool = False,
+    ):
         self.float_type = _TYPE_REMAPPING[float_type]
         self.int_type   = _TYPE_REMAPPING[int_type  ]
         self.device_string = device_string
         self.ref = ref if ref is not None else torch.device(device_string)
+        self.functional_updates = functional_updates
         self._tree_at_plan_cache: dict[Any, TreeAtPlan] = {}
         self._tree_at_cache_hits = 0
         self._tree_at_cache_misses = 0
@@ -1083,7 +1118,34 @@ class TorchBackend(AbstractBackend):
             dtype=value.dtype,
             device=value.device,
         )
-        return index_set(value, normalize_index(index, value.ndim), replacement_tensor, dim=0)
+        index = normalize_index(index, value.ndim)
+
+        if self.functional_updates:
+            return index_set(value, index, replacement_tensor, dim=0)
+
+        if value.ndim >= 1 and isinstance(index[0], torch.Tensor) and all(
+            is_full_slice(item) for item in index[1:]
+        ):
+            recv_idx = as_update_index(index[0], value=value, dim=0)
+            value.index_copy_(0, recv_idx, replacement_tensor)
+            return value
+
+        if value.ndim == 2 and isinstance(index[1], torch.Tensor):
+            n_lev = slice_stop(index[0], value.shape[0])
+            if n_lev is not None:
+                recv_idx = as_update_index(index[1], value=value, dim=1)
+                value[:n_lev, :].index_copy_(1, recv_idx, replacement_tensor)
+                return value
+
+        if value.ndim == 3 and isinstance(index[0], int) and isinstance(index[2], torch.Tensor):
+            n_lev = slice_stop(index[1], value.shape[1])
+            if n_lev is not None:
+                recv_idx = as_update_index(index[2], value=value, dim=2)
+                value[int(index[0]), :n_lev, :].index_copy_(1, recv_idx, replacement_tensor)
+                return value
+
+        value[index] = replacement_tensor
+        return value
 
     def halo_update_axis0(self, value: Tensor, send_idx: Any, recv_idx: Any) -> Tensor:
         send_idx_tensor = self.asarray(send_idx, dtype=torch.int64, device=value.device)
@@ -1447,6 +1509,11 @@ class TorchBackend(AbstractBackend):
         if use_torch_distributed_cuda(value):
             reduced = torch.empty(value.shape, dtype=value.dtype, device=value.device)
             reduced.copy_(value)
+            torch.distributed.all_reduce(reduced, op=torch_reduce_op(op))
+            return reduced
+
+        if use_torch_distributed_gloo_tensor(value):
+            reduced = value.contiguous().clone()
             torch.distributed.all_reduce(reduced, op=torch_reduce_op(op))
             return reduced
 
