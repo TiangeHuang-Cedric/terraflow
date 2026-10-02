@@ -36,11 +36,14 @@ def div_operator_1d(
         le = mesh.le  # (nedge,)
         # ==========================================================
         ed_idx  = cell_ed  # (ncell, maxnnb)
-        le_tile = le[ed_idx]  # (ncell, maxnnb)
-        x_tile  = f[ed_idx]  # (ncell, maxnnb)
-        x_tile  = bkd.where(ed_idx < 0, 0.0, x_tile)
+        valid_ed = ed_idx >= 0
+        safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+        le_tile = bkd.take(le, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+        x_tile  = bkd.take(f, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+        div_tile = cell_nr * le_tile * x_tile
+        div_tile = bkd.where(valid_ed, div_tile, 0.0)
         res = bkd.sum(
-            cell_nr * le_tile * x_tile,
+            div_tile,
             axis=-1
         ) / area_cell
         # ==========================================================
@@ -70,11 +73,14 @@ def div_operator_2d(
         # ======================================================
         def _wrap(f_1d: Float[Array, "nedge"]) -> Float[Array, "ncell"]:
             ed_idx = cell_ed  # (ncell, maxnnb)
-            leng_tile = le[ed_idx]  # (ncell, maxnnb)
-            x_tile = f_1d[ed_idx]  # (ncell, maxnnb)
-            x_tile = bkd.where(ed_idx < 0, 0.0, x_tile)
+            valid_ed = ed_idx >= 0
+            safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+            leng_tile = bkd.take(le, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+            x_tile = bkd.take(f_1d, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+            div_tile = cell_nr * leng_tile * x_tile
+            div_tile = bkd.where(valid_ed, div_tile, 0.0)
             return bkd.sum(
-                cell_nr * leng_tile * x_tile,
+                div_tile,
                 axis=-1
             ) / area_cell
 
@@ -108,12 +114,15 @@ def curl_operator_1d(
         edptg_eddnr = mesh.edptg_eddnr  # (nedge,)
         # ==========================================================
         ed_idx = vtx_ed  # (nvtx, maxnnb)
-        f_tile = f[ed_idx]  # (nvtx, maxnnb)
-        f_tile = bkd.where(ed_idx < 0, 0.0, f_tile)
-        de_tile = de[ed_idx]  # (nvtx, maxnnb)
-        edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
+        valid_ed = ed_idx >= 0
+        safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+        f_tile = bkd.take(f, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+        de_tile = bkd.take(de, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+        edptg_eddnr_tile = bkd.take(edptg_eddnr, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+        curl_tile = f_tile * edptg_eddnr_tile * vtx_nr * de_tile
+        curl_tile = bkd.where(valid_ed, curl_tile, 0.0)
         res = bkd.sum(
-            f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
+            curl_tile,
             axis=-1
         ) / area_vtx
     else:
@@ -145,12 +154,15 @@ def curl_operator_2d(
 
         def _wrap(f_1d: Float[Array, "nedge"]) -> Float[Array, "nvtx"]:
             ed_idx = vtx_ed  # (nvtx, maxnnb)
-            f_tile = f_1d[ed_idx]  # (nvtx, maxnnb)
-            f_tile = bkd.where(ed_idx < 0, 0.0, f_tile)
-            de_tile = de[ed_idx]  # (nvtx, maxnnb)
-            edptg_eddnr_tile = edptg_eddnr[ed_idx]  # (nvtx, maxnnb)
+            valid_ed = ed_idx >= 0
+            safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+            f_tile = bkd.take(f_1d, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+            de_tile = bkd.take(de, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+            edptg_eddnr_tile = bkd.take(edptg_eddnr, safe_ed_idx, axis=0)  # (nvtx, maxnnb)
+            curl_tile = f_tile * edptg_eddnr_tile * vtx_nr * de_tile
+            curl_tile = bkd.where(valid_ed, curl_tile, 0.0)
             return bkd.sum(
-                f_tile * edptg_eddnr_tile * vtx_nr * de_tile,
+                curl_tile,
                 axis=-1
             ) / area_vtx
 
@@ -243,21 +255,23 @@ def wind_c2a_operator(
     bkd           = mesh.dev.backend
 
     eps = bkd.eps(cell_xyz.dtype)
+    valid_cell_ed = cell_ed >= 0
+    safe_cell_ed = bkd.where(valid_cell_ed, cell_ed, 0)
 
     def _wrap_at_single_lev(un: Float[Array, "nedge"]) -> dict[str, Float[Array, "ncell"]]:
 
         # Vectorized computation over all cells
         # Gather edge data for all cells at once: (ncell, maxnnb, ...)
-        OPi = dual_edge_xyz[cell_ed]  # (ncell, maxnnb, 3)
-        nei = edge_nr[cell_ed] * R  # (ncell, maxnnb, 3)
-        wind = un[cell_ed]  # (ncell, maxnnb)
-        leng = le[cell_ed]  # (ncell, maxnnb)
+        OPi  = bkd.take(dual_edge_xyz, safe_cell_ed, axis=0)  # (ncell, maxnnb, 3)
+        nei  = bkd.take(edge_nr, safe_cell_ed, axis=0) * R  # (ncell, maxnnb, 3)
+        wind = bkd.take(un, safe_cell_ed, axis=0)  # (ncell, maxnnb)
+        leng = bkd.take(le, safe_cell_ed, axis=0)  # (ncell, maxnnb)
 
         # Create mask for valid neighbors: (ncell, maxnnb)
         # Use shape inference to get maxnnb instead of accessing it as a field
         maxnnb = cell_ed.shape[1]
         pos = bkd.arange(maxnnb)[None, :]  # (1, maxnnb)
-        mask = pos < cell_nnb[:, None]  # (ncell, maxnnb)
+        mask = (pos < cell_nnb[:, None]) & valid_cell_ed  # (ncell, maxnnb)
 
         # Project edge midpoints onto tangent plane at cell centroids
         # OPc: (ncell, 3) -> (ncell, 1, 3) for broadcasting

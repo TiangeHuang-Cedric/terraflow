@@ -99,14 +99,15 @@ class HybridVerticalCoordinateSetup(AbstractVertHistorySetup):
         ds.createVariable("lev", "f8", ("lev",))
         ds.createVariable("ilev", "f8", ("ilev",))
         # Assign data
-        dev = self.vert.dev
+        lev_hw = self.vert.lev_hw
+        dev    = self.vert.dev
         lev            = ds.variables["lev"]
-        lev[:]         = dev.to_host(self.vert.full_lev)
+        lev[:]         = dev.to_host(self.vert.full_lev[lev_hw:self.vert.full_nlev+lev_hw])
         lev.long_name  = "Full vertical level"
         lev.units      = "Pa"
         lev.positive   = "down"
         ilev           = ds.variables["ilev"]
-        ilev[:]        = dev.to_host(self.vert.half_lev)
+        ilev[:]        = dev.to_host(self.vert.half_lev[lev_hw:self.vert.half_nlev+lev_hw])
         ilev.long_name = "Half vertical level"
         ilev.units     = "Pa"
         ilev.positive  = "down"

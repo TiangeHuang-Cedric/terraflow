@@ -40,7 +40,7 @@ def ref_calc_ps(block: Block) -> Block:
             f=ref_ps,
             meta=block.static.ref_ps.meta
         )
-        ref_ps_smth = ref_ps
+        ref_ps_smth = ref_ps + bkd.zeros_like(ref_ps)
         for _ in range(50):
             block, ref_ps_smth = laplace_damp_1d(
                 block=block,

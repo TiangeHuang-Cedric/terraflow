@@ -5,7 +5,7 @@ import importlib
 if TYPE_CHECKING:
     from terraflow.model.config import UserConfig
     from terraflow.model.shallow_water import build_shallow_water_model
-    from terraflow.model.hydrostatic import build_hydrostatic_model
+    from terraflow.model.baroclinic import build_baroclinic_model
     from terraflow.model.adv import build_adv_2d_model
     from terraflow.model.adv import build_adv_3d_model
 
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 _LAZY_CLASS = {
     "UserConfig": "terraflow.model.config.UserConfig",
     "build_shallow_water_model": "terraflow.model.shallow_water.build_shallow_water_model",
-    "build_hydrostatic_model": "terraflow.model.hydrostatic.build_hydrostatic_model",
+    "build_baroclinic_model": "terraflow.model.baroclinic.build_baroclinic_model",
     "build_adv_2d_model": "terraflow.model.adv.build_adv_2d_model",
     "build_adv_3d_model": "terraflow.model.adv.build_adv_3d_model"
 }
@@ -22,7 +22,7 @@ _LAZY_CLASS = {
 __all__ = [
     "UserConfig",
     "build_shallow_water_model",
-    "build_hydrostatic_model",
+    "build_baroclinic_model",
     "build_adv_2d_model",
     "build_adv_3d_model",
 ]

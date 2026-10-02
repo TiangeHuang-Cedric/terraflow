@@ -346,7 +346,7 @@ def calc_edptg_eddnr(mesh: SCVTMesh) -> Array:
     edptg_eddnr = mesh.edptg_eddnr
     edp_tg = mesh.edge_tg     [ids:ide+1,:]
     edd_nr = mesh.dual_edge_nr[ids:ide+1,:]
-    tmp = bkd.astype(bkd.sign(bkd.sum(edp_tg * edd_nr, axis=-1)), edptg_eddnr.dtype)
+    tmp = bkd.astype(math.sign(bkd, bkd.sum(edp_tg * edd_nr, axis=-1)), edptg_eddnr.dtype)
     edptg_eddnr = bkd.slice_update(edptg_eddnr, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edptg_eddnr, "edge")
 
@@ -362,7 +362,7 @@ def calc_edpnr_eddtg(mesh: SCVTMesh) -> Array:
     edpnr_eddtg = mesh.edpnr_eddtg
     edp_nr = mesh.edge_nr     [ids:ide+1,:]
     edd_tg = mesh.dual_edge_tg[ids:ide+1,:]
-    tmp = bkd.astype(bkd.sign(bkd.sum(edp_nr * edd_tg, axis=-1)), edpnr_eddtg.dtype)
+    tmp = bkd.astype(math.sign(bkd, bkd.sum(edp_nr * edd_tg, axis=-1)), edpnr_eddtg.dtype)
     edpnr_eddtg = bkd.slice_update(edpnr_eddtg, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edpnr_eddtg, "edge")
 
@@ -380,7 +380,7 @@ def calc_edp12_edptg(mesh: SCVTMesh) -> Array:
     edp2 = mesh.vtx_of_edge[ids:ide+1, 1]  # (n_edge, )
     edp12 = mesh.vtx_xyz[edp2, :] - mesh.vtx_xyz[edp1, :]  # (n_edge, 3)
     edp_tg = mesh.edge_tg[ids:ide+1, :]
-    tmp = bkd.astype(bkd.sign(bkd.sum(edp12 * edp_tg, axis=-1)), edp12_edptg.dtype)
+    tmp = bkd.astype(math.sign(bkd, bkd.sum(edp12 * edp_tg, axis=-1)), edp12_edptg.dtype)
     edp12_edptg = bkd.slice_update(edp12_edptg, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edp12_edptg, "edge")
 
@@ -398,6 +398,6 @@ def calc_edp12_eddnr(mesh: SCVTMesh) -> Array:
     edp2 = mesh.vtx_of_edge[ids:ide+1, 1]  # (n_edge, )
     edp12 = mesh.vtx_xyz[edp2, :] - mesh.vtx_xyz[edp1, :]  # (n_edge, 3)
     edd_nr = mesh.dual_edge_nr[ids:ide+1]
-    tmp = bkd.astype(bkd.sign(bkd.sum(edp12 * edd_nr, axis=-1)), edp12_eddnr.dtype)
+    tmp = bkd.astype(math.sign(bkd, bkd.sum(edp12 * edd_nr, axis=-1)), edp12_eddnr.dtype)
     edp12_eddnr = bkd.slice_update(edp12_eddnr, slice(ids, ide+1), tmp)
     return fill_halo(mesh.halo, edp12_eddnr, "edge")

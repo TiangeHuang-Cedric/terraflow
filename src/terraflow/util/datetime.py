@@ -145,7 +145,7 @@ class DateTimeManager:
                     "Either end_time_str or run_time must be provided."
                 )
             start_time_ = datetime.datetime.fromisoformat(start_time)
-            run_time_value = int(run_time.split()[0])
+            run_time_value = float(run_time.split()[0])
             run_time_unit = run_time.split()[1]
             run_time_ = datetime.timedelta(**{run_time_unit: run_time_value})
             end_time_ = start_time_ + run_time_

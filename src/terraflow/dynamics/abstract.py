@@ -90,6 +90,7 @@ class AbstractBlock(
     adv_batch_bg   : ADVBATCH
     adv_batch_pt   : ADVBATCH
     adv_batches    : dict[str, ADVBATCH]
+    adv_batch_nh   : ADVBATCH
     tracers        : TRACERS
     equaux         : AUXDS
 

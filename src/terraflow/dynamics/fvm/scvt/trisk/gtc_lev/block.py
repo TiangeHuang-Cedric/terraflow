@@ -32,6 +32,7 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     calc_div,
     operators_prepare_1
 )
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.prepare import ref
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.model.common import diagnose
 
 
@@ -104,6 +105,22 @@ class Block(
             )
         else:
             adv_batch_pt = AdvBatchType()
+        if mode.is_nonhydrostatic():
+            adv_batch_nh = AdvBatchType.from_mesh(
+                mode=mode,
+                mesh=mesh,
+                scheme=cfg.nh_adv_scheme,
+                batch_name="nh",
+                batch_loc="lev",
+                dt=cfg.dt_dyn_seconds,
+                dt_dyn=cfg.dt_dyn_seconds,
+                dynamic=True,
+                passive=True,
+                semilag=False,
+                dev=dev
+            )
+        else:
+            adv_batch_nh = AdvBatchType()
         if tracers is not None:
             # Parse batch information from tracers_meta
             batch_names: list[str] = []
@@ -161,6 +178,7 @@ class Block(
             aux=aux,
             adv_batch_bg=adv_batch_bg,
             adv_batch_pt=adv_batch_pt,
+            adv_batch_nh=adv_batch_nh,
             adv_batches=adv_batches,
             tracers=tracers,
             equaux=EquationAuxDataset.empty(),
@@ -197,23 +215,23 @@ class Block(
         # Ensure bottom gz_lev is the same as gzs
         if self.mode.is_baroclinic():
             # -----------------------------------------------------
-            gz_lev = self.state .gz_lev.unwrap()[0, :, :]
-            gzs    = self.static.gzs   .unwrap()
+            gz_lev = self.state.gz_lev.unwrap()
+            gzs    = self.static.gzs  .unwrap()
             k        = self.mesh.half_kde
             ids, ide = self.mesh.cell_ids, self.mesh.cell_ide
             # -----------------------------------------------------
-            gz_lev   = bkd.slice_update(gz_lev, (k, slice(ids, ide+1)), gzs[ids:ide+1])
-            gz_lev   = fill_field2d_array_halo(
-                halo=self.mesh.halo, 
-                f=gz_lev,
-                meta=self.state.gz_lev.meta
-            )
+            for itime in range(self.state.gz_lev.meta.expand_dim0_len):
+                gz_lev  = bkd.slice_update(gz_lev, (itime, k, slice(ids, ide+1)), gzs[ids:ide+1])
+                gz_lev_ = fill_field2d_array_halo(
+                    halo=self.mesh.halo, 
+                    f=gz_lev[itime],
+                    meta=self.state.gz_lev.meta
+                )
+                gz_lev  = bkd.slice_update(gz_lev, (itime, None, None), gz_lev_) 
             self = self.backend.tree_at(
                 where=lambda b: b.state.gz_lev.d,
                 pytree=self,
-                replace=gz_lev,
-                at_dims=0,
-                at_idxes=0
+                replace=gz_lev
             )
         # =========================================================
         # Calculate u and v component at cell
@@ -246,6 +264,7 @@ class Block(
                 pytree=self,
                 replace=ref_ps,
             )
+            self = ref.ref_calc_ps(block=self)
         # =========================================================
         equaux = EquationAuxDataset.initialize(
             mode=self.mode,

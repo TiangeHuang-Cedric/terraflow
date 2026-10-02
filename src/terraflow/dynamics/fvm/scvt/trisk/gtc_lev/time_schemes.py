@@ -297,7 +297,7 @@ def update_pt(
             old_dmg    = block.state.dmg       .unwrap()[old_idx, :, :]
             new_dmg    = block.state.dmg       .unwrap()[new_idx, :, :]
             dptdt      = block.tend .dptdt     .unwrap()
-            dptdt_damp = block.aux  .dundt_damp.unwrap()
+            dptdt_damp = block.aux  .dptdt_damp.unwrap()
 
             old_pt  = block.state.pt    .unwrap()[old_idx, :, :]
             new_pt  = block.state.pt    .unwrap()[new_idx, :, :]

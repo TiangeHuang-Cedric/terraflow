@@ -4,6 +4,7 @@ import numpy as np
 
 
 from terraflow.util.device import AbstractDevice
+from terraflow.util.math import sign
 from terraflow.util.sphere_geometry import _project_sphere2plane
 from terraflow.mesh.scvt import operators as mesh_ops
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryData
@@ -94,21 +95,22 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         cell_xyz          = mesh.cell_xyz [ids:ihe+1, :] / radius
         area_cell         = mesh.area_cell[ids:ihe+1   ]
         is_valid_cell_nnb = cell_ed >= 0
+        safe_cell_ed      = bkd.where(is_valid_cell_nnb, cell_ed, 0)
 
         # (ncell, maxnnb, 3)
         local_basis = project_sphere2plane(
             bkd=bkd,
             R=para.radius.unwrap(),
             op0=cell_xyz,
-            op1=dual_edge_xyz[cell_ed, :] / radius,
+            op1=bkd.take(dual_edge_xyz, safe_cell_ed, axis=0) / radius,
         )
         # (ncell, maxnnb, 3)
-        tmp = le[cell_ed, None] * bkd.sum(
+        tmp = bkd.take(le, safe_cell_ed, axis=0)[:, :, None] * bkd.sum(
             local_basis / bkd.norm(
                 local_basis,
                 axis=-1,
                 keepdims=True
-            ) * edpe_nr[cell_ed, :],
+            ) * bkd.take(edpe_nr, safe_cell_ed, axis=0),
             axis=-1
         )[:, :, None] * local_basis / area_cell[:, None, None]
         tmp = bkd.where(
@@ -124,20 +126,22 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
         area_vtx          = mesh.area_vtx[ids:ihe+1   ]
         vtx_xyz           = mesh.vtx_xyz [ids:ihe+1, :] / radius
         is_valid_vtx_nnb  = vtx_ed >= 0
+        safe_vtx_ed       = bkd.where(is_valid_vtx_nnb, vtx_ed, 0)
 
         # (nvtx, maxnnb_dual, 3)
         local_basis = project_sphere2plane(
             bkd=bkd,
             R=para.radius.unwrap(),
             op0=vtx_xyz,
-            op1=dual_edge_xyz[vtx_ed, :] / radius,
+            op1=bkd.take(dual_edge_xyz, safe_vtx_ed, axis=0) / radius,
         )
 
         # (nvtx, maxnnb_dual, 3)
-        cross_product = bkd.cross(dual_edge_xyz[vtx_ed, :], local_basis, axis=-1)
+        dual_edge_xyz_tile = bkd.take(dual_edge_xyz, safe_vtx_ed, axis=0)
+        cross_product = bkd.cross(dual_edge_xyz_tile, local_basis, axis=-1)
         # (nvtx, maxnnb_dual)
         tmp = bkd.sum(
-            edpe_nr[vtx_ed, :] * cross_product / bkd.norm(
+            bkd.take(edpe_nr, safe_vtx_ed, axis=0) * cross_product / bkd.norm(
                 cross_product,
                 axis=-1,
                 keepdims=True
@@ -145,7 +149,7 @@ class SmagorinskyDampData(AbstractEquationAuxiliaryData):
             axis=-1
         )
         # (nvtx, maxnnb_dual, 3)
-        tmp = cross_product * tmp[:, :, None] * de[vtx_ed, None]
+        tmp = cross_product * tmp[:, :, None] * bkd.take(de, safe_vtx_ed, axis=0)[:, :, None]
         tmp = tmp / area_vtx[:, None, None]
         tmp = bkd.where(
             is_valid_vtx_nnb[:, :, None],
@@ -194,18 +198,28 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     # (nlev, ncell, 3)
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ihe = mesh.cell_ids, mesh.cell_ihe[1]
+    cell_ed_ = cell_ed[ids:ihe+1, :]
+    valid_cell_ed = cell_ed_ >= 0
+    safe_cell_ed = bkd.where(valid_cell_ed, cell_ed_, 0)
+    un_at_cell = bkd.take(un[kds:kde+1, :], safe_cell_ed, axis=1)
+    un_at_cell = bkd.where(valid_cell_ed[None, :, :], un_at_cell, 0.0)
     vec_at_cell = bkd.slice_update(vec_at_cell, (slice(kds, kde+1), slice(ids, ihe+1), slice(None)),
         bkd.sum(
-            un[kds:kde+1, cell_ed[ids:ihe+1, :], None] * perot_wgt_at_cell[None, ids:ihe+1, :, :],
+            un_at_cell[:, :, :, None] * perot_wgt_at_cell[None, ids:ihe+1, :, :],
             axis=-2
         )
     )
     # (nlev, nvtx, 3)
     kds, kde = mesh.full_kds, mesh.full_kde
     ids, ihe = mesh.vtx_ids , mesh.vtx_ihe[0]
+    vtx_ed_ = vtx_ed[ids:ihe+1, :]
+    valid_vtx_ed = vtx_ed_ >= 0
+    safe_vtx_ed = bkd.where(valid_vtx_ed, vtx_ed_, 0)
+    un_at_vtx = bkd.take(un[kds:kde+1, :], safe_vtx_ed, axis=1)
+    un_at_vtx = bkd.where(valid_vtx_ed[None, :, :], un_at_vtx, 0.0)
     vec_at_vtx = bkd.slice_update(vec_at_vtx, (slice(kds, kde+1), slice(ids, ihe+1), slice(None)),
         bkd.sum(
-            un[kds:kde+1, vtx_ed [ids:ihe+1, :], None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :],
+            un_at_vtx[:, :, :, None] * perot_wgt_at_vtx [None, ids:ihe+1, :, :],
             axis=-2
         )
     )
@@ -226,8 +240,8 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     pc1pc2 = cell_xyz[pc2, :] - cell_xyz[pc1, :]
     dc1dc2 = vtx_xyz [dc2, :] - vtx_xyz [dc1, :]
     # (nedge,)
-    flag1 = bkd.sign(bkd.sum(pc1pc2 * edge_nr[ids:ihe+1, :], axis=-1))
-    flag2 = bkd.sign(bkd.sum(dc1dc2 * edge_tg[ids:ihe+1, :], axis=-1))
+    flag1 = sign(bkd, bkd.sum(pc1pc2 * edge_nr[ids:ihe+1, :], axis=-1))
+    flag2 = sign(bkd, bkd.sum(dc1dc2 * edge_tg[ids:ihe+1, :], axis=-1))
     # =====================================================
     # (nlev, nedge)
     un_pc1 = bkd.sum(vec_at_cell[kds:kde+1, pc1, :] * edge_nr[ids:ihe+1, :], axis=-1)
@@ -276,9 +290,17 @@ def smag_damp_prepare(block: Block, itime: INT[Array, ""] | int, dt: float) -> B
     if block.mode.is_nonhydrostatic():
         kds, kde = mesh.half_kds, mesh.half_kde
         ids, ihe = mesh.edge_ids, mesh.edge_ihe[0]
+        smag_coef_pad = bkd.concatenate(
+            [smag_coef, bkd.zeros_like(smag_coef[kde-1:, :])],
+            axis=0
+        )
+        full_dlev_pad = bkd.concatenate(
+            [mesh.full_dlev, mesh.full_dlev[kde-1:]],
+            axis=0
+        )
         tmp = 0.5 * (
-            mesh.full_dlev[kds:kde    ] / mesh.half_dlev[kds+1:kde+1] * smag_coef[kds+1:kde+1, ids:ihe+1] +
-            mesh.full_dlev[kds+1:kde+1] / mesh.half_dlev[kds+1:kde+1] * smag_coef[kds:kde    , ids:ihe+1]
+            full_dlev_pad[kds:kde    , None] / mesh.half_dlev[kds+1:kde+1, None] * smag_coef_pad[kds+1:kde+1, ids:ihe+1] +
+            full_dlev_pad[kds+1:kde+1, None] / mesh.half_dlev[kds+1:kde+1, None] * smag_coef_pad[kds:kde    , ids:ihe+1]
         )
         smag_coef_lev = bkd.slice_update(smag_coef_lev, (slice(kds+1, kde+1), slice(ids, ihe+1)), tmp)
     # =====================================================

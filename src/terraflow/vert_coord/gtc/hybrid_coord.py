@@ -45,40 +45,105 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hybm: Float[Array, "nlev"],
         full_lev: Float[Array, "nlev"],
         half_lev: Float[Array, "nlev+1"],
+        lev_hw: int,
         dev: AbstractDevice
     ):
         bkd = dev.backend
+        if lev_hw < 0:
+            raise ValueError(f"lev_hw must be non-negative, got {lev_hw}.")
+        self.lev_hw = lev_hw
         self.dev = dev
         self.p0 = p0
         self.ptop = ptop
         self.local_ptop = local_ptop
+
+        full_nlev = int(full_lev.shape[0])
+        half_nlev = int(half_lev.shape[0])
+        if half_nlev != full_nlev + 1:
+            raise ValueError(
+                "Hybrid vertical coordinate requires half_lev to have one "
+                f"more level than full_lev, got {half_nlev} and {full_nlev}."
+            )
+        if hyam.shape[0] != full_nlev or hybm.shape[0] != full_nlev:
+            raise ValueError(
+                "Hybrid midpoint coefficients must match full_lev length."
+            )
+        if hyai.shape[0] != half_nlev or hybi.shape[0] != half_nlev:
+            raise ValueError(
+                "Hybrid interface coefficients must match half_lev length."
+            )
+
+        def zero_pad(value):
+            return bkd.concatenate(
+                [
+                    bkd.zeros(lev_hw, dtype=value.dtype, device=value.device),
+                    value,
+                    bkd.zeros(lev_hw, dtype=value.dtype, device=value.device)
+                ],
+                axis=0
+            )
+
+        def edge_pad(value):
+            return bkd.concatenate(
+                [
+                    bkd.full(
+                        (lev_hw,),
+                        value[0],
+                        dtype=value.dtype,
+                        device=value.device
+                    ),
+                    value,
+                    bkd.full(
+                        (lev_hw,),
+                        value[-1],
+                        dtype=value.dtype,
+                        device=value.device
+                    )
+                ],
+                axis=0
+            )
+
+        if full_nlev > 1:
+            full_dlev = half_lev[1:] - half_lev[:-1]
+        else:
+            full_dlev = bkd.full(
+                (1,),
+                1,
+                dtype=full_lev.dtype,
+                device=full_lev.device
+            )
+
+        half_dlev = bkd.zeros_like(half_lev)
+        half_dlev = bkd.slice_update(half_dlev, 0, full_lev[0] - half_lev[0])
+        if full_nlev > 1:
+            half_dlev = bkd.slice_update(
+                half_dlev,
+                slice(1, full_nlev),
+                full_lev[1:] - full_lev[:-1]
+            )
+        half_dlev = bkd.slice_update(
+            half_dlev,
+            full_nlev,
+            half_lev[-1] - full_lev[-1]
+        )
+
+        hyai = zero_pad(hyai)
+        hybi = zero_pad(hybi)
+        hyam = zero_pad(hyam)
+        hybm = zero_pad(hybm)
+        full_lev  = zero_pad(full_lev)
+        half_lev  = zero_pad(half_lev)
+        full_dlev = edge_pad(full_dlev)
+        half_dlev = edge_pad(half_dlev)
+
         self.hyai = hyai
         self.hybi = hybi
         self.hyam = hyam
         self.hybm = hybm
         self.full_lev = full_lev
         self.half_lev = half_lev
-        self.full_nlev = full_lev.shape[0]
-        self.half_nlev = half_lev.shape[0]
-        # =========================================================
-        # full dlev
-        full_dlev = self.half_lev[1:] - self.half_lev[:-1]
-        # =========================================================
-        # half dlev
-        half_dlev = bkd.zeros_like(self.half_lev)
-        # =========================================
-        # k = 1
-        tmp = self.full_lev[0] - self.half_lev[0]
-        half_dlev = bkd.slice_update(half_dlev, 0, tmp)
-        # =========================================
-        # k = 2, ..., nlev
-        tmp = self.full_lev[1:]-self.full_lev[:-1]
-        half_dlev = bkd.slice_update(half_dlev, slice(1, -1), tmp)
-        # =========================================
-        # k = nlev + 1
-        tmp = self.half_lev[-1] - self.full_lev[-1]
-        half_dlev = bkd.slice_update(half_dlev, -1, tmp)
-        # =========================================================
+        self.full_nlev = full_nlev
+        self.half_nlev = half_nlev
         self.full_dlev = full_dlev
         self.half_dlev = half_dlev
 
@@ -99,6 +164,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hybm: Float[Array, "nlev"],
         full_lev: Float[Array, "nlev"],
         half_lev: Float[Array, "nlev+1"],
+        lev_hw: int,
         dev: AbstractDevice
     ) -> Self:
         """Initialize the HybridVertCoordinate with global coefficients."""
@@ -112,6 +178,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
@@ -187,15 +254,16 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         ks: IntType,
         ke: IntType,
     ) -> Float[Array, "nlev npoints ..."]:
-        hybi = self.hybi[ks:ke+1, None]
+        hybi_l = self.hybi[ks:ke, None]
+        hybi_r = self.hybi[ks+1:ke+1, None]
         dmgsdt = dmgsdt[None, :]
-        tmp = hybi[ks+1:ke, ...] - hybi[ks:ke+1, ...]
-        return tmp * dmgsdt
+        return (hybi_r - hybi_l) * dmgsdt
 
     @classmethod
     def test_l15(
         cls,
         dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using test 15-level coefficients.
@@ -209,7 +277,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l15(dev)
         p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -222,6 +290,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
@@ -229,6 +298,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
     def test_l15_2(
         cls,
         dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using test 15-level coefficients (variant 2).
@@ -242,7 +312,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l15_2(dev)
         p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -255,13 +325,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def test_l26(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using test 26-level coefficients.
@@ -275,7 +347,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l26(dev)
         p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -288,13 +360,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def test_l30(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using test 30-level coefficients.
@@ -308,7 +382,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         bkd = dev.backend
         hyai, hybi = hybrid_coord_test_l30(dev)
         p0 = HYBRID_COORD_P0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -321,6 +395,53 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
+            dev=dev
+        )
+        
+    @classmethod
+    def schar_l40(cls, dev: device.AbstractDevice, lev_hw: int = 0) -> Self:
+        from .hybrid_coord_test import hybrid_coord_schar_l40
+        bkd = dev.backend
+        hyai, hybi = hybrid_coord_schar_l40(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hyai[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev,
+            lev_hw=lev_hw,
+            dev=dev
+        )
+            
+    @classmethod
+    def dcmip31_l10(cls, dev: device.AbstractDevice, lev_hw: int = 0) -> Self:
+        from .hybrid_coord_test import hybrid_coord_dcmip31_l10
+        bkd = dev.backend
+        hyai, hybi = hybrid_coord_dcmip31_l10(dev)
+        p0 = HYBRID_COORD_P0
+        ptop = p0 * hyai[0]
+        hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
+        full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
+        return cls.init_global(
+            p0=bkd.array(p0, dtype=dev.float_type),
+            ptop=bkd.array(ptop, dtype=dev.float_type),
+            local_ptop=bkd.array(LOCAL_PTOP, dtype=dev.float_type),
+            hyai=hyai,
+            hybi=hybi,
+            hyam=hyam,
+            hybm=hybm,
+            full_lev=full_lev,
+            half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
@@ -330,6 +451,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         nlev: int,
         para: PlanetParameterSet,
         dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using DCMIP1-2 coefficients.
@@ -361,13 +483,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def ecmwf_l50(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using ECMWF 50-level coefficients.
@@ -382,7 +506,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyai, hybi = hybrid_coord_ecmwf_l50(dev)
         p0 = 1e5  # ECMWF standard surface pressure in Pa
         hyai = hyai / p0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -395,13 +519,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def ecmwf_l90(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using ECMWF 90-level coefficients.
@@ -416,7 +542,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         hyai, hybi = hybrid_coord_ecmwf_l90(dev)
         p0 = 1e5  # ECMWF standard surface pressure in Pa
         hyai = hyai / p0
-        ptop = p0 * hybi[0]
+        ptop = p0 * hyai[0]
         hyam, hybm = calc_hybrid_midpoint_coeff(hyai, hybi)
         full_lev, half_lev = calc_full_and_half_levels(hyai, hybi, hyam, hybm)
         return cls.init_global(
@@ -429,13 +555,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def wrf_l26(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using WRF 26-level coefficients.
@@ -460,13 +588,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def wrf_l32(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using WRF 32-level coefficients.
@@ -491,13 +621,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def wrf_l60(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using WRF 60-level coefficients.
@@ -522,13 +654,15 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
     @classmethod
     def wrf_l64(
         cls,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using WRF 64-level coefficients.
@@ -553,6 +687,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
@@ -561,7 +696,8 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         cls,
         *,
         p0: float = HYBRID_COORD_P0,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using CAM 32-level coefficients.
@@ -588,6 +724,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 
@@ -596,7 +733,8 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
         cls,
         *,
         p0: float = HYBRID_COORD_P0,
-        dev: device.AbstractDevice
+        dev: device.AbstractDevice,
+        lev_hw: int = 0
     ) -> Self:
         """
         Create a HybridVertCoordinate instance using CAM 30-level coefficients.
@@ -623,6 +761,7 @@ class HybridVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
             hybm=hybm,
             full_lev=full_lev,
             half_lev=half_lev,
+            lev_hw=lev_hw,
             dev=dev
         )
 

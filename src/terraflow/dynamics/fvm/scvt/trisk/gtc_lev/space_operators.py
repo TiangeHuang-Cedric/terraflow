@@ -39,7 +39,7 @@ def operators_prepare_1(block: Block, itime: INT[Array, ""] | int, dt: float) ->
             ph     = block.state.ph    .d[itime, :, :]
             ph_lev = block.state.ph_lev.d[itime, :, :]
             block = block.backend.tree_at(
-                where=lambda b: (b.state.p, b.state.ph),
+                where=lambda b: (b.state.p.d, b.state.p_lev.d),
                 pytree=block,
                 replace=(ph, ph_lev),
                 at_dims=(0, 0),
@@ -287,7 +287,7 @@ def calc_mfz(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     )
     mfz_lev = bkd.slice_update(mfz_lev, (slice(half_kds+1, half_kde), slice(polg_ids, polg_ide+1)),
         - dmgdt_lev - bkd.cumsum(
-            dmf[:half_kde-1, polg_ids:polg_ide+1],
+            dmf[half_kds:half_kde-1, polg_ids:polg_ide+1],
             axis=0
         )
     )
@@ -326,9 +326,13 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
 
     def edge2cell(un: FLT[Array, "nedge"]) -> FLT[Array, "ncell"]:
         ed_idx = cell_ed
-        Ae = le[ed_idx] * de[ed_idx] / 4.0 # (ncell,)
+        valid_ed = ed_idx >= 0
+        safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+        Ae = bkd.take(le, safe_ed_idx, axis=0) * bkd.take(de, safe_ed_idx, axis=0) / 4.0 # (ncell,)
+        ke_tile = Ae * bkd.take(un, safe_ed_idx, axis=0) ** 2
+        ke_tile = bkd.where(valid_ed, ke_tile, 0.0)
         local_sum = bkd.sum(
-            bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2),
+            ke_tile,
             axis=-1
         )
         return local_sum / area_cell  # (ncell,)
@@ -346,9 +350,13 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         ke_cell_wgt = block.cfg.ke_cell_wgt
         def edge2vtx(un: FLT[Array, "nedge"]) -> FLT[Array, "nvtx"]:
             ed_idx = vtx_ed
-            Ae = le[ed_idx] * de[ed_idx] / 4.0 # (nvtx,)
+            valid_ed = ed_idx >= 0
+            safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+            Ae = bkd.take(le, safe_ed_idx, axis=0) * bkd.take(de, safe_ed_idx, axis=0) / 4.0 # (nvtx,)
+            ke_tile = Ae * bkd.take(un, safe_ed_idx, axis=0) ** 2
+            ke_tile = bkd.where(valid_ed, ke_tile, 0.0)
             local_sum = bkd.sum(
-                bkd.where(ed_idx < 0, 0.0, Ae * un[ed_idx] ** 2),
+                ke_tile,
                 axis=-1
             )
             return local_sum / area_vtx # (nvtx,)
@@ -356,8 +364,12 @@ def calc_ke(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block
         def vtx2cell(ke_vtx: FLT[Array, "nvtx"]) -> FLT[Array, "ncell"]:
             v_idx = vtx_of_cell
             Ae = kite_area_cell
+            valid_v = v_idx >= 0
+            safe_v_idx = bkd.where(valid_v, v_idx, 0)
+            ke_tile = Ae * bkd.take(ke_vtx, safe_v_idx, axis=0)
+            ke_tile = bkd.where(valid_v, ke_tile, 0.0)
             local_sum = bkd.sum(
-                bkd.where(v_idx < 0, 0.0, Ae * ke_vtx[v_idx]),
+                ke_tile,
                 axis=-1
             )
             return local_sum / area_cell # (ncell,)
@@ -640,8 +652,10 @@ def calc_ut(block: Block, star_idx: INT[Array, ""] | int) -> Block:
     # ==========================================================
 
     def _wrap(un: FLT[Array, "nedge"]) -> FLT[Array, "nedge"]:
-        wind_tile = un[ep_idx]
-        wind_tile = bkd.where(ep_idx < 0, 0.0, wind_tile)
+        valid_ep = ep_idx >= 0
+        safe_ep_idx = bkd.where(valid_ep, ep_idx, 0)
+        wind_tile = bkd.take(un, safe_ep_idx, axis=0)
+        wind_tile = bkd.where(valid_ep, wind_tile, 0.0)
         return bkd.sum(
             wgt[ids:ide+1, :] * le[ids:ide+1, :] * wind_tile,
             axis=-1
@@ -687,16 +701,16 @@ def calc_vor(block: Block, star_idx: INT[Array, ""] | int, with_halo: bool = Fal
 def calc_pv(block: Block, star_idx: INT[Array, ""] | int, substep: int) -> Block:
     bkd = block.backend
     mesh = block.mesh
-    ids, ihe = mesh.vtx_ids, mesh.vtx_ihe[0]
+    ids, ide = mesh.vtx_ids, mesh.vtx_ide
     kds, kde = mesh.full_kds, mesh.full_kde
     f_vtx    = mesh.f_vtx
     dmg_vtx  = block.aux.dmg_vtx.unwrap()[:, :]
     pv       = block.aux.pv     .unwrap()
     # ==========================================================
-    block = calc_vor(block, star_idx, with_halo=True)
-    vor = block.aux.vor.unwrap()[kds:kde+1, ids:ihe+1]
-    pv = bkd.slice_update(pv, (slice(kds, kde+1), slice(ids, ihe+1)),
-        (vor + f_vtx[ids:ihe+1]) / dmg_vtx[kds:kde+1, ids:ihe+1]
+    block = calc_vor(block, star_idx)
+    vor = block.aux.vor.unwrap()[kds:kde+1, ids:ide+1]
+    pv = bkd.slice_update(pv, (slice(kds, kde+1), slice(ids, ide+1)),
+        (vor + f_vtx[ids:ide+1]) / dmg_vtx[kds:kde+1, ids:ide+1]
     )
     pv = fill_field2d_array_halo(
         halo=mesh.halo,
@@ -730,11 +744,12 @@ def interp_pv_midpoint(
     pv_edge = bkd.slice_update(pv_edge, (slice(kds, kde+1), slice(ids, ide+1)),
         0.5 * (pv[kds:kde+1, v1] + pv[kds:kde+1, v2])
     )
-    pv_edge = fill_field2d_array_halo(
-        halo=mesh.halo,
-        f=pv_edge,
-        meta=block.aux.pv_edge.meta
-    )
+    if substep == block.const.total_substeps - 1 or not block.cfg.save_dyn_calc:
+        pv_edge = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=pv_edge,
+            meta=block.aux.pv_edge.meta
+        )
     return bkd.tree_at(
         where=lambda b: b.aux.pv_edge.d,
         pytree=block,
@@ -777,7 +792,7 @@ def interp_pv_upwind(
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind1_hori(
             bkd,
-            q=pv,
+            q=pv[kds:kde+1, :],
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             wgt=block.cfg.upwind_wgt_pv
@@ -790,7 +805,7 @@ def interp_pv_upwind(
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind3_hori(
             bkd,
-            q=pv,
+            q=pv[kds:kde+1, :],
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             edd_leng=le,
@@ -806,7 +821,7 @@ def interp_pv_upwind(
         le   = mesh.le[ids:ide+1] / radius
         flux2 = upwind.upwind5_hori(
             bkd,
-            q=pv,
+            q=pv[kds:kde+1, :],
             wind=wind,
             edd_v=mesh.vtx_of_edge[ids:ide+1, :],
             edd_leng=le,
@@ -821,11 +836,12 @@ def interp_pv_upwind(
         )
     else:
         raise ValueError(f"interp_pv_upwind: unsupported upwind order {upwind_order_pv}!")
-    pv_edge = fill_field2d_array_halo(
-        halo=mesh.halo,
-        f=pv_edge,
-        meta=block.aux.pv_edge.meta
-    )
+    if substep == block.const.total_substeps - 1 or not block.cfg.save_dyn_calc:
+        pv_edge = fill_field2d_array_halo(
+            halo=mesh.halo,
+            f=pv_edge,
+            meta=block.aux.pv_edge.meta
+        )
     return bkd.tree_at(
         where=lambda b: b.aux.pv_edge.d,
         pytree=block,
@@ -867,17 +883,19 @@ def calc_coriolis(block: Block, star_idx: INT[Array, ""] | int, dt: float, subst
         mfn: FLT[Array, "nEdge"],
         pv_edge: FLT[Array, "nEdge"],
     ) -> FLT[Array, "nEdge"]:
+        valid_ep = ep_idx >= 0
+        safe_ep_idx = bkd.where(valid_ep, ep_idx, 0)
         pv_iee = pv_edge[ids:ide+1]
         pv_iep = bkd.take(
             pv_edge,
-            ep_idx,
+            safe_ep_idx,
             axis=0
         )  # (nedge, max_numb*2)
         pv_eep = (pv_iee[:, None] + pv_iep) / 2  # (nedge, max_numb*2)
 
-        mfx_tile = mfn[ep_idx]  # (nedg, maxnnb*2)
-        mfx_tile = bkd.where(ep_idx < 0, 0.0, mfx_tile)
+        mfx_tile = bkd.take(mfn, safe_ep_idx, axis=0)  # (nedg, maxnnb*2)
         mfx_tile = mfx_tile * pv_eep
+        mfx_tile = bkd.where(valid_ep, mfx_tile, 0.0)
         return bkd.sum(
             wgt * le * mfx_tile,
             axis=-1
@@ -1051,6 +1069,16 @@ def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> B
             y_loc=block.aux.un_lev.meta.loc,
             extrap_type=2
         )
+        un_lev = bkd.slice_update(
+            un_lev,
+            (kds, slice(ids, ide+1)),
+            un[kds, ids:ide+1]
+        )
+        un_lev = bkd.slice_update(
+            un_lev,
+            (kde+1, slice(ids, ide+1)),
+            un[kde, ids:ide+1]
+        )
         mfz_lev_edge = interp.scvt_interp_2d(
             mesh=mesh,
             x=mfz_lev,
@@ -1076,9 +1104,17 @@ def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> B
             x_loc=block.aux.mfz_lev.meta.loc,
             y_loc=block.aux.mfz_lev_edge.meta.loc
         )
+        un_ = bkd.concatenate(
+            [
+                bkd.zeros_like(un[0:1, :]),
+                un,
+                bkd.zeros_like(un[kde:kde+1, :])
+            ],
+            axis=0
+        )
         tmp = - (
-            mfz_lev_edge[kds+1:kde+2, ids:ide+1] * (un[kds+1:kde+2, ids:ide+1] - un[kds:kde+1, ids:ide+1]) -
-            mfz_lev_edge[kds:kde+1  , ids:ide+1] * (un[kds-1:kde  , ids:ide+1] - un[kds:kde+1, ids:ide+1])
+            mfz_lev_edge[kds+1:kde+2, ids:ide+1] * (un_[kds+2:kde+3, ids:ide+1] - un[kds:kde+1, ids:ide+1]) -
+            mfz_lev_edge[kds:kde+1  , ids:ide+1] * (un_[kds  :kde+1, ids:ide+1] - un[kds:kde+1, ids:ide+1])
         ) / dmg_edge[kds:kde+1, ids:ide+1] / 2
         dundt_wedundeta = bkd.slice_update(dundt_wedundeta, (slice(kds, kde+1), slice(ids, ide+1)), tmp)
         dundt = bkd.slice_update(dundt, (slice(kds, kde+1), slice(ids, ide+1)), dundt[kds:kde+1, ids:ide+1] + tmp)
@@ -1086,7 +1122,10 @@ def calc_wedundlev(block: Block, star_idx: INT[Array, ""] | int, dt: float) -> B
         raise ValueError(f"calc_wedundlev: unsupported uv_vert_adv_type {block.cfg.uv_vert_adv_type}!")
     # ==========================================================
     return bkd.tree_at(
-        where=lambda b: (b.tend.dundt.d, b.tend.dundt_wedundeta.d),
+        where=lambda b: (
+            b.tend.dundt.d, b.tend.dundt_wedundeta.d,
+            b.aux.un_lev.d, b.aux.mfz_lev_edge.d
+        ),
         pytree=block,
-        replace=(dundt, dundt_wedundeta)
+        replace=(dundt, dundt_wedundeta, un_lev, mfz_lev_edge)
     )

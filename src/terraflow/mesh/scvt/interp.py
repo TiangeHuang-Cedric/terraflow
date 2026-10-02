@@ -38,7 +38,51 @@ def scvt_interp_2d(
         kds, kde = mesh.half_kds, mesh.half_kde
         ids, ide = mesh.cell_ids, mesh.cell_ide
         if lagrange:
-            pass
+            nfull = mesh.full_kde - mesh.full_kds + 1
+
+            def interp_lagrange_at_k(y, k, start, npt):
+                x0 = mesh.half_lev[k]
+                yk = bkd.zeros_like(x[start, ids:ide+1])
+                for j in range(start, start + npt):
+                    wgt = 1.0
+                    for m in range(start, start + npt):
+                        if m != j:
+                            wgt = wgt * (
+                                (x0 - mesh.full_lev[m])
+                                / (mesh.full_lev[j] - mesh.full_lev[m])
+                            )
+                    yk = yk + wgt * x[j, ids:ide+1]
+                return bkd.slice_update(y, (k, slice(ids, ide+1)), yk)
+
+            if lagrange_order == 1:
+                if nfull < 2:
+                    raise ValueError("Lagrange interpolation order 1 requires at least 2 full levels.")
+                for k in range(kds + 1, kde):
+                    y = interp_lagrange_at_k(y, k, k - 1, 2)
+                y = interp_lagrange_at_k(y, kds, mesh.full_kds, 2)
+                y = interp_lagrange_at_k(y, kde, mesh.full_kde - 1, 2)
+            elif lagrange_order == 3:
+                if nfull < 4:
+                    raise ValueError("Lagrange interpolation order 3 requires at least 4 full levels.")
+                for k in range(kds + 2, kde - 1):
+                    y = interp_lagrange_at_k(y, k, k - 2, 4)
+                y = interp_lagrange_at_k(y, kds, mesh.full_kds, 4)
+                y = interp_lagrange_at_k(y, kds + 1, mesh.full_kds, 4)
+                y = interp_lagrange_at_k(y, kde - 1, mesh.full_kde - 3, 4)
+                y = interp_lagrange_at_k(y, kde, mesh.full_kde - 3, 4)
+            elif lagrange_order == 5:
+                if nfull < 6:
+                    raise ValueError("Lagrange interpolation order 5 requires at least 6 full levels.")
+                for k in range(kds + 3, kde - 2):
+                    y = interp_lagrange_at_k(y, k, k - 3, 6)
+                y = interp_lagrange_at_k(y, kds, mesh.full_kds, 6)
+                y = interp_lagrange_at_k(y, kds + 1, mesh.full_kds, 6)
+                y = interp_lagrange_at_k(y, kds + 2, mesh.full_kds, 6)
+                y = interp_lagrange_at_k(y, kde - 2, mesh.full_kde - 5, 6)
+                y = interp_lagrange_at_k(y, kde - 1, mesh.full_kde - 5, 6)
+                y = interp_lagrange_at_k(y, kde, mesh.full_kde - 5, 6)
+            else:
+                raise ValueError(f"Unsupported Lagrange interpolation order: {lagrange_order}!")
         else:
             # -------
             #
@@ -54,34 +98,38 @@ def scvt_interp_2d(
             y = bkd.slice_update(y, (slice(kds+1, kde), slice(ids, ide+1)),
                 a[:, None] * x[kds:kde-1, ids:ide+1] + b[:, None] * x[kds+1:kde, ids:ide+1]
             )
-            if extrap:
-                k = mesh.half_kds
-                x1 = mesh.full_lev[k  ] - mesh.half_lev[k]
-                x2 = mesh.full_lev[k+1] - mesh.half_lev[k]
-                a =  x2 / (x2 - x1)
-                b = -x1 / (x2 - x1)
-                y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k, ids:ide+1] + b * x[k+1, ids:ide+1])
-                k = mesh.half_kde
-                x1 = mesh.half_lev[k] - mesh.full_lev[k-1]
-                x2 = mesh.half_lev[k] - mesh.full_lev[k-2]
-                a =  x2 / (x2 - x1)
-                b = -x1 / (x2 - x1)
-                y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k-1, ids:ide+1] + b * x[k-2, ids:ide+1])
-            else:
-                k = mesh.half_kds
-                y = bkd.slice_update(y, (k, slice(None)), x[k, :])
-                k = mesh.half_kde
-                y = bkd.slice_update(y, (k, slice(None)), x[k-1, :])
+        if extrap:
+            k = mesh.half_kds
+            x1 = mesh.full_lev[k  ] - mesh.half_lev[k]
+            x2 = mesh.full_lev[k+1] - mesh.half_lev[k]
+            a =  x2 / (x2 - x1)
+            b = -x1 / (x2 - x1)
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k, ids:ide+1] + b * x[k+1, ids:ide+1])
+            k = mesh.half_kde
+            x1 = mesh.half_lev[k] - mesh.full_lev[k-1]
+            x2 = mesh.half_lev[k] - mesh.full_lev[k-2]
+            a =  x2 / (x2 - x1)
+            b = -x1 / (x2 - x1)
+            y = bkd.slice_update(y, (k, slice(ids, ide+1)), a * x[k-1, ids:ide+1] + b * x[k-2, ids:ide+1])
+        else:
+            k = mesh.half_kds
+            y = bkd.slice_update(y, (k, slice(None)), x[k, :])
+            k = mesh.half_kde
+            y = bkd.slice_update(y, (k, slice(None)), x[k-1, :])
     elif loc_flag == "cell>vtx":
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.vtx_ids , mesh.vtx_ide
         v1            = mesh.cell_of_vtx  [ids:ide+1, :]
         kite_area_vtx = mesh.kite_area_vtx[ids:ide+1, :]
         area_vtx      = mesh.area_vtx     [ids:ide+1   ]
+        valid_v1 = v1 >= 0
+        safe_v1 = bkd.where(valid_v1, v1, 0)
 
         def cell2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = bkd.where(v1 < 0, 0.0, x[v1])
-            local_sum = bkd.sum(x_tile * kite_area_vtx, axis=-1)
+            x_tile = bkd.take(x, safe_v1, axis=0)
+            contrib = x_tile * kite_area_vtx
+            contrib = bkd.where(valid_v1, contrib, 0.0)
+            local_sum = bkd.sum(contrib, axis=-1)
             return local_sum / area_vtx
 
         y_tmp = bkd.vmap(cell2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])
@@ -101,10 +149,14 @@ def scvt_interp_2d(
         v1             = mesh.vtx_of_cell   [ids:ide+1, :]
         kite_area_cell = mesh.kite_area_cell[ids:ide+1, :]
         area_cell      = mesh.area_cell     [ids:ide+1   ]
+        valid_v1 = v1 >= 0
+        safe_v1 = bkd.where(valid_v1, v1, 0)
 
         def vtx2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = bkd.where(v1 < 0, 0.0, x[v1])
-            local_sum = bkd.sum(x_tile * kite_area_cell, axis=-1)
+            x_tile = bkd.take(x, safe_v1, axis=0)
+            contrib = x_tile * kite_area_cell
+            contrib = bkd.where(valid_v1, contrib, 0.0)
+            local_sum = bkd.sum(contrib, axis=-1)
             return local_sum / area_cell
 
         y_tmp = bkd.vmap(vtx2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
@@ -114,13 +166,17 @@ def scvt_interp_2d(
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.cell_ids, mesh.cell_ide
         e_idx     = mesh.cell_ed  [ids:ide+1, :]
+        valid_e_idx = e_idx >= 0
+        safe_e_idx = bkd.where(valid_e_idx, e_idx, 0)
         area_cell = mesh.area_cell[ids:ide+1   ]
-        le        = mesh.le       [e_idx]
-        de        = mesh.de       [e_idx]
+        le        = bkd.take(mesh.le, safe_e_idx, axis=0)
+        de        = bkd.take(mesh.de, safe_e_idx, axis=0)
 
         def edge2cell(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
-            local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
+            x_tile = bkd.take(x, safe_e_idx, axis=0)
+            contrib = x_tile * le * de / 4.0
+            contrib = bkd.where(valid_e_idx, contrib, 0.0)
+            local_sum = bkd.sum(contrib, axis=-1)
             return local_sum / area_cell
 
         y_tmp = bkd.vmap(edge2cell, in_axes=0, out_axes=0)(x[kds:kde+1, :])
@@ -130,13 +186,17 @@ def scvt_interp_2d(
         kds, kde = mesh.full_kds, mesh.full_kde
         ids, ide = mesh.vtx_ids , mesh.vtx_ide
         e_idx    = mesh.vtx_ed  [ids:ide+1, :]
+        valid_e_idx = e_idx >= 0
+        safe_e_idx = bkd.where(valid_e_idx, e_idx, 0)
         area_vtx = mesh.area_vtx[ids:ide+1   ]
-        le       = mesh.le       [e_idx]
-        de       = mesh.de       [e_idx]
+        le       = bkd.take(mesh.le, safe_e_idx, axis=0)
+        de       = bkd.take(mesh.de, safe_e_idx, axis=0)
 
         def edge2vtx(x: FLT[Array, "npoint1"]) -> FLT[Array, "npoint2"]:
-            x_tile = bkd.where(e_idx < 0, 0.0, x[e_idx])
-            local_sum = bkd.sum(x_tile * le * de / 4.0, axis=-1)
+            x_tile = bkd.take(x, safe_e_idx, axis=0)
+            contrib = x_tile * le * de / 4.0
+            contrib = bkd.where(valid_e_idx, contrib, 0.0)
+            local_sum = bkd.sum(contrib, axis=-1)
             return local_sum / area_vtx
 
         y_tmp = bkd.vmap(edge2vtx, in_axes=0, out_axes=0)(x[kds:kde+1, :])

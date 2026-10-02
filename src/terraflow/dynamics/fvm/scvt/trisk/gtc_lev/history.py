@@ -155,6 +155,7 @@ class SCVTHistoryIOMap:
         meta: SCVTFieldMeta
     ) -> tuple[np.ndarray, np.ndarray]:
         bkd = self.history.backend
+        field_data = self.history._slice_vertical_halo(field_data, meta)
         local_data = bkd.to_numpy(field_data[..., meta.ids:meta.ide + 1])
         local_indices = self.history.owned_global_indices(meta)
         owned = self.history.source_owns_indices(self.name, local_indices)
@@ -808,6 +809,39 @@ class AbstractBaseHistory(AbstractHistory):
             f"Unsupported field location {meta.loc} for variable {meta.name}."
         )
 
+    def physical_vertical_count(self, meta: SCVTFieldMeta) -> int:
+        if meta.at_sfc:
+            return 0
+        if not meta.initialized:
+            return int(meta.nlev)
+        return int(meta.kde - meta.kds + 1)
+
+    def _slice_vertical_halo(
+        self,
+        field_data: Array,
+        meta: SCVTFieldMeta
+    ) -> Array:
+        if meta.at_sfc:
+            return field_data
+        axis = field_data.ndim - 2
+        if axis < 0:
+            raise ValueError(
+                f"Variable {meta.name} has shape {field_data.shape}, "
+                "but a vertical and horizontal dimension are required."
+            )
+        physical_nlev = self.physical_vertical_count(meta)
+        if field_data.shape[axis] == physical_nlev:
+            return field_data
+        start = int(meta.kds - meta.kms)
+        stop = start + physical_nlev
+        if start < 0 or stop > field_data.shape[axis]:
+            raise ValueError(
+                f"Variable {meta.name} has vertical shape {field_data.shape[axis]}, "
+                f"but metadata requests physical levels [{start}:{stop}]."
+            )
+        index = (slice(None),) * axis + (slice(start, stop),)
+        return field_data[index]
+
     def owned_global_indices(self, meta: SCVTFieldMeta) -> np.ndarray:
         if meta.at_cell:
             global_id = self.local_mesh.global_cell_id
@@ -1314,8 +1348,8 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         hori_regrid_method: str = "conserve_1st",
         hori_regrid_backend: str = "esmf",
         vert_interp: bool = True,
-        lon_west: float = -180,
-        lon_east: float = 180,
+        lon_west: float = 0,
+        lon_east: float = 360,
         lat_south: float = -90,
         lat_north: float = 90,
         east_west_resolution: float = 1.0,
@@ -1681,7 +1715,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
     def _get_field_ndbound(self, meta: SCVTFieldMeta) -> Optional[int]:
         if meta.at_sfc:
             return None
-        return int(meta.nlev)
+        return self.physical_vertical_count(meta)
 
     def _prebuild_regridders(self, fields: SCVTFields) -> None:
         if self.hori_regrid_backend != "esmf":
@@ -1712,6 +1746,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
     ) -> np.ndarray:
         bkd = self.backend
         regridder = self._get_regridder(meta=meta, ndbound=ndbound)
+        field_data = self._slice_vertical_halo(field_data, meta)
         field_data = field_data[..., meta.ids:meta.ide + 1]
         if meta.is_tracer:
             return np.stack(
@@ -1733,6 +1768,7 @@ class SCVT2StructuredHistory(AbstractBaseHistory):
         ph: Optional[np.ndarray] = None,
         ph_lev: Optional[np.ndarray] = None,
     ) -> np.ndarray:
+        field_data = self._slice_vertical_halo(field_data, meta)
         if meta.at_sfc:
             if meta.is_tracer:
                 if field_data.ndim == 3 and field_data.shape[1] == 1:

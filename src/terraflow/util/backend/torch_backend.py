@@ -37,6 +37,52 @@ _DTYPE_TORCH2NUMP = {
 }
 
 
+def repair_torchinductor_precompiled_headers() -> None:
+    """Drop stale TorchInductor PCH files that clang refuses to use."""
+    try:
+        import torch._inductor.codecache as codecache
+    except Exception:
+        return
+
+    cache_dir = getattr(codecache, "cache_dir", None)
+    if not callable(cache_dir):
+        return
+
+    try:
+        header_dir = os.path.join(str(cache_dir()), "precompiled_headers")
+    except Exception:
+        return
+
+    if not os.path.isdir(header_dir):
+        return
+
+    repaired = False
+    try:
+        filenames = os.listdir(header_dir)
+    except OSError:
+        return
+
+    for filename in filenames:
+        if not filename.endswith(".h"):
+            continue
+        header_path = os.path.join(header_dir, filename)
+        pch_path = header_path + ".pch"
+        if not os.path.isfile(pch_path):
+            continue
+        try:
+            if os.path.getmtime(header_path) > os.path.getmtime(pch_path):
+                os.remove(pch_path)
+                repaired = True
+        except OSError:
+            continue
+
+    if repaired:
+        precompile_header = getattr(codecache, "_precompile_header", None)
+        cache_clear = getattr(precompile_header, "cache_clear", None)
+        if callable(cache_clear):
+            cache_clear()
+
+
 def local_cuda_device_id(proc: Proc) -> int | None:
     device_count = torch.cuda.device_count()
     if device_count <= 0:
@@ -694,11 +740,13 @@ class TorchBackend(AbstractBackend):
     ):
         self.float_type = _TYPE_REMAPPING[float_type]
         self.int_type   = _TYPE_REMAPPING[int_type  ]
+        if self.float_type is torch.float64:
+            torch.set_default_dtype(torch.float64)
         self.device_string = device_string
         self.ref = ref if ref is not None else torch.device(device_string)
         self.functional_updates = functional_updates
         self._tree_at_plan_cache: dict[Any, TreeAtPlan] = {}
-        self._tree_at_cache_hits = 0
+        self._tree_at_cache_hits   = 0
         self._tree_at_cache_misses = 0
 
     def __call__(self) -> torch.device:
@@ -1436,6 +1484,7 @@ class TorchBackend(AbstractBackend):
             return fun
         if not hasattr(torch, "compile"):
             return fun
+        repair_torchinductor_precompiled_headers()
 
         try:
             import torch._dynamo.config as dynamo_config

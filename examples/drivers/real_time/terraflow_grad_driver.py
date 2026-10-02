@@ -34,7 +34,6 @@ mesh = tf.mesh.SCVTMesh.from_grist(
     para=para,
     vert_coord=vert_coord,
     hori_hw=3,
-    lev_hw=3,
     dev=dev
 )
 
@@ -76,7 +75,7 @@ bkg_reader = tf.readers.bkg.ERA5Reader(
     dev=dev
 )
 
-model = tf.model.build_hydrostatic_model(
+model = tf.model.build_baroclinic_model(
     config=config,
     para=para,
     mesh=mesh,

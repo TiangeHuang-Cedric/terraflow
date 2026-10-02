@@ -20,6 +20,8 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
+test_case = tf.test_case.adv.DCMIP12TestCase(para)
+
 vert_coord = tf.vert_coord.HybridVertCoordinate.dcmip12(
     nlev=60,
     para=para,
@@ -32,11 +34,8 @@ mesh = tf.mesh.SCVTMesh.from_grist(
     para=para,
     vert_coord=vert_coord,
     hori_hw=3,
-    lev_hw=3,
     dev=dev
 )
-
-test_case = tf.test_case.adv.DCMIP12TestCase(para)
 
 config = tf.model.UserConfig(
     bg_adv_scheme="upwind",

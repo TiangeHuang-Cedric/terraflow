@@ -5,11 +5,13 @@ from typing import TYPE_CHECKING
 from terraflow.mesh.scvt.operators import wind_c2a_operator
 from terraflow.mesh.scvt.parallel import global_sum
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.interface import pgf_run
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.nh import nh_solve
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.space_operators import (
     operators_prepare_2,
     calc_grad_mf,
     calc_dmgsdt,
     calc_mfz,
+    calc_div,
     calc_grad_ptf,
     calc_grad_ke,
     calc_coriolis,
@@ -64,6 +66,8 @@ def space_operators(
             block = pgf_run        (block, star_idx)
             block = calc_coriolis  (block, star_idx, dt, substep)
             block = calc_wedundlev (block, star_idx, dt)
+            if mode.is_nonhydrostatic():
+                block = nh_solve(block, old_idx, star_idx, new_idx, dt)
         else:
             block = calc_grad_mf   (block, star_idx)
             block = calc_grad_ke   (block, star_idx, dt)
@@ -117,8 +121,7 @@ def space_operators(
             # =============================================
     elif pass_tag == "backward_pass":
         if mode.is_nonhydrostatic():
-            # TODO: Need to add scvt_nh_solve here!
-            pass
+            block = nh_solve(block, old_idx, star_idx, new_idx, dt)
         block = operators_prepare_2(block, new_idx, dt, pass_tag, substep)
         block = pgf_run            (block, new_idx)
 
@@ -143,6 +146,10 @@ def diagnose(block: Block, itime_str: str) -> Block:
             pytree=block,
             replace=(u, v),
         )
+        
+    def diagnose_div(block: Block, itime_str: str) -> Block:
+        itime = block.get_time_idx(itime_str=itime_str)
+        return calc_div(block, itime) 
 
     def diagnose_tm(block: Block, itime_str: str) -> FLT[Array, ""]:
         # =============================================
@@ -284,6 +291,9 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # Diagnose u and v at primal cell
         block = diagnose_uv(block, itime_str=itime_str)
         # =======================================================
+        # Diagnose div
+        block = diagnose_div(block, itime_str=itime_str)
+        # =======================================================
         # Diagnose total mass, total energy, total potential enstrophy
         # =========================================
         # Total mass
@@ -324,6 +334,9 @@ def diagnose(block: Block, itime_str: str) -> Block:
         # =======================================================
         # Diagnose u and v at primal cell
         block = diagnose_uv(block, itime_str)
+        # =======================================================
+        # Diagnose div
+        block = diagnose_div(block, itime_str=itime_str)
         # =======================================================
         # Diagnose total mass, total energy, total potential enstrophy
         # =========================================

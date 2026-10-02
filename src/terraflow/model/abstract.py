@@ -13,6 +13,7 @@ from typing import (
 )
 from dataclasses import dataclass, field
 from abc import ABC, abstractmethod
+from matplotlib.pyplot import cla
 import numpy as np
 import xarray as xr
 
@@ -93,17 +94,17 @@ class ModelMode(ABC):
             advection3d=False,
             restart=restart
         )
-
+        
     @classmethod
-    def from_hdc(cls, ideal_dry_core: bool, restart: bool = False):
+    def from_baroclinic(cls, nonhydrostatic: bool, ideal_dry_core: bool, restart: bool = False):
         return cls(
             baroclinic=True,
-            hydrostatic=True,
-            nonhydrostatic=False,
+            hydrostatic=True if not nonhydrostatic else False,
+            nonhydrostatic=nonhydrostatic,
             ideal_dry_core=ideal_dry_core,
             advection2d=False,
             advection3d=False,
-            restart=restart
+            restart=restart            
         )
 
     @classmethod

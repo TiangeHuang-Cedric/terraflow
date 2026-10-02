@@ -6,7 +6,6 @@ from terraflow.util import log
 from terraflow.mesh.scvt.parallel import fill_field1d_array_halo
 from terraflow.mesh.scvt.regridder import Regridder
 from terraflow.prepare.scvt.topo import fill_grid
-from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.prepare import ref
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.prepare.topo_smooth import topo_smooth, calc_zs_slope
 
 
@@ -24,7 +23,6 @@ def prepare_topo(block: Block, reader: AbstractTopographyReader) -> Block:
     block = regrid_topo(block=block, reader=reader)
     if reader.cfg.use_zs_grad_filter:
         block = topo_smooth(block=block, reader=reader)
-    block = ref.ref_calc_ps(block=block)
     return block
 
 

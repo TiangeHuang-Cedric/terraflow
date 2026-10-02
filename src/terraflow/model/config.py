@@ -46,16 +46,17 @@ class UserConfig:
     dt_adv              : str        = ""
     save_interval       : str        = "1 hours"
     log_every           : str        = "1 hours"
+    save_dyn_calc       : bool       = False
    
     use_forward_backward: bool       = True
     time_scheme         : str        = "wrfrk3"
     adv_time_scheme     : str        = "wrfrk3"
     output_h1_tend      : bool       = False
-    init_hydrostatic_gz : bool       = False
+    init_hydrostatic_gz : bool       = True
     
     pgf_scheme          : str        = "ptb"
     ke_scheme           : int        = 2
-    ke_cell_wgt         : float      = 0.9
+    ke_cell_wgt         : float      = 0.55
     coriolis_scheme     : str        = "trisk"
 
     # pv advection
@@ -76,7 +77,18 @@ class UserConfig:
     adv_scheme          : str        = "upwind"
     
     # Momentum advection
-    uv_vert_adv_type    : int        = 1
+    # 1 or 2
+    uv_vert_adv_type    : int        = 2
+
+    # Nonhydrostatic semi-implicit solver
+    nh_adv_scheme       : str        = "upwind"
+    implicit_w_wgt      : float      = 0.55
+    use_rayleigh_damp_w : bool       = False
+    rayleigh_damp_w_coef: float      = 0.2
+    rayleigh_damp_top   : float      = 10.0e3
+    use_p_damp          : bool       = False
+    p_damp_coef         : float      = 0.12
+    use_cfl_damp        : bool       = False
 
     # Advection configuration
     upwind_order        : int        = 3
@@ -127,6 +139,13 @@ class UserConfig:
         print(f"  ke_scheme                  = {self.ke_scheme            }")
         print(f"  ke_cell_wg                 = {self.ke_cell_wgt          }")
         print(f"  coriolis_scheme            = {self.coriolis_scheme      }")
+        print(f"  implicit_w_wgt             = {self.implicit_w_wgt       }")
+        print(f"  use_rayleigh_damp_w        = {self.use_rayleigh_damp_w  }")
+        print(f"  rayleigh_damp_w_coef       = {self.rayleigh_damp_w_coef }")
+        print(f"  rayleigh_damp_top          = {self.rayleigh_damp_top    }")
+        print(f"  use_p_damp                 = {self.use_p_damp           }")
+        print(f"  p_damp_coef                = {self.p_damp_coef          }")
+        print(f"  use_cfl_damp               = {self.use_cfl_damp         }")
         print(f"  pv_adv_scheme              = {self.pv_adv_scheme        }")
         print(f"  upwind_order_pv            = {self.upwind_order_pv      }")
         print(f"  upwind_optimized_pv        = {self.upwind_optimized_pv  }")
@@ -134,6 +153,7 @@ class UserConfig:
         print(f"  upwind_order_bg            = {self.upwind_order_bg      }")
         print(f"  upwind_optimized_bg        = {self.upwind_optimized_bg  }")
         print(f"  pt_adv_scheme              = {self.pt_adv_scheme        }")
+        print(f"  nh_adv_scheme              = {self.nh_adv_scheme        }")
         print(f"  adv_scheme                 = {self.adv_scheme           }")
         print(f"  uv_vert_adv_type           = {self.uv_vert_adv_type     }")
         print(f"  upwind_order               = {self.upwind_order         }")

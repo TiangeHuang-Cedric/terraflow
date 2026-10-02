@@ -184,10 +184,12 @@ class PlanetParameterSet:
     All fields are static because PlanetParameter now stores only plain floats internally.
     The Quantity objects are created on-demand via properties.
     """
-    planet    : str
-    component : str
-    parameters: Dict[str, PlanetParameter]
-    default   : Dict[str, PlanetParameter]
+    _modified   : bool
+    _modified_by: str
+    planet      : str
+    component   : str
+    parameters  : Dict[str, PlanetParameter]
+    default     : Dict[str, PlanetParameter]
 
     def __init__(
         self,
@@ -195,9 +197,11 @@ class PlanetParameterSet:
         component: str,
         parameters: Dict[str, PlanetParameter]
     ):
-        self.planet = planet
-        self.component = component
-        self.parameters = parameters
+        self._modified    = False
+        self._modified_by = ""
+        self.planet       = planet
+        self.component    = component
+        self.parameters   = parameters
 
     def __getitem__(self, name: str) -> PlanetParameter:
         param = self.parameters.get(name)
@@ -212,6 +216,9 @@ class PlanetParameterSet:
 
     def __len__(self):
         return len(self.parameters)
+    
+    def has_modified(self) -> bool:
+        return self._modified
 
     @classmethod
     def from_dict(cls, parasets: Dict[str, Union[str, Dict[str, PlanetParameter]]]) -> Self:

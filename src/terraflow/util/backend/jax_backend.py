@@ -95,6 +95,7 @@ class JaxBackend(AbstractBackend):
         self.int_type   = _TYPE_REMAPPING[int_type  ]
         if self.float_type is jnp.float64:
             jax.config.update("jax_enable_x64", True)
+            jax.config.update("jax_default_matmul_precision", "highest")
         self.device_string = device_string
         self.ref = ref
 
@@ -601,7 +602,7 @@ class JaxBackend(AbstractBackend):
             return jnp.broadcast_to(array, shape)
         return jnp.broadcast_to(array, shape, out_sharding=sharding)
     
-    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True, optimization_level = "O2") -> Callable[[Any], Any]:
+    def compile(self, fun: Callable[[Any], Any], model: Any, *, with_jit: bool = True, optimization_level = "O2", **kwargs) -> Callable[[Any], Any]:
         if with_jit:
             if isinstance(optimization_level, str):
                 try:

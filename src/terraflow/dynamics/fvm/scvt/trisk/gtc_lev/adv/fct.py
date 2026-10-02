@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 
 from terraflow.util.profile import profile_scope
+from terraflow.util.math import sign
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.adv.upwind import upwind1_hori, upwind1_vert
 
@@ -73,11 +74,14 @@ def fct_calc_hflx(
     # --------------------------------------------------------
     def _wrap(f_1d: FLT[Array, "nedge"]) -> FLT[Array, "ncell"]:
         ed_idx = cell_ed  # (ncell, maxnnb)
-        leng_tile = mesh.le[ed_idx]  # (ncell, maxnnb)
-        x_tile = f_1d[ed_idx]  # (ncell, maxnnb)
-        x_tile = bkd.where(ed_idx < 0, 0.0, x_tile)
+        valid_ed = ed_idx >= 0
+        safe_ed_idx = bkd.where(valid_ed, ed_idx, 0)
+        leng_tile = bkd.take(mesh.le, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+        x_tile = bkd.take(f_1d, safe_ed_idx, axis=0)  # (ncell, maxnnb)
+        div_tile = cell_nr * leng_tile * x_tile
+        div_tile = bkd.where(valid_ed, div_tile, 0.0)
         return bkd.sum(
-            cell_nr * leng_tile * x_tile,
+            div_tile,
             axis=-1
         ) / area_cell
 
@@ -97,23 +101,27 @@ def fct_calc_hflx(
     cell_nb   = mesh.cell_nb  [ids:ihe+1, :]
     cell_nr   = mesh.cell_nr  [ids:ihe+1, :]
     area_cell = mesh.area_cell[ids:ihe+1   ]
+    valid_cell_nb = cell_nb >= 0
+    safe_cell_nb = bkd.where(valid_cell_nb, cell_nb, 0)
+    valid_cell_ed = cell_ed >= 0
+    safe_cell_ed = bkd.where(valid_cell_ed, cell_ed, 0)
     # ------ Calculate qmax ------
     qmax = - bkd.array(1.e16, dtype=q.dtype)
     qmax = bkd.maximum(qmax, bkd.maximum(q_, q_td_))
 
     # Filter out the invalid neighbors (with negative index) by setting their q values to very large numbers
     # to ensure they do not affect the calculation of qmax.
-    q_nnb = q[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
-    q_td_nnb = q_td[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_nnb = q[kds:kde+1, safe_cell_nb]  # (nlev, ncell, nnb)
+    q_td_nnb = q_td[kds:kde+1, safe_cell_nb]  # (nlev, ncell, nnb)
     q_nnb = bkd.where(
-        cell_nb[None, :, :] < 0,
+        valid_cell_nb[None, :, :],
+        q_nnb,
         - bkd.array(1.e16, dtype=q.dtype),
-        q_nnb
     )
     q_td_nnb = bkd.where(
-        cell_nb[None, :, :] < 0,
+        valid_cell_nb[None, :, :],
+        q_td_nnb,
         - bkd.array(1.e16, dtype=q.dtype),
-        q_td_nnb
     )
     qmax = bkd.maximum(
         qmax,
@@ -127,17 +135,17 @@ def fct_calc_hflx(
     qmin = bkd.minimum(qmin, bkd.minimum(q_, q_td_))
     # Filter out the invalid neighbors (with negative index) by setting their q values to very small numbers
     # to ensure they do not affect the calculation of qmin.
-    q_nnb = q[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
-    q_td_nnb = q_td[kds:kde+1, cell_nb]  # (nlev, ncell, nnb)
+    q_nnb = q[kds:kde+1, safe_cell_nb]  # (nlev, ncell, nnb)
+    q_td_nnb = q_td[kds:kde+1, safe_cell_nb]  # (nlev, ncell, nnb)
     q_nnb = bkd.where(
-        cell_nb[None, :, :] < 0,
+        valid_cell_nb[None, :, :],
+        q_nnb,
         bkd.array(1.e16, dtype=q.dtype),
-        q_nnb
     )
     q_td_nnb = bkd.where(
-        cell_nb[None, :, :] < 0,
+        valid_cell_nb[None, :, :],
+        q_td_nnb,
         bkd.array(1.e16, dtype=q.dtype),
-        q_td_nnb
     )
 
     qmin = bkd.minimum(
@@ -148,11 +156,11 @@ def fct_calc_hflx(
         )
     )
     # ------ Calculate p_in and p_out ------
-    tmp = cell_nr[None, :, :] * afn[kds:kde+1, cell_ed]  # (nlev, ncell, nnb)
+    tmp = cell_nr[None, :, :] * afn[kds:kde+1, safe_cell_ed]  # (nlev, ncell, nnb)
     tmp = bkd.where(
-        cell_ed[None, :, :] < 0,
-        0.0,
-        tmp
+        valid_cell_ed[None, :, :],
+        tmp,
+        0.0
     )
     p_in = bkd.minimum(
         bkd.array(0.0, dtype=q.dtype),
@@ -212,14 +220,15 @@ def fct_calc_hflx(
     v0   = mesh.cell_of_edge[ids:ide+1, 0]
     v1   = mesh.cell_of_edge[ids:ide+1, 1]
     v0v1 = mesh.cell_xyz[v1, :] - mesh.cell_xyz[v0, :]
-    flag = bkd.sign(
+    flag = sign(
+        bkd,
         bkd.sum(
             v0v1 * mesh.edge_nr[ids:ide+1, :],
             axis=-1
         )
     )  # 0 or 1
     mark = bkd.astype(
-        bkd.rint(-0.5 * bkd.sign(flag * afn[kds:kde+1, ids:ide+1]) + 0.5),
+        bkd.rint(-0.5 * sign(bkd, flag * afn[kds:kde+1, ids:ide+1]) + 0.5),
         bkd.int32
     )  # (nlev, nedge)
     v_upwind = mesh.cell_of_edge[bkd.arange(ids, ide+1, 1),   mark]  # (nlev, nedge,)
@@ -270,7 +279,7 @@ def fct_calc_vflx(
     # ------ Calculate low-order fluxes ------
     # from half_kds + 1 to half_kde -1
     mid_mfz   = mfz[kds+1:kde, ids:ide+1]
-    direction = bkd.sign(mid_mfz)
+    direction = sign(bkd, mid_mfz)
     q_0       = q[kds:kde-1, ids:ide+1]
     q_plus_1  = q[kds+1:kde, ids:ide+1]
     qmfz_lo = bkd.slice_update(qmfz_lo, (slice(kds+1, kde), slice(ids, ide+1)),
@@ -401,7 +410,7 @@ def fct_calc_vflx(
     kds, kde = mesh.half_kds, mesh.half_kde
     cell_range = bkd.arange(ids, ide+1)
     mark = bkd.astype(
-        bkd.rint(-0.5 * bkd.sign(afz[kds+1:kde, ids:ide+1]) + 0.5),
+        bkd.rint(-0.5 * sign(bkd, afz[kds+1:kde, ids:ide+1]) + 0.5),
         bkd.int32
     ).squeeze()  # 0 or 1 (nlev, ncell)
     ilev = bkd.arange(kds+1, kde)[:, None]

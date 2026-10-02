@@ -2,7 +2,7 @@ from typing import Sequence, Dict
 
 from terraflow.util import typing
 from terraflow.util.backend import AbstractBackend
-from terraflow.util.math import normalize
+from terraflow.util.math import normalize, sign
 
 Float = typing.Float
 FloatType = typing.FloatType
@@ -263,7 +263,7 @@ def _project_sphere2plane(
     tan_lam = bkd.tan(lam)
     tan_lam = bkd.where(
         bkd.abs(tan_lam) < eps,
-        bkd.sign(tan_lam) * eps,
+        sign(bkd, tan_lam) * eps,
         tan_lam
     )
     p0p1 = p0p2 * (lam / tan_lam)

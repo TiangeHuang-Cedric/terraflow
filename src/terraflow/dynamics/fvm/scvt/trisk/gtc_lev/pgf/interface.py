@@ -6,6 +6,7 @@ from terraflow.util.device import AbstractDevice
 from terraflow.dynamics.abstract import AbstractEquationAuxiliaryDataset
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.swm import pgf_swm_run
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.ptb import RefProfileData, pgf_ptb_run
+from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.pgf.lin97 import pgf_lin97_run
 
 
 if TYPE_CHECKING:
@@ -64,6 +65,8 @@ def pgf_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
     if block.mode.is_baroclinic():
         if block.cfg.pgf_scheme == "ptb":
             return pgf_ptb_run(block, star_idx)
+        elif block.cfg.pgf_scheme == "lin97":
+            return pgf_lin97_run(block, star_idx)
         else:
             raise ValueError(f"pgf_run: unsupported pgf_scheme for baroclinic model: {block.cfg.pgf_scheme}!")
     else:

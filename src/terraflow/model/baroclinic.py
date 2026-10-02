@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 @overload
-def build_hydrostatic_model(
+def build_baroclinic_model(
     config: UserConfig,
     para: PlanetParameterSet,
     mesh: SCVTMesh,
@@ -35,13 +35,14 @@ def build_hydrostatic_model(
     test_case: Optional[AbstractBaroclinicModelTestCase] = None,
     bkg_reader: Optional[AbstractBackgroundReader] = None,
     topo_reader: Optional[AbstractTopographyReader] = None,
+    nonhydrostatic: bool = False,
     ideal_dry_core: bool = False,
     restart: bool = False
 ) -> fvm_scvt_trisk_gtc_model.BaroclinicModel:
     ...
 
 @overload
-def build_hydrostatic_model(
+def build_baroclinic_model(
     config: UserConfig,
     para: PlanetParameterSet,
     mesh: AbstractMesh,
@@ -53,6 +54,7 @@ def build_hydrostatic_model(
     test_case: Optional[AbstractBaroclinicModelTestCase] = None,
     bkg_reader: Optional[AbstractBackgroundReader] = None,
     topo_reader: Optional[AbstractTopographyReader] = None,
+    nonhydrostatic: bool = False,
     ideal_dry_core: bool = False,
     restart: bool = False,
     *args,
@@ -61,7 +63,7 @@ def build_hydrostatic_model(
     ...
 
 
-def build_hydrostatic_model(
+def build_baroclinic_model(
     config: UserConfig,
     para: PlanetParameterSet,
     mesh: AbstractMesh,
@@ -73,6 +75,7 @@ def build_hydrostatic_model(
     test_case: Optional[AbstractBaroclinicModelTestCase] = None,
     bkg_reader: Optional[AbstractBackgroundReader] = None,
     topo_reader: Optional[AbstractTopographyReader] = None,
+    nonhydrostatic: bool = False,
     ideal_dry_core: bool = False,
     restart: bool = False,
     *args,
@@ -94,7 +97,8 @@ def build_hydrostatic_model(
                     )
                 vert_coord = cast(AbstractGeneralizedTerrainFollowingCoordinate, vert_coord)
                 return BaroclinicModel(
-                    mode=ModelMode.from_hdc(
+                    mode=ModelMode.from_baroclinic(
+                        nonhydrostatic=nonhydrostatic,
                         ideal_dry_core=ideal_dry_core,
                         restart=restart
                     ), 

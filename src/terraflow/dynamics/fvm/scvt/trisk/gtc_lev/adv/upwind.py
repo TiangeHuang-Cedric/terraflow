@@ -13,6 +13,7 @@ from numba import njit
 from terraflow.util import typing, device
 from terraflow.util.profile import profile_scope
 from terraflow.util import equinox as eqx
+from terraflow.util.math import sign
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo, fill_raw_array_halo
 from terraflow.dynamics.abstract import (
     AbstractEquationAuxiliaryData,
@@ -148,7 +149,7 @@ def upwind_calc_tracer_hflx(
             wind = mfn[kds:kde+1, ids:ide+1] * mesh.edpnr_eddtg[ids:ide+1]
             tmp  = upwind1_hori(
                 bkd,
-                q=q,
+                q=q[kds:kde+1, :],
                 wind=wind,
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 wgt=upwind_wgt,
@@ -159,7 +160,7 @@ def upwind_calc_tracer_hflx(
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind3_hori(
                 bkd,
-                q=q,
+                q=q[kds:kde+1, :],
                 wind=wind,
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
@@ -174,7 +175,7 @@ def upwind_calc_tracer_hflx(
             de = mesh.de[ids:ide+1] / radius
             tmp  = upwind5_hori(
                 bkd,
-                q=q,
+                q=q[kds:kde+1, :],
                 wind=wind,
                 edd_v=mesh.cell_of_edge[ids:ide+1, :],
                 edd_leng=de,
@@ -222,7 +223,7 @@ def upwind_calc_tracer_vflx(
         elif upwind_order == 1:
             # half_kds + 1 <= k <= half_kde - 1
             mid_mfz = mfz[kds+1:kde, ids:ide+1]
-            direction = bkd.sign(mid_mfz)
+            direction = sign(bkd, mid_mfz)
             q_0 = q[kds:kde-1, ids:ide+1]
             q_plus_1 = q[kds+1:kde, ids:ide+1]
             res = upwind1_vert(
@@ -248,7 +249,7 @@ def upwind_calc_tracer_vflx(
             q_plus_1 = q[kds+2:kde-1, ids:ide+1]
             q_plus_2 = q[kds+3:kde, ids:ide+1]
             mid_mfz   = mfz[kds+2:kde-1, ids:ide+1]
-            direction = bkd.sign(mid_mfz)
+            direction = sign(bkd, mid_mfz)
             res = upwind3_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -289,7 +290,7 @@ def upwind_calc_tracer_vflx(
             q_plus_2 = q[kds+4:kde-1, ids:ide+1]
             q_plus_3 = q[kds+5:kde, ids:ide+1]
             mid_mfz = mfz[kds+3:kde-2, ids:ide+1]
-            direction = bkd.sign(mid_mfz)
+            direction = sign(bkd, mid_mfz)
             res = upwind5_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -339,7 +340,7 @@ def upwind_calc_tracer_vflx(
             q_0 = q[kds:kde+1, ids:ide+1]
             q_plus_1 = q[kds+1:kde+2, ids:ide+1]
             mfz_tmp = mfz[kds:kde+1, ids:ide+1]
-            direction = bkd.sign(mfz_tmp)
+            direction = sign(bkd, mfz_tmp)
             res = upwind1_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -360,7 +361,7 @@ def upwind_calc_tracer_vflx(
             q_plus_1 = q[kds+2:kde+1, ids:ide+1]
             q_plus_2 = q[kds+3:kde+2, ids:ide+1]
             mid_mfz = mfz[kds+1:kde, ids:ide+1]
-            direction = bkd.sign(mid_mfz)
+            direction = sign(bkd, mid_mfz)
             mid = upwind3_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -393,7 +394,7 @@ def upwind_calc_tracer_vflx(
             q_plus_2 = q[kds+4:kde+1, ids:ide+1]
             q_plus_3 = q[kds+5:kde+2, ids:ide+1]
             mid_mfz = mfz[kds+2:kde-1, ids:ide+1]
-            direction = bkd.sign(mid_mfz)
+            direction = sign(bkd, mid_mfz)
             mid = upwind5_vert(
                 direction=direction,
                 wgt=upwind_wgt,
@@ -410,7 +411,7 @@ def upwind_calc_tracer_vflx(
                 q[kde-1:kde+1, ids:ide+1] + q[kde:kde+2, ids:ide+1]
             ) * mfz[kde-1:kde+1, ids:ide+1]
             # =================================================
-            qmfz = bkd.slice_update(qmfz, (slice(kds, kds+2), slice(ids, ide+1)), top   )
+            qmfz = bkd.slice_update(qmfz, (slice(kds  , kds+2), slice(ids, ide+1)), top   )
             qmfz = bkd.slice_update(qmfz, (slice(kds+2, kde-1), slice(ids, ide+1)), mid   )
             qmfz = bkd.slice_update(qmfz, (slice(kde-1, kde+1), slice(ids, ide+1)), bottom)
         else:
@@ -437,7 +438,7 @@ def upwind1_hori(
     def _wrap(q: FLT[Array, "nCell"], wind: FLT[Array, "nEdge"]) -> FLT[Array, "nEdge"]:
         return (
             0.5 * (q[v1] + q[v2])
-            - 0.5 * bkd.sign(wind) * wgt * (q[v2] - q[v1])
+            - 0.5 * sign(bkd, wind) * wgt * (q[v2] - q[v1])
         )
 
     return bkd.vmap(
@@ -464,7 +465,7 @@ def upwind3_hori(
             nedge = edd_v.shape[0]
             v1 = edd_v[:, 0]
             v2 = edd_v[:, 1]
-            local_iv = bkd.astype(-0.5 * bkd.sign(wind) + 0.5, bkd.int32)
+            local_iv = bkd.astype(-0.5 * sign(bkd, wind) + 0.5, bkd.int32)
             vtx_upwind = edd_v[bkd.arange(nedge), local_iv]  # (nEdge, )
             dx_2nd = calc_2nd_derivative_upwind(
                 bkd, vtx_upwind, local_iv, q, edd_leng, stencil_2nd_idx, stencil_2nd_wgt
@@ -846,8 +847,11 @@ def calc_2nd_derivative_upwind(
     q0 = x_at_cell[global_iv]  # (nEdge)
     fcoe = wgt[bkd.arange(nedge), local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
-    q = x_at_cell[idx]  # (nEdge, max_m)
+    valid_idx = idx >= 0
+    safe_idx = bkd.where(valid_idx, idx, 0)
+    q = bkd.take(x_at_cell, safe_idx, axis=0)  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
+    s = bkd.where(valid_idx, s, 0.0)
     dqdx_2nd = 2 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
@@ -865,8 +869,11 @@ def calc_2nd_derivative(
     q0 = x_at_cell[global_iv]  # (nEdge)
     fcoe = wgt[:, local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
-    q = x_at_cell[idx]  # (nEdge, max_m)
+    valid_idx = idx >= 0
+    safe_idx = bkd.where(valid_idx, idx, 0)
+    q = bkd.take(x_at_cell, safe_idx, axis=0)  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
+    s = bkd.where(valid_idx, s, 0.0)
     dqdx_2nd = 2 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_2nd = dqdx_2nd * leng ** 2  # (nEdge)
     return dq_2nd
@@ -893,7 +900,7 @@ def operator_3rd4th_order_formula(
 ) -> FLT[Array, "nEdge"]:
     qe = 0.5 * (q1 + q2)
     qe = qe - (dq1_2nd + dq2_2nd) / 12.0
-    qe = qe + bkd.sign(normal_u) * wgt * (dq2_2nd - dq1_2nd) / 12.0
+    qe = qe + sign(bkd, normal_u) * wgt * (dq2_2nd - dq1_2nd) / 12.0
     return qe
 
 
@@ -910,7 +917,7 @@ def operator_5th6th_order_formula(
 ) -> FLT[Array, "nEdge"]:
     qe = 0.5 * (q1 + q2)
     qe = qe - (dq1_2nd + dq2_2nd) / 12.0 + (dq1_4th + dq2_4th) / 60.0
-    qe = qe - bkd.sign(normal_u) * wgt * (dq2_4th - dq1_4th) / 60.0
+    qe = qe - sign(bkd, normal_u) * wgt * (dq2_4th - dq1_4th) / 60.0
     return qe
 
 
@@ -927,8 +934,11 @@ def calc_4th_derivative_upwind(
     q0 = x_at_cell[global_iv]  # (nEdge)
     fcoe = wgt[bkd.arange(nedge), local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
-    q = x_at_cell[idx]  # (nEdge, max_m)
+    valid_idx = idx >= 0
+    safe_idx = bkd.where(valid_idx, idx, 0)
+    q = bkd.take(x_at_cell, safe_idx, axis=0)  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
+    s = bkd.where(valid_idx, s, 0.0)
     dqdx_4th = 24 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th
@@ -946,8 +956,11 @@ def calc_4th_derivative(
     q0 = x_at_cell[global_iv]  # (nEdge)
     fcoe = wgt[:, local_iv, :]  # (nEdge, max_m)
     idx = stencil_idx[global_iv]  # (nEdge, max_m)
-    q = x_at_cell[idx]  # (nEdge, max_m)
+    valid_idx = idx >= 0
+    safe_idx = bkd.where(valid_idx, idx, 0)
+    q = bkd.take(x_at_cell, safe_idx, axis=0)  # (nEdge, max_m)
     s = q - q0[:, None]  # (nEdge, max_m)
+    s = bkd.where(valid_idx, s, 0.0)
     dqdx_4th = 24 * bkd.sum(fcoe * s, axis=-1)  # (nEdge)
     dq_4th = dqdx_4th * leng ** 4  # (nEdge)
     return dq_4th

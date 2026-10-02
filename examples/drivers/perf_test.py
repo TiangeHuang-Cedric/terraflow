@@ -19,6 +19,8 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
+test_case = tf.test_case.baroclinic.MountainWaveTestCase(para)
+
 vert_coord = tf.vert_coord.HybridVertCoordinate.test_l26(dev=dev)
 
 mesh = tf.mesh.SCVTMesh.from_grist(
@@ -27,11 +29,8 @@ mesh = tf.mesh.SCVTMesh.from_grist(
     para=para,
     vert_coord=vert_coord,
     hori_hw=3,
-    lev_hw=3,
     dev=dev
 )
-
-test_case = tf.test_case.baroclinic.MountainWaveTestCase(para)
 
 config = tf.model.UserConfig(
     pv_adv_scheme="upwind",
@@ -44,7 +43,7 @@ config = tf.model.UserConfig(
     save_interval="50 seconds"
 )
 
-model = tf.model.build_hydrostatic_model(
+model = tf.model.build_baroclinic_model(
     config=config,
     para=para,
     mesh=mesh,

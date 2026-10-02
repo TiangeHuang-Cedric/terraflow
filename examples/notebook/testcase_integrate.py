@@ -35,18 +35,15 @@ para = tf.planet.PlanetParameterSet.from_si(
     planet="earth", component="atmosphere", dev=dev
 )
 
+test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
+
 mesh = tf.mesh.SCVTMesh.from_grist(
     mesh_0d_file=grist_0d_file,
     mesh_2d_file=grist_2d_file,
     para=para,
     hori_hw=3,
-    lev_hw=3,
     dev=dev
 )
-# %%
-test_case = tf.test_case.swm.MountainZonalFlowTestCase(para)
-
-
 # %%
 config = tf.model.UserConfig(
     pv_adv_scheme="upwind",

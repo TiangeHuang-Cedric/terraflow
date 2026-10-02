@@ -44,6 +44,7 @@ class AbstractVertCoordinate(eqx.Module, Generic[VMST], ABC):
 
 
 class AbstractGeneralizedTerrainFollowingCoordinate(AbstractVertCoordinate):
+    lev_hw   : int = eqx.field(static=True)
     full_nlev: int = eqx.field(static=True)
     half_nlev: int = eqx.field(static=True)
     full_lev : Float[Array, "nlev"]

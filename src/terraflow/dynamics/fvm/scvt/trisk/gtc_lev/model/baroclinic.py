@@ -7,6 +7,7 @@ from typing import (
     Optional, 
     Callable
 )
+import dataclasses
 import math
 
 
@@ -28,6 +29,8 @@ from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.damp.interface import (
     damp_run
 )
 from terraflow.dynamics.fvm.scvt.trisk.gtc_lev.test_case import (
+    dcmip31,
+    ksp15,
     mountain_wave as mz,
     rossby_haurwitz_wave_3d as rh,
     steady_state as ss
@@ -88,6 +91,13 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
         if dev.is_root(): print_logo()
         if dev.is_root(): cfg.__print__()
         # =================================================================
+        bkd = dev.backend
+        if not bool(bkd.allclose(bkd.sqrt(mesh.total_area / (4.0 * bkd.pi)), para.radius.unwrap())):
+           raise ValueError("Input mesh has been initialized with a different planet parameter!")
+        if ((bool(bkd.all(mesh.f_vtx) == 0) and para.omega.unwrap() != 0) or 
+            (bool(bkd.all(mesh.f_vtx) != 0) and para.omega.unwrap() == 0)):
+            raise ValueError("Input mesh has been initialized with a different planet parameter!") 
+        # =================================================================
         if test_case is None and bkg_reader is None and topo_reader is None:
             raise ValueError("User must provide a test_case or readers for barocclinic models!")
         # =================================================================
@@ -100,6 +110,16 @@ class BaroclinicModel(AbstractModel[Block, SCVTFields]):
                 self.set_ic = test_case.set_ic
             elif test_case.alias_name == "ss":
                 test_case = ss.SCVTSteadyStateTestCase(para)
+                self.set_ic = test_case.set_ic
+            elif test_case.alias_name == "dcmip31":
+                test_case = dcmip31.DCMIP31TestCase(para)
+                cfg = dataclasses.replace(cfg, init_hydrostatic_gz=True)
+                self.set_ic = test_case.set_ic
+            elif test_case.alias_name == "ksp15_01":
+                test_case = ksp15.KSP1501TestCase(para)
+                self.set_ic = test_case.set_ic
+            elif test_case.alias_name == "ksp15_02":
+                test_case = ksp15.KSP1502TestCase(para)
                 self.set_ic = test_case.set_ic
             else:
                 raise ValueError(f"Unsupported test case {test_case.alias_name} for baroclinic model!")

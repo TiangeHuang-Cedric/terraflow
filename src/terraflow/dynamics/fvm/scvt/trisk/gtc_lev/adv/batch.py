@@ -493,12 +493,14 @@ def scvt_adv_fill_vhalo(
         if kms < kds:
             top = f[kms:kds, ids:ide+1]
             top_fill = bkd.broadcast_to(f[kds, ids:ide+1], top.shape)
-            top = bkd.where(top < 0, top_fill, top)
+            top_has_neg = bkd.any(top < 0, axis=0)
+            top = bkd.where(top_has_neg[None, :], top_fill, top)
             f = bkd.slice_update(f, (slice(kms, kds), slice(ids, ide+1)), top)
         if kde < kme:
             bottom = f[kde+1:kme+1, ids:ide+1]
             bottom_fill = bkd.broadcast_to(f[kde, ids:ide+1], bottom.shape)
-            bottom = bkd.where(bottom < 0, bottom_fill, bottom)
+            bottom_has_neg = bkd.any(bottom < 0, axis=0)
+            bottom = bkd.where(bottom_has_neg[None, :], bottom_fill, bottom)
             f = bkd.slice_update(f, (slice(kde+1, kme+1), slice(ids, ide+1)), bottom)
 
     return f

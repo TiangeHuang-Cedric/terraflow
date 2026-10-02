@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 
 from terraflow.util import log
+from terraflow.util.math import sign
 from terraflow.mesh.scvt.parallel import global_max, fill_field1d_array_halo
 from terraflow.mesh.scvt.operators import (
     grad_operator_1d,
@@ -109,7 +110,7 @@ def _laplacian1_zs_grad_filter(block: Block, reader: TOPOREADER) -> Block:
         if zs_grad_filter_order > 2:
             grad_f = grad_f * bkd.maximum(
                 0.0,
-                bkd.sign(-grad_f * (gzs_[cell_v1] - gzs_[cell_v0]) * edpnr_eddtg)
+                sign(bkd, -grad_f * (gzs_[cell_v1] - gzs_[cell_v0]) * edpnr_eddtg)
             )
         df = div_operator_1d(
             mesh=mesh,
@@ -117,7 +118,7 @@ def _laplacian1_zs_grad_filter(block: Block, reader: TOPOREADER) -> Block:
             div=df,
             div_loc=block.static.gzs.meta.loc
         )
-        # TODO: Maybe add filter here?
+        df = bkd.where(landmask > 0.5, df, 0.0)
         gzs_ = gzs_ - df
         gzs_ = fill_field1d_array_halo(
             halo=mesh.halo,

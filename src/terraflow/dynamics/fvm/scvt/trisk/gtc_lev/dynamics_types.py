@@ -51,6 +51,8 @@ class State(SCVTFields):
     ph_lev  : SCVTField3D = eqx.field(default_factory=lambda: SCVTField3D())
     phs     : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     # Nonhydrostatic variables
+    w       : SCVTField3D = eqx.field(default_factory=lambda: SCVTField3D())
+    w_lev   : SCVTField3D = eqx.field(default_factory=lambda: SCVTField3D())
     p       : SCVTField3D = eqx.field(default_factory=lambda: SCVTField3D()) 
     p_lev   : SCVTField3D = eqx.field(default_factory=lambda: SCVTField3D())
     ps      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
@@ -132,12 +134,18 @@ class Auxiliary(SCVTFields):
     ke           : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     ke_vtx       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     mfn          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    mfn_lev      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    mfz          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     mfz_lev      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     mfz_lev_edge : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     dmf          : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    dmf_lev      : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    adv_w_lev    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    adv_gz_lev   : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     t            : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     tv           : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     rhod         : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
+    pk_lev       : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     # Tendencies from damping processes
     dundt_damp   : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
     dwdt_damp    : SCVTField2D = eqx.field(default_factory=lambda: SCVTField2D())
@@ -393,7 +401,7 @@ def state_init(
             output=""
         )
         fields["w_lev"] = SCVTField3D.from_mesh(
-            name="w",
+            name="w_lev",
             long_name="Vertical wind speed",
             units="m s-1",
             loc="lev",
@@ -826,6 +834,15 @@ def aux_init(
             dev=dev,
             output="h1"
         )
+        fields["pk_lev"] = SCVTField2D.from_mesh(
+            name="pk_lev",
+            long_name="Exner function on half levels",
+            units="Pa**kappa",
+            loc="lev",
+            mesh=mesh,
+            dev=dev,
+            output=""
+        )
     fields["we_lev"] = SCVTField2D.from_mesh(
         name="we_lev",
         long_name="Vertical coordinate speed",
@@ -928,6 +945,42 @@ def aux_init(
             dev=dev,
             output=""
         )
+        fields["mfn_lev"] = SCVTField2D.from_mesh(
+            name="mfn_lev",
+            long_name="Normal mass flux on half levels",
+            units="Pa m s-1",
+            loc="lev_edge",
+            mesh=mesh,
+            dev=dev,
+            output=""
+        )
+        fields["dmf_lev"] = SCVTField2D.from_mesh(
+            name="dmf_lev",
+            long_name="Mass flux divergence on half levels",
+            units="kg / (m s)",
+            loc="lev",
+            mesh=mesh,
+            dev=dev,
+            output=""
+        )
+        fields["adv_w_lev"] = SCVTField2D.from_mesh(
+            name="adv_w_lev",
+            long_name="Advective tendency of half-level vertical wind",
+            units="m / s2",
+            loc="lev",
+            mesh=mesh,
+            dev=dev,
+            output="h1"
+        )
+        fields["adv_gz_lev"] = SCVTField2D.from_mesh(
+            name="adv_gz_lev",
+            long_name="Advective tendency of half-level geopotential",
+            units="m2 / s3",
+            loc="lev",
+            mesh=mesh,
+            dev=dev,
+            output="h1"
+        )
     if mode.is_baroclinic():
         fields["mfz_lev_edge"] = SCVTField2D.from_mesh(
             name="mfz_lev_edge",
@@ -1005,7 +1058,7 @@ def aux_init(
         dev=dev,
         output="h1"
     )       
-    if mode.is_baroclinic() and cfg.uv_vert_adv_type == 1:
+    if mode.is_hydrostatic() and cfg.uv_vert_adv_type == 1:
         fields["un_lev"] =SCVTField2D.from_mesh(
             name="un_lev",
             long_name="Normal wind component",

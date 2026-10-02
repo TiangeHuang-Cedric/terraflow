@@ -18,7 +18,6 @@ from terraflow.util.history.setup.mesh import SCVTHistorySetup
 from terraflow.util.uxarray import UGRIDGrid
 from terraflow.mesh.abstract import AbstractUnstructuredMesh
 from terraflow.mesh.scvt.decomp import scvt_decomp_run
-from terraflow.mesh.scvt.parallel_types import Proc
 from terraflow.mesh.scvt.halo import SCVTHalo
 from terraflow.mesh.scvt.geometry import (
     calc_kite_area,
@@ -314,7 +313,6 @@ class SCVTMesh(AbstractUnstructuredMesh):
         dev: device.AbstractDevice,
         vert_coord: Optional[AbstractGeneralizedTerrainFollowingCoordinate] = None,
         hori_hw: int = 3,
-        lev_hw: int = 3,
         grist_mesh_0d_file: Optional[str] = None, 
         grist_mesh_2d_file: Optional[str] = None, 
     ) -> Self:
@@ -379,7 +377,7 @@ class SCVTMesh(AbstractUnstructuredMesh):
         fields["dev"     ] = dev
         fields["id"      ] = 0
         fields["hori_hw" ] = hori_hw
-        fields["lev_hw"  ] = lev_hw
+        fields["lev_hw"  ] = vert_coord.lev_hw
         fields["cell_ins"] = 0
         fields["cell_ine"] = fields["n_cell"] - 1
         fields["vtx_ins" ] = 0 
@@ -410,14 +408,14 @@ class SCVTMesh(AbstractUnstructuredMesh):
         fields["vtx_ihe" ] = tuple(fields["n_vtx" ] - 1 for _ in range(hori_hw))
         fields["edge_ihs"] = tuple(0 for _ in range(hori_hw))
         fields["edge_ihe"] = tuple(fields["n_edge"] - 1 for _ in range(hori_hw))
-        fields["full_kds"] = 0
-        fields["full_kde"] = vert_coord.full_nlev - 1
-        fields["half_kds"] = 0
-        fields["half_kde"] = vert_coord.half_nlev - 1
+        fields["full_kds"] = 0 + vert_coord.lev_hw
+        fields["full_kde"] = vert_coord.full_nlev - 1 + vert_coord.lev_hw
+        fields["half_kds"] = 0 + vert_coord.lev_hw
+        fields["half_kde"] = vert_coord.half_nlev - 1 + vert_coord.lev_hw
         fields["full_kms"] = 0
-        fields["full_kme"] = vert_coord.full_nlev - 1
+        fields["full_kme"] = vert_coord.full_nlev - 1 + 2 * vert_coord.lev_hw
         fields["half_kms"] = 0
-        fields["half_kme"] = vert_coord.half_nlev - 1
+        fields["half_kme"] = vert_coord.half_nlev - 1 + 2 * vert_coord.lev_hw
         
         # Convert lon range from [-pi, pi] to [0, 2pi] if needed
         fields["cell_lon"     ] = bkd.where(fields["cell_lon"     ] < 0, fields["cell_lon"     ] + bkd.pi*2, fields["cell_lon"     ])
@@ -788,15 +786,13 @@ class SCVTMesh(AbstractUnstructuredMesh):
         para: PlanetParameterSet,
         dev: device.AbstractDevice,
         vert_coord: Optional[AbstractGeneralizedTerrainFollowingCoordinate] = None,
-        hori_hw: int = 3,
-        lev_hw: int = 3
+        hori_hw: int = 3
     ) -> "SCVTMesh":
         global_mesh = cls.init_global_from_ref_mesh(
             ref_mesh_type="grist",
             vert_coord=vert_coord,
             para=para,
             hori_hw=hori_hw,
-            lev_hw=lev_hw,
             grist_mesh_0d_file=mesh_0d_file,
             grist_mesh_2d_file=mesh_2d_file,
             dev=dev

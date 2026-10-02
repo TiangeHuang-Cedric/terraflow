@@ -3,7 +3,6 @@ from typing import Self, TYPE_CHECKING
 
 
 from terraflow.util import typing, device, formula
-from terraflow.util import equinox as eqx
 from terraflow.mesh.scvt.mesh_type import SCVTMesh
 from terraflow.mesh.scvt.field import SCVTField2D, SCVTFieldMeta
 from terraflow.dynamics.abstract import (
@@ -288,22 +287,22 @@ def pgf_ptb_run(block: Block, star_idx: Int[Array, ""] | int) -> Block:
     ids, ide = e_ids, e_ide
     L = 1 + 0.5 * (qm[kds:kde+1, v1] + qm[kds:kde+1, v2])
     tmp1 = pro.dmgdn.d[kds:kde+1, ids:ide+1] * 0.5 * (
-        ad_ptb[kds:kde+1, v1] + ad_ptb[kds:kde+1, v2]
+        ad_ptb[:, v1] + ad_ptb[:, v2]
     )
     tmp2 = 0.5 * (
         1 / rhod[kds:kde+1, v1] + 1 / rhod[kds:kde+1, v2]
     )
     tmp2 = (
-        tmp2 * (p_ptb[kds:kde+1, v2] - p_ptb[kds:kde+1, v1])
+        tmp2 * (p_ptb[:, v2] - p_ptb[:, v1])
         * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
     )
     tmp3 = (
-        (gz_ptb[kds:kde+1, v2] - gz_ptb[kds:kde+1, v1])
+        (gz_ptb[:, v2] - gz_ptb[:, v1])
         * mesh.edpnr_eddtg[ids:ide+1] / mesh.de[ids:ide+1]
     )
     tmp4 = 0.5 * (
-        dp_ptb[kds:kde+1, v1] / dmg[kds:kde+1, v1] +
-        dp_ptb[kds:kde+1, v2] / dmg[kds:kde+1, v2]
+        dp_ptb[:, v1] / dmg[kds:kde+1, v1] +
+        dp_ptb[:, v2] / dmg[kds:kde+1, v2]
     )
     tmp4 = (
         tmp4 * (gz[kds:kde+1, v2] - gz[kds:kde+1, v1])

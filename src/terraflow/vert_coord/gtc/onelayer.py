@@ -20,6 +20,7 @@ class OneLayerVertCoordinate(AbstractGeneralizedTerrainFollowingCoordinate):
     
     def __init__(self, dev: AbstractDevice):
         bkd = dev.backend
+        self.lev_hw    = 0
         self.dev       = dev
         self.full_nlev = 1
         self.half_nlev = 2

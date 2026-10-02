@@ -40,7 +40,6 @@ mesh = tf.mesh.SCVTMesh.from_grist(
     mesh_2d_file=grist_2d_file,
     para=para,
     hori_hw=3,
-    lev_hw=3,
     dev=dev
 )
 # %%

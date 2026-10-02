@@ -117,3 +117,44 @@ def exp_two_values(
     eps_array = bkd.asarray(eps, dtype=val1.dtype)
     w = bkd.exp((x - x0)**2 * bkd.log(eps_array) / (x1 - x0)**2)
     return w * val1 + (1 - w) * val2
+
+
+def sign(bkd: AbstractBackend, x: Array) -> Array:
+    one = bkd.ones_like(x)
+    return bkd.where(x >= 0, one, -one)
+
+
+def tridiag_thomas(
+    bkd: AbstractBackend,
+    a: Float[Array, "nlev ncell"],
+    b: Float[Array, "nlev ncell"],
+    c: Float[Array, "nlev ncell"],
+    d: Float[Array, "nlev ncell"]
+) -> Float[Array, "nlev ncell"]:
+    nlev = d.shape[0]
+    cp = bkd.zeros_like(c)
+    dp = bkd.zeros_like(d)
+
+    denom = b[0, :]
+    cp = bkd.slice_update(cp, (0, slice(None)), c[0, :] / denom)
+    dp = bkd.slice_update(dp, (0, slice(None)), d[0, :] / denom)
+    for k in range(1, nlev - 1):
+        denom = b[k, :] - a[k, :] * cp[k - 1, :]
+        cp = bkd.slice_update(cp, (k, slice(None)), c[k, :] / denom)
+    for k in range(1, nlev):
+        denom = b[k, :] - a[k, :] * cp[k - 1, :]
+        dp = bkd.slice_update(
+            dp,
+            (k, slice(None)),
+            (d[k, :] - a[k, :] * dp[k - 1, :]) / denom
+        )
+
+    x = bkd.zeros_like(d)
+    x = bkd.slice_update(x, (-1, slice(None)), dp[-1, :])
+    for k in range(nlev - 2, -1, -1):
+        x = bkd.slice_update(
+            x,
+            (k, slice(None)),
+            dp[k, :] - cp[k, :] * x[k + 1, :]
+        )
+    return x

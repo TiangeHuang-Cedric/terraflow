@@ -12,6 +12,7 @@ from terraflow.mesh.scvt.field import (
     SCVTField2D,
     SCVTFields
 )
+from terraflow.mesh.scvt import interp
 from terraflow.mesh.scvt.parallel import fill_field2d_array_halo
 
 
@@ -294,10 +295,30 @@ def tracer_calc_qm(block: Block, itime_str) -> Block:
             f=qm,
             meta=block.tracers.qm.meta,
         )
-        return bkd.tree_at(
-            where=lambda b: b.tracers.qm.d,
-            pytree=block,
-            replace=qm,
-        )
+        if block.mode.is_nonhydrostatic():
+            qm_lev = block.tracers.qm_lev.unwrap()
+            qm_lev = interp.scvt_interp_2d(
+                mesh=mesh,
+                x=qm,
+                y=qm_lev,
+                x_loc=block.tracers.qm.meta.loc,
+                y_loc=block.tracers.qm_lev.meta.loc
+            )
+            qm_lev = fill_field2d_array_halo(
+                halo=mesh.halo,
+                f=qm_lev,
+                meta=block.tracers.qm_lev.meta,
+            )
+            return bkd.tree_at(
+                where=lambda b: (b.tracers.qm.d, b.tracers.qm_lev.d),
+                pytree=block,
+                replace=(qm, qm_lev),
+            )
+        else:
+            return bkd.tree_at(
+                where=lambda b: b.tracers.qm.d,
+                pytree=block,
+                replace=qm,
+            )
     else:
         return block
