@@ -414,8 +414,8 @@ class EdgeConvention(AbstractElementConvention):
         is_edge_dimension_first: bool = True
         if use_dual:
             edge_x = mesh.dual_edge_xyz[:,0]
-            edge_y = mesh.dual_edge_xyz[:,0]
-            edge_z = mesh.dual_edge_xyz[:,0]
+            edge_y = mesh.dual_edge_xyz[:,1]
+            edge_z = mesh.dual_edge_xyz[:,2]
             edge_lon = mesh.dual_edge_lon_deg
             edge_lat = mesh.dual_edge_lat_deg
             edge_lon = convert_longitude_range_in_degrees(
@@ -426,8 +426,8 @@ class EdgeConvention(AbstractElementConvention):
             edge_face_connectivity = mesh.vtx_of_edge
         else:
             edge_x = mesh.edge_xyz[:,0]
-            edge_y = mesh.edge_xyz[:,0]
-            edge_z = mesh.edge_xyz[:,0]
+            edge_y = mesh.edge_xyz[:,1]
+            edge_z = mesh.edge_xyz[:,2]
             edge_lon = mesh.edge_lon_deg
             edge_lat = mesh.edge_lat_deg
             edge_lon = convert_longitude_range_in_degrees(
