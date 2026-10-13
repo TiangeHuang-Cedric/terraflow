@@ -1169,7 +1169,10 @@ class TorchBackend(AbstractBackend):
         index = normalize_index(index, value.ndim)
 
         if self.functional_updates:
-            return index_set(value, index, replacement_tensor, dim=0)
+            # The opaque slice_update custom op has no AD rules. Native
+            # scatter operations preserve both reverse and forward derivatives
+            # (and work under vmap) without mutating saved tensors.
+            return index_set_fallback(value, index, replacement_tensor, dim=0)
 
         if value.ndim >= 1 and isinstance(index[0], torch.Tensor) and all(
             is_full_slice(item) for item in index[1:]

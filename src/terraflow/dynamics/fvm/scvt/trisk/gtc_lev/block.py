@@ -227,7 +227,7 @@ class Block(
                     f=gz_lev[itime],
                     meta=self.state.gz_lev.meta
                 )
-                gz_lev  = bkd.slice_update(gz_lev, (itime, None, None), gz_lev_) 
+                gz_lev  = bkd.slice_update(gz_lev, (itime, slice(None), slice(None)), gz_lev_)
             self = self.backend.tree_at(
                 where=lambda b: b.state.gz_lev.d,
                 pytree=self,
