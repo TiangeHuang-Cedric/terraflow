@@ -217,7 +217,8 @@ def fill_field3d_array_halo(
             comm=halo.comm,
         )
 
-        f = bkd.slice_update(f, (i0, slice(None, n_lev), recv_idx), recv_buf)
+        f_i0 = bkd.slice_update(f[i0, :, :], (slice(None, n_lev), recv_idx), recv_buf)
+        f = bkd.slice_update(f, (i0, slice(None), slice(None)), f_i0)
 
     return f
 
