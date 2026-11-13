@@ -31,7 +31,7 @@ pint = ">=0.25.3,<0.26"
 [pypi-dependencies]
 jaxtyping = ">=0.3.11, <0.4"
 jupytext = ">=1.19.5, <2"
-loguru = ">=0.7.3, <0.8"
+loguru = ">=0.7.3, <=0.8"
 nanobind = ">=2.14.0, <3"
 numpy = "*"
 polars = "*"
