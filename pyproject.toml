@@ -1,6 +1,6 @@
 [project]
 name = "terraflow"
-version = "0.1.0"
+version = "1.0.0"
 description = "A package for simulating atmosphere/ocean on earth"
 readme = "README.md"
 authors = [{ name = "Tiange Huang", email = "tghuang@mail.ustc.edu.cn" }]

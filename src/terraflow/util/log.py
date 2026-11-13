@@ -1,6 +1,10 @@
 from loguru import logger
 import sys
 
+
+__all__ = ["logger"]
+
+
 logger.remove()
 
 logger.level("RUNTIME", no=21, color="<blue>", icon="⏱")
